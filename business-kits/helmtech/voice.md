@@ -191,6 +191,7 @@ Neither is performative.
 - **Excessive emojis** — one or two max per WhatsApp. Zero in emails.
   Zero in investor materials.
 
+- **"growth hacking"** — vague; describe what the agent actually does instead
 ## Signatures and sign-offs
 
 - **WhatsApp**: `"Kunal"` (just the name, signed off naturally at

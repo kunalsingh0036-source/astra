@@ -50,84 +50,75 @@
 # arm 2; investor / partner / enterprise audiences for arm 1 + the
 # end-state thesis.
 
-name: "Helm Tech"
-slug: "helmtech"
+name: Helm Tech
+slug: helmtech
+tagline_short: Building India's AI Backbone
+tagline_long: A world where every business — from a local shop to a global enterprise
+  — has an intelligent digital presence that works as hard as its founder.
+about: 'Helm Tech empowers businesses of every size with intelligent,
 
-tagline_short: "Building India's AI Backbone"
-tagline_long: "A world where every business — from a local shop to a global enterprise — has an intelligent digital presence that works as hard as its founder."
-about: |
-  Helm Tech empowers businesses of every size with intelligent,
   beautifully designed digital systems that drive growth — combining
+
   world-class websites with AI-powered customer-engagement agents.
-  Strategic mission: build the execution layer for India's
+
+  Strategic mission: build the execution layer for India''s
+
   intelligence economy.
 
-# ── Visual brand ────────────────────────────────────────────────────
-
+  '
 brand:
   colors:
-    # Per HelmTech_BrandIdentity.pdf — the formal identity.
-    primary: "#111111"           # Matte Black — authority, grounding
-    secondary: "#2ECC71"          # Emerald Green — growth, technology accent
-    surface: "#E8DFD6"            # Soft Sand — warm, distinct from generic white
-    ink: "#111111"
-    muted: "#6B6B6B"
+    primary: '#111111'
+    secondary: '#2ECC71'
+    surface: '#E8DFD6'
+    ink: '#111111'
+    muted: '#6B6B6B'
     chart:
-      - "#111111"
-      - "#2ECC71"
-      - "#E8DFD6"
-
+    - '#111111'
+    - '#2ECC71'
+    - '#E8DFD6'
   typography:
-    # Per HelmTech_BrandIdentity.pdf
     display:
-      family: "Satoshi"
-      fallback: "'Inter', 'Helvetica Neue', system-ui, sans-serif"
+      family: Satoshi
+      fallback: '''Inter'', ''Helvetica Neue'', system-ui, sans-serif'
     body:
-      family: "Poppins"
-      fallback: "'Inter', 'Helvetica Neue', system-ui, sans-serif"
+      family: Poppins
+      fallback: '''Inter'', ''Helvetica Neue'', system-ui, sans-serif'
     mono:
-      family: "JetBrains Mono"
-      fallback: "monospace"
-
+      family: JetBrains Mono
+      fallback: monospace
   logo:
-    # "HELM TECH" wordmark — wide-tracked bold uppercase.
-    # Soft Sand on Matte Black for dark backgrounds.
-    # Matte Black on Soft Sand for light backgrounds.
-    full_light: "content/logos/logo-light.svg"
-    full_dark: "content/logos/logo-dark.svg"
-    mark_light: "content/logos/logo.svg"
-    mark_dark: "content/logos/logo.svg"
-
+    full_light: content/logos/logo-light.svg
+    full_dark: content/logos/logo-dark.svg
+    mark_light: content/logos/logo.svg
+    mark_dark: content/logos/logo.svg
   imagery:
-    style: "High-contrast, geometric, with terminal/CLI motifs (matching the helmtech.in implementation). Photography is architectural/industrial when used; primary imagery is typography-driven and product-screenshot-driven. No glowing brain abstractions, no stock-photo people, no AI visual clichés."
-
-# ── References ──────────────────────────────────────────────────────
-
-voice_file: "voice.md"
-thesis_file: "thesis.md"
-audiences_dir: "audiences/"
-content_dir: "content/"
-
-# ── Forbidden phrases ──────────────────────────────────────────────
-
+    style: High-contrast, geometric, with terminal/CLI motifs (matching the helmtech.in
+      implementation). Photography is architectural/industrial when used; primary
+      imagery is typography-driven and product-screenshot-driven. No glowing brain
+      abstractions, no stock-photo people, no AI visual clichés.
+voice_file: voice.md
+thesis_file: thesis.md
+audiences_dir: audiences/
+content_dir: content/
 forbidden_phrases:
-  - "AI-powered"            # Generic. Describe what it does instead.
-  - "leverage synergies"
-  - "revolutionary"
-  - "disruptive"
-  - "world-class"
-  - "best-in-class"
-  - "cutting-edge"
-  - "next-generation"
-  - "ChatGPT for India"
-  - "AI assistant"          # Too generic
-  - "intelligent automation"
-  - "democratize AI"
-  - "unicorn"
-  - "decacorn"
-
+- AI-powered
+- leverage synergies
+- revolutionary
+- disruptive
+- world-class
+- best-in-class
+- cutting-edge
+- next-generation
+- ChatGPT for India
+- AI assistant
+- intelligent automation
+- democratize AI
+- unicorn
+- decacorn
+- growth hacking
 output:
-  doc_page_size: "A4"
-  slide_aspect: "16:9"
+  doc_page_size: A4
+  slide_aspect: '16:9'
   slide_footer: true
   slide_numbers: true
