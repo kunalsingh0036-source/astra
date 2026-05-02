@@ -1,0 +1,338 @@
+{# Site-preview template — one HTML file per page.
+
+   Renders a page_content artifact + its parent site_brief into a
+   reviewable, navigable HTML page. Brand colors via CSS variables
+   from the kit; basic responsive layout; not production-quality
+   but enough for the founder to look at IA + voice + flow before
+   any production build. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ meta.title or page.title }}</title>
+<meta name="description" content="{{ meta.description or '' }}">
+<meta property="og:title" content="{{ meta.og_title or meta.title or page.title }}">
+<meta property="og:description" content="{{ meta.og_description or meta.description or '' }}">
+<style>
+  :root {
+    --brand-primary: {{ colors.primary or '#0A1F3D' }};
+    --brand-secondary: {{ colors.secondary or '#FF6B35' }};
+    --brand-surface: {{ colors.surface or '#FFFFFF' }};
+    --brand-ink: {{ colors.ink or '#0F0F0F' }};
+    --brand-muted: {{ colors.muted or '#6B6B6B' }};
+    --display-font: '{{ fonts.display.family or "Helvetica Neue" }}', {{ fonts.display.fallback or "system-ui, -apple-system, sans-serif" }};
+    --body-font: '{{ fonts.body.family or "Helvetica Neue" }}', {{ fonts.body.fallback or "system-ui, -apple-system, sans-serif" }};
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--body-font);
+    color: var(--brand-ink);
+    background: var(--brand-surface);
+    font-size: 18px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* preview banner — flags this is NOT a production site */
+  .preview-banner {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    padding: 8px 24px;
+    font-size: 12px;
+    font-family: var(--body-font);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .preview-banner .right a {
+    color: rgba(255,255,255,0.9);
+    margin-left: 16px;
+    text-decoration: none;
+  }
+  .preview-banner .right a:hover { text-decoration: underline; }
+
+  /* navigation */
+  nav.site-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 48px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+  }
+  nav.site-nav .brand {
+    font-family: var(--display-font);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    color: var(--brand-ink);
+    text-decoration: none;
+  }
+  nav.site-nav ul {
+    display: flex;
+    gap: 24px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  nav.site-nav a {
+    color: var(--brand-ink);
+    text-decoration: none;
+    font-size: 15px;
+  }
+  nav.site-nav a:hover { color: var(--brand-primary); }
+  nav.site-nav .nav-cta {
+    background: var(--brand-primary);
+    color: #FFFFFF !important;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  /* sections */
+  section {
+    padding: 80px 48px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  section h1 {
+    font-family: var(--display-font);
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px 0;
+    color: var(--brand-ink);
+  }
+  section h2 {
+    font-family: var(--display-font);
+    font-size: 40px;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0 0 16px 0;
+    color: var(--brand-ink);
+  }
+  section h3 {
+    font-family: var(--display-font);
+    font-size: 24px;
+    margin: 0 0 8px 0;
+    color: var(--brand-ink);
+  }
+  section .subheading {
+    font-size: 22px;
+    color: var(--brand-muted);
+    margin: 0 0 24px 0;
+    max-width: 700px;
+  }
+  section p { margin: 0 0 12px 0; max-width: 720px; }
+  section ul { padding-left: 20px; margin: 12px 0; }
+  section li { margin-bottom: 8px; }
+
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+  }
+  .cta-button {
+    display: inline-block;
+    padding: 14px 28px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 16px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .cta-button.primary {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+  }
+  .cta-button.secondary {
+    background: transparent;
+    color: var(--brand-ink);
+    border: 1.5px solid var(--brand-ink);
+  }
+  .cta-button:hover { transform: translateY(-1px); }
+
+  /* hero variant */
+  section.section-hero {
+    padding-top: 120px;
+    padding-bottom: 120px;
+  }
+
+  /* footer-like sections */
+  section.section-footer {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    max-width: none;
+    padding: 60px 48px;
+  }
+  section.section-footer h2,
+  section.section-footer h3 { color: #FFFFFF; }
+  section.section-footer p,
+  section.section-footer a { color: rgba(255,255,255,0.85); }
+  section.section-footer .footer-cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  section.section-footer ul { list-style: none; padding: 0; }
+  section.section-footer li { margin-bottom: 8px; }
+  section.section-footer .bottom-line {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    font-size: 13px;
+    color: rgba(255,255,255,0.7);
+  }
+
+  /* item grids */
+  .items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin-top: 32px;
+  }
+  .items-grid .item {
+    padding: 24px;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 10px;
+    background: rgba(0,0,0,0.02);
+  }
+  .items-grid .item h3 {
+    font-size: 18px;
+    margin-bottom: 8px;
+  }
+  .items-grid .item .meta {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--brand-muted);
+    font-style: italic;
+  }
+
+  /* image placeholder — no real images, just hint cards */
+  .image-placeholder {
+    margin: 24px 0;
+    padding: 24px;
+    border: 1.5px dashed var(--brand-muted);
+    background: rgba(0,0,0,0.02);
+    color: var(--brand-muted);
+    font-style: italic;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+  .image-placeholder strong {
+    font-style: normal;
+    color: var(--brand-ink);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  /* mobile */
+  @media (max-width: 720px) {
+    nav.site-nav { padding: 16px 24px; flex-wrap: wrap; gap: 12px; }
+    nav.site-nav ul { flex-wrap: wrap; gap: 12px; }
+    section { padding: 48px 24px; }
+    section h1 { font-size: 36px; }
+    section h2 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  <div class="left">PREVIEW · {{ company_name }} · {{ page.page_slug }}</div>
+  <div class="right">
+    {% for p in sitemap %}
+      <a href="{{ p.slug }}.html"{% if p.slug == page.page_slug %} style="text-decoration: underline;"{% endif %}>{{ p.title }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<nav class="site-nav">
+  <a class="brand" href="index.html">{{ company_name }}</a>
+  <ul>
+    {% for p in sitemap %}
+      {% if p.slug != 'home' and p.kind != 'legal' %}
+      <li><a href="{{ p.slug }}.html">{{ p.title }}</a></li>
+      {% endif %}
+    {% endfor %}
+    {% if page.global_ctas and page.global_ctas.primary %}
+    <li><a class="nav-cta" href="{{ page.global_ctas.primary.destination or '#' }}">{{ page.global_ctas.primary.label }}</a></li>
+    {% endif %}
+  </ul>
+</nav>
+
+{% for section in page.sections %}
+<section class="section-{{ section.type }}" id="{{ section.id or section.type }}">
+  {% if section.heading %}
+    {% if loop.first and section.type == 'hero' %}<h1>{{ section.heading }}</h1>{% else %}<h2>{{ section.heading }}</h2>{% endif %}
+  {% endif %}
+  {% if section.subheading %}<div class="subheading">{{ section.subheading }}</div>{% endif %}
+  {% if section.body_md %}<p>{{ section.body_md|safe }}</p>{% endif %}
+  {% if section.bullets %}
+    <ul>{% for b in section.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if section['items'] %}
+    <div class="items-grid">
+      {% for item in section['items'] %}
+        <div class="item">
+          {% if item.title %}<h3>{{ item.title }}</h3>{% endif %}
+          {% if item.body_md %}<p>{{ item.body_md|safe }}</p>{% endif %}
+          {% if item.image_hint %}<div class="image-placeholder"><strong>image</strong>{{ item.image_hint }}</div>{% endif %}
+          {% if item.meta %}<div class="meta">{{ item.meta }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% if section.image_hint %}
+    <div class="image-placeholder"><strong>image{% if section.image_aspect %} · {{ section.image_aspect }}{% endif %}</strong>{{ section.image_hint }}</div>
+  {% endif %}
+  {% if section.cta_primary or section.cta_secondary %}
+    <div class="cta-row">
+      {% if section.cta_primary and section.cta_primary.label %}
+        <a class="cta-button primary" href="{{ section.cta_primary.destination or '#' }}">{{ section.cta_primary.label }}</a>
+      {% endif %}
+      {% if section.cta_secondary and section.cta_secondary.label %}
+        <a class="cta-button secondary" href="{{ section.cta_secondary.destination or '#' }}">{{ section.cta_secondary.label }}</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% if page.footer %}
+<section class="section-footer">
+  <div class="footer-cols">
+    {% for col in (page.footer.columns or []) %}
+      <div>
+        <h3>{{ col.heading }}</h3>
+        <ul>
+          {% for link in (col.links or []) %}
+            <li><a href="{{ link.destination or '#' }}">{{ link.label }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </div>
+  {% if page.footer.tagline %}<p style="margin-top: 32px; font-family: var(--display-font); font-size: 18px;">{{ page.footer.tagline }}</p>{% endif %}
+  {% if page.footer.bottom_line %}<div class="bottom-line">{{ page.footer.bottom_line }}</div>{% endif %}
+</section>
+{% endif %}
+
+</body>
+</html>

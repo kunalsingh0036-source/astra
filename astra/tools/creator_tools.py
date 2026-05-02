@@ -8,7 +8,7 @@ Phase B (MVP) tools:
   render_deck_pdf        — render a deck artifact to PDF (uploads to R2)
   list_creator_artifacts — what's been generated
 
-Phase B2 tools (this commit):
+Phase B2 tools:
   draft_one_pager        — single-page sales sheet / fact sheet
   draft_doc              — long-form document (proposal, brief, MoU, white paper)
   draft_brand_kit        — generate a complete brand kit for a CLIENT (Top Studios productization)
@@ -17,6 +17,13 @@ Phase B2 tools (this commit):
   render_one_pager_pdf   — render one-pager to A4 PDF
   render_doc_pdf         — render doc to multi-page PDF
   render_deck_pptx       — render deck to editable .pptx
+
+Phase B3 tools (website maker):
+  analyze_reference_site — fetch + decompose a URL into IA + style + critique
+  draft_site_brief       — kit + audience + goals + refs → sitemap + IA + style direction
+  draft_page_content     — site brief + page slug → all on-page copy + image hints
+  draft_component_spec   — component-level handoff for designer / dev
+  render_site_preview    — multi-page navigable HTML preview (zip on R2)
 """
 
 from __future__ import annotations
@@ -25,11 +32,15 @@ import json
 
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
+from astra.creators.analyze_reference_site import analyze_reference_site
 from astra.creators.critique import critique_artifact
 from astra.creators.draft import draft_deck
 from astra.creators.draft_brand_kit import draft_brand_kit
+from astra.creators.draft_component_spec import draft_component_spec
 from astra.creators.draft_doc import draft_doc
 from astra.creators.draft_one_pager import draft_one_pager
+from astra.creators.draft_page_content import draft_page_content
+from astra.creators.draft_site_brief import draft_site_brief
 from astra.creators.image import generate_hero_image
 from astra.creators.kits import list_kits, load_kit
 from astra.creators.render import (
@@ -38,6 +49,7 @@ from astra.creators.render import (
     render_one_pager_pdf,
 )
 from astra.creators.render_pptx import render_deck_pptx
+from astra.creators.render_site_preview import render_site_preview
 from astra.creators.store import list_artifacts
 
 
@@ -500,6 +512,282 @@ async def render_doc_pdf_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": _render_summary("doc (PDF)", result)}]}
 
 
+# ── Phase B3: Website maker ─────────────────────────────────────────
+
+
+@tool(
+    "analyze_reference_site",
+    "Fetch a website URL and decompose it into structured analysis: page "
+    "intent, IA, sections, components observed, style system (colors, "
+    "fonts, density, motion), functionality, what works, what doesn't, "
+    "and borrowable patterns. Use BEFORE drafting a site brief when you "
+    "want to cite reference sites Kunal said to study. Note: HTML-only "
+    "fetch — JS-rendered SPA content may have limited visibility (the "
+    "tool flags this in warnings).",
+    {"url": str},
+)
+async def analyze_reference_site_tool(args: dict) -> dict:
+    url = (args.get("url") or "").strip()
+    if not url:
+        return {"content": [{"type": "text", "text": "analyze_reference_site: url required"}]}
+    try:
+        artifact = await analyze_reference_site(url)
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Analysis failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    sections = c.get("sections", []) or []
+    patterns = c.get("borrowable_patterns", []) or []
+    works = c.get("what_works", []) or []
+    doesnt = c.get("what_doesnt", []) or []
+    summary = (
+        f"Analysis #{artifact['id']} of {c.get('url','')}\n"
+        f"  Page kind: {c.get('page_kind','?')}\n"
+        f"  Intent:    {c.get('page_intent','')}\n"
+        f"  Sections observed ({len(sections)}):\n"
+    )
+    for s in sections:
+        summary += f"    {s.get('position','?'):>2}. [{s.get('type','?'):14}] {(s.get('summary','') or '')[:80]}\n"
+    style = c.get("style_system") or {}
+    summary += (
+        f"  Style: tone={style.get('tone','?')}, density={style.get('density','?')}\n"
+        f"  Palette: {style.get('color_palette',[])}\n"
+        f"  Fonts:   {style.get('fonts',[])}\n"
+        f"  Borrowable patterns ({len(patterns)}):\n"
+    )
+    for p in patterns:
+        summary += f"    • {p.get('pattern','?')}: {p.get('context_for_use','')[:100]}\n"
+    if works:
+        summary += "  What works:\n"
+        for w in works[:3]:
+            summary += f"    + {w[:120]}\n"
+    if doesnt:
+        summary += "  What doesn't:\n"
+        for w in doesnt[:3]:
+            summary += f"    - {w[:120]}\n"
+    if c.get("warnings"):
+        summary += "  ⚠ Warnings:\n"
+        for w in c["warnings"]:
+            summary += f"    {w[:120]}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_site_brief",
+    "Draft a complete site brief for a portfolio company or client kit. "
+    "Output: sitemap (4-9 pages), per-page IA (sections + intent + "
+    "components + content brief), style direction extending the brand "
+    "kit into web specifics, functionality requirements, performance + "
+    "a11y baselines. Optionally cites reference site analyses by id. "
+    "Returns an artifact id; pair with draft_page_content for each page.",
+    {
+        "business": str,
+        "audience": str,
+        "primary_goal": str,
+        "site_kind": str,           # marketing_site (default) | saas_app | portfolio | ecommerce | docs | blog | campaign_microsite
+        "reference_ids": str,       # comma-separated list of analyze_reference_site artifact ids
+        "context": str,
+    },
+)
+async def draft_site_brief_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    primary_goal = (args.get("primary_goal") or "").strip()
+    site_kind = (args.get("site_kind") or "marketing_site").strip()
+    refs_csv = (args.get("reference_ids") or "").strip()
+    context = (args.get("context") or "").strip()
+    if not (business and audience and primary_goal):
+        return {"content": [{"type": "text", "text": (
+            "draft_site_brief requires: business, audience, primary_goal."
+        )}]}
+
+    ref_ids: list[int] = []
+    if refs_csv:
+        try:
+            ref_ids = [int(x.strip()) for x in refs_csv.split(",") if x.strip()]
+        except ValueError:
+            return {"content": [{"type": "text", "text": (
+                "reference_ids must be a comma-separated list of integer artifact ids"
+            )}]}
+
+    try:
+        artifact = await draft_site_brief(
+            business_slug=business,
+            audience_slug=audience,
+            primary_goal=primary_goal,
+            site_kind=site_kind,
+            reference_analysis_ids=ref_ids or None,
+            context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    sitemap = c.get("sitemap", []) or []
+    summary = (
+        f"Drafted site brief #{artifact['id']}\n"
+        f"  Title: {artifact['title']}\n"
+        f"  Kind: {c.get('site_kind','?')}\n"
+        f"  Primary goal: {c.get('primary_goal','')}\n"
+        f"  Sitemap ({len(sitemap)} pages):\n"
+    )
+    for p in sitemap:
+        n = len(p.get("sections", []) or [])
+        summary += f"    /{p.get('slug','?'):20} {p.get('title','?'):28} ({n} sections, kind={p.get('kind','?')})\n"
+    sd = c.get("style_direction") or {}
+    summary += (
+        f"  Style direction: tone={sd.get('tone','?')}, density={sd.get('density','?')}\n"
+        f"  Functionality items: {len(c.get('functionality',[]))}\n"
+    )
+    summary += (
+        f"\nNext: for each page, run draft_page_content "
+        f"(site_brief_id={artifact['id']}, page_slug=<slug>).\n"
+        f"Then render_site_preview(site_brief_id={artifact['id']})."
+    )
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_page_content",
+    "Draft all on-page copy for ONE page of a site (after the brief is done). "
+    "Input: site_brief artifact id + the page slug from its sitemap. "
+    "Output: meta tags, every section's heading + subhead + body + bullets "
+    "+ items + CTAs + image hints, plus footer copy and global CTAs. "
+    "Run for each page in the sitemap before rendering the preview.",
+    {
+        "site_brief_id": int,
+        "page_slug": str,
+        "context": str,
+    },
+)
+async def draft_page_content_tool(args: dict) -> dict:
+    bid = int(args.get("site_brief_id") or 0)
+    slug = (args.get("page_slug") or "").strip()
+    context = (args.get("context") or "").strip()
+    if not (bid and slug):
+        return {"content": [{"type": "text", "text": (
+            "draft_page_content requires: site_brief_id, page_slug"
+        )}]}
+    try:
+        artifact = await draft_page_content(
+            site_brief_id=bid,
+            page_slug=slug,
+            context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    sections = c.get("sections", []) or []
+    meta = c.get("meta") or {}
+    summary = (
+        f"Drafted page #{artifact['id']} ({slug})\n"
+        f"  Title: {c.get('title','')}\n"
+        f"  SEO title: {meta.get('title','')[:80]}\n"
+        f"  Sections ({len(sections)}):\n"
+    )
+    for s in sections:
+        h = s.get("heading", "") or s.get("subheading", "") or "(no heading)"
+        summary += f"    [{s.get('type','?'):14}] {h[:70]}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_component_spec",
+    "Produce an implementation-ready spec for ONE component (hero, feature_card, "
+    "pricing_card, testimonial, etc.). Includes layout, slots, interaction, "
+    "responsive behavior, accessibility, image direction, recommended libraries, "
+    "and edge-case handling. Optionally references a parent site_brief or "
+    "page_content artifact for context.",
+    {
+        "business": str,
+        "component_type": str,
+        "intent": str,
+        "page_context": str,         # e.g. 'home > hero'
+        "page_content_id": int,      # optional
+        "site_brief_id": int,        # optional
+        "audience": str,             # optional persona slug
+        "context": str,
+    },
+)
+async def draft_component_spec_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    ctype = (args.get("component_type") or "").strip()
+    intent = (args.get("intent") or "").strip()
+    page_context = (args.get("page_context") or "").strip()
+    page_id = int(args.get("page_content_id") or 0) or None
+    brief_id = int(args.get("site_brief_id") or 0) or None
+    audience = (args.get("audience") or "").strip() or None
+    context = (args.get("context") or "").strip()
+    if not (business and ctype and intent):
+        return {"content": [{"type": "text", "text": (
+            "draft_component_spec requires: business, component_type, intent"
+        )}]}
+    try:
+        artifact = await draft_component_spec(
+            business_slug=business,
+            component_type=ctype,
+            intent=intent,
+            page_context=page_context,
+            page_content_id=page_id,
+            site_brief_id=brief_id,
+            audience_slug=audience,
+            context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    structure = c.get("structure") or {}
+    slots = structure.get("slots") or []
+    summary = (
+        f"Component spec #{artifact['id']}\n"
+        f"  Type: {c.get('component_type','?')}\n"
+        f"  Context: {c.get('context','?')}\n"
+        f"  Intent: {c.get('intent','')}\n"
+        f"  Slots ({len(slots)}): {[s.get('name','?') for s in slots]}\n"
+        f"  Layout: {(structure.get('layout','') or '')[:160]}\n"
+        f"  States/edge cases: {len(c.get('states_and_edge_cases',[]))}\n"
+        f"  Implementation notes: {len(c.get('implementation_notes',[]))}\n"
+    )
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "render_site_preview",
+    "Render all the page_content drafts that belong to a site_brief into a "
+    "navigable multi-page HTML preview, bundle as a zip, upload to R2. "
+    "Returns a 7-day signed URL. The preview lets the founder click around "
+    "the site (sections, CTAs, cross-page links) before any production "
+    "build. Inline CSS, brand-kit colors + fonts, image placeholders show "
+    "the image_hint text rather than rendered images.",
+    {"site_brief_id": int},
+)
+async def render_site_preview_tool(args: dict) -> dict:
+    bid = int(args.get("site_brief_id") or 0)
+    if not bid:
+        return {"content": [{"type": "text", "text": "render_site_preview: site_brief_id required"}]}
+    try:
+        result = await render_site_preview(bid)
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Render failed: {type(e).__name__}: {e}"}]}
+    return {"content": [{"type": "text", "text": (
+        f"Rendered site preview\n"
+        f"  Brief id:     {result['site_brief_id']}\n"
+        f"  Preview id:   #{result['artifact_id']}\n"
+        f"  Pages:        {result['page_count']} ({', '.join(result['page_slugs'])})\n"
+        f"  R2 key:       {result['r2_key']}\n"
+        f"  Size:         {result['byte_size']:,} bytes\n"
+        f"  URL (7-day):\n  {result['signed_url']}"
+    )}]}
+
+
 # ── Listing ─────────────────────────────────────────────────────────
 
 
@@ -531,15 +819,20 @@ async def list_creator_artifacts_tool(args: dict) -> dict:
 def create_creators_mcp_server():
     return create_sdk_mcp_server(
         name="astra-creators",
-        version="0.2.0",
+        version="0.3.0",
         tools=[
             list_business_kits_tool,
             read_business_kit_tool,
-            # Drafters
+            # Drafters — content artifacts
             draft_deck_tool,
             draft_one_pager_tool,
             draft_doc_tool,
             draft_brand_kit_tool,
+            # Drafters — website (Phase B3)
+            analyze_reference_site_tool,
+            draft_site_brief_tool,
+            draft_page_content_tool,
+            draft_component_spec_tool,
             # Quality + image
             critique_artifact_tool,
             generate_hero_image_tool,
@@ -548,6 +841,7 @@ def create_creators_mcp_server():
             render_deck_pptx_tool,
             render_one_pager_pdf_tool,
             render_doc_pdf_tool,
+            render_site_preview_tool,
             # Listing
             list_creator_artifacts_tool,
         ],
