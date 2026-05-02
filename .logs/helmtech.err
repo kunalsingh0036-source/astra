@@ -1,0 +1,1537 @@
+Traceback (most recent call last):
+  File "/Users/kunalsingh/Claude Code/astra/.venv/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 433, in main
+    run(
+    ~~~^
+        app,
+        ^^^^
+    ...<47 lines>...
+        h11_max_incomplete_event_size=h11_max_incomplete_event_size,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 606, in run
+    server.run()
+    ~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 86, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/Users/kunalsingh/Claude Code/astra/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 762, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/main.py", line 5, in <module>
+    from app.api.v1.router import api_router
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/router.py", line 2, in <module>
+    from app.api.v1 import leads, companies, sequences, campaigns, templates, messages, dashboard, webhooks, discovery, analytics, settings, automation
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/leads.py", line 7, in <module>
+    import pandas as pd
+ModuleNotFoundError: No module named 'pandas'
+Traceback (most recent call last):
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 433, in main
+    run(
+    ~~~^
+        app,
+        ^^^^
+    ...<47 lines>...
+        h11_max_incomplete_event_size=h11_max_incomplete_event_size,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 606, in run
+    server.run()
+    ~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 86, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 762, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/main.py", line 5, in <module>
+    from app.api.v1.router import api_router
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/router.py", line 2, in <module>
+    from app.api.v1 import leads, companies, sequences, campaigns, templates, messages, dashboard, webhooks, discovery, analytics, settings, automation
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/leads.py", line 8, in <module>
+    from app.dependencies import get_db
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/dependencies.py", line 8, in <module>
+    engine = create_async_engine(settings.database_url, echo=False)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/ext/asyncio/engine.py", line 120, in create_async_engine
+    sync_engine = _create_engine(url, **kw)
+  File "<string>", line 2, in create_engine
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/util/deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/engine/create.py", line 617, in create_engine
+    dbapi = dbapi_meth(**dbapi_args)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 1094, in import_dbapi
+    return AsyncAdapt_asyncpg_dbapi(__import__("asyncpg"))
+                                    ~~~~~~~~~~^^^^^^^^^^^
+ModuleNotFoundError: No module named 'asyncpg'
+Traceback (most recent call last):
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 433, in main
+    run(
+    ~~~^
+        app,
+        ^^^^
+    ...<47 lines>...
+        h11_max_incomplete_event_size=h11_max_incomplete_event_size,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 606, in run
+    server.run()
+    ~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 86, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 762, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/main.py", line 5, in <module>
+    from app.api.v1.router import api_router
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/router.py", line 2, in <module>
+    from app.api.v1 import leads, companies, sequences, campaigns, templates, messages, dashboard, webhooks, discovery, analytics, settings, automation
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/leads.py", line 8, in <module>
+    from app.dependencies import get_db
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/dependencies.py", line 8, in <module>
+    engine = create_async_engine(settings.database_url, echo=False)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/ext/asyncio/engine.py", line 120, in create_async_engine
+    sync_engine = _create_engine(url, **kw)
+  File "<string>", line 2, in create_engine
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/util/deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/engine/create.py", line 617, in create_engine
+    dbapi = dbapi_meth(**dbapi_args)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 1094, in import_dbapi
+    return AsyncAdapt_asyncpg_dbapi(__import__("asyncpg"))
+                                    ~~~~~~~~~~^^^^^^^^^^^
+ModuleNotFoundError: No module named 'asyncpg'
+Traceback (most recent call last):
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 433, in main
+    run(
+    ~~~^
+        app,
+        ^^^^
+    ...<47 lines>...
+        h11_max_incomplete_event_size=h11_max_incomplete_event_size,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/main.py", line 606, in run
+    server.run()
+    ~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 75, in run
+    return asyncio_run(self.serve(sockets=sockets), loop_factory=self.config.get_loop_factory())
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/server.py", line 86, in _serve
+    config.load()
+    ~~~~~~~~~~~^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/config.py", line 441, in load
+    self.loaded_app = import_from_string(self.app)
+                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/.venv/lib/python3.14/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Frameworks/Python.framework/Versions/3.14/lib/python3.14/importlib/__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1398, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1371, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1342, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 938, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 762, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/main.py", line 5, in <module>
+    from app.api.v1.router import api_router
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/router.py", line 2, in <module>
+    from app.api.v1 import leads, companies, sequences, campaigns, templates, messages, dashboard, webhooks, discovery, analytics, settings, automation
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/api/v1/automation.py", line 14, in <module>
+    from app.services.automation_engine import automation_engine
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/services/automation_engine.py", line 22, in <module>
+    from app.services.lead_discovery import lead_discovery
+  File "/Users/kunalsingh/Claude Code/helmtech-outreach-agent/backend/app/services/lead_discovery.py", line 23, in <module>
+    from bs4 import BeautifulSoup
+ModuleNotFoundError: No module named 'bs4'
+INFO:     Started server process [85846]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8003 (Press CTRL+C to quit)
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 14:45:00 IST)" was missed by 0:04:33.502788
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 14:50:00 IST)" was missed by 0:04:33.506448
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='8', minute='0'], next run at: 2026-04-03 08:00:00 IST)" was missed by 6:44:33.512405
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 14:45:00 IST)" was missed by 0:14:33.511704
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 14:46:00 IST)" was missed by 0:00:33.511778
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 14:45:00 IST)" was missed by 0:04:33.511815
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='23', minute='55'], next run at: 2026-04-03 23:55:00 IST)" was missed by 14:49:33.512267
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 14:50:00 IST)" was missed by 0:04:33.511625
+Scheduled task error: The read operation timed out
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 15:06:00 IST)" was missed by 0:00:07.133851
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 15:20:00 IST)" was missed by 0:04:58.242528
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 15:20:00 IST)" was missed by 0:04:58.242854
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 15:20:00 IST)" was missed by 0:01:58.243003
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 15:20:00 IST)" was missed by 0:09:58.243069
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 15:20:00 IST)" was missed by 0:09:58.243112
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 15:30:00 IST)" was missed by 0:04:58.243150
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 15:44:00 IST)" was missed by 0:00:54.650128
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 15:45:00 IST)" was missed by 0:02:54.650469
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 15:45:00 IST)" was missed by 0:02:54.650605
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 15:50:00 IST)" was missed by 0:02:54.650710
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 15:50:00 IST)" was missed by 0:02:54.650788
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 15:45:00 IST)" was missed by 0:12:54.650875
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:00:53.674618
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:03:53.674802
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:13:53.674860
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:03:53.674895
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:08:53.674984
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:00:00 IST)" was missed by 0:08:53.675114
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:20:00 IST)" was missed by 0:00:23.603832
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:15:00 IST)" was missed by 0:00:23.604285
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:20:00 IST)" was missed by 0:00:23.604484
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 16:15:00 IST)" was missed by 0:10:23.604579
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 16:12:00 IST)" was missed by 0:00:23.604642
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:15:00 IST)" was missed by 0:00:23.604722
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:50:00 IST)" was missed by 0:02:35.132638
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 16:44:00 IST)" was missed by 0:00:35.133764
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:45:00 IST)" was missed by 0:02:35.132974
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 16:45:00 IST)" was missed by 0:02:35.133296
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 16:50:00 IST)" was missed by 0:02:35.133366
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 16:45:00 IST)" was missed by 0:12:35.133146
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 16:46:00 IST)" was missed by 0:00:03.751311
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 16:58:00 IST)" was missed by 0:00:21.985551
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-03 17:18:00 IST)" was missed by 0:01:45.260834
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 17:20:00 IST)" was missed by 0:07:45.260937
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 17:20:00 IST)" was missed by 0:02:45.260964
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-03 17:20:00 IST)" was missed by 0:07:45.260994
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-03 17:30:00 IST)" was missed by 0:02:45.261034
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-03 17:20:00 IST)" was missed by 0:02:45.261064
+Scheduled task error: [Errno 54] Connection reset by peer
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: [Errno 32] Broken pipe
+Scheduled task error: [Errno 54] Connection reset by peer
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: [Errno 54] Connection reset by peer
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: [Errno 49] Can't assign requested address
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 00:25:00 IST)" was missed by 0:00:23.955605
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 00:30:00 IST)" was missed by 0:00:23.956358
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 00:30:00 IST)" was missed by 0:05:23.956517
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 00:22:00 IST)" was missed by 0:00:23.956596
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 00:25:00 IST)" was missed by 0:00:23.956649
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 00:30:00 IST)" was missed by 0:00:23.956124
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 02:45:00 IST)" was missed by 0:01:40.403447
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 02:35:00 IST)" was missed by 0:01:40.404176
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 02:35:00 IST)" was missed by 0:01:40.404308
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 02:40:00 IST)" was missed by 0:01:40.404432
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 02:40:00 IST)" was missed by 0:01:40.404510
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 02:32:00 IST)" was missed by 0:01:40.404594
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 05:18:00 IST)" was missed by 0:01:50.792099
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 05:20:00 IST)" was missed by 0:02:50.792334
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 05:20:00 IST)" was missed by 0:02:50.792392
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 05:20:00 IST)" was missed by 0:07:50.792437
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 05:20:00 IST)" was missed by 0:07:50.792472
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 05:30:00 IST)" was missed by 0:02:50.792506
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 05:20:00 IST)" was missed by 0:00:01.786018
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:04:13.860806
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:14:13.865707
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:09:13.861352
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:09:13.861254
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:01:13.865996
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:00:00 IST)" was missed by 0:04:13.866150
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:20:00 IST)" was missed by 0:04:19.831857
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='8', minute='0'], next run at: 2026-04-05 08:00:00 IST)" was missed by 0:14:19.832012
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:15:00 IST)" was missed by 0:04:19.832067
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:20:00 IST)" was missed by 0:04:19.832107
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 08:15:00 IST)" was missed by 0:14:19.832133
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 08:16:00 IST)" was missed by 0:00:19.832182
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:15:00 IST)" was missed by 0:04:19.832244
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:45:00 IST)" was missed by 0:01:41.852632
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 08:45:00 IST)" was missed by 0:11:41.852973
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 08:45:00 IST)" was missed by 0:01:41.853073
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 08:42:00 IST)" was missed by 0:01:41.853161
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:50:00 IST)" was missed by 0:01:41.853226
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 08:50:00 IST)" was missed by 0:01:41.853278
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 09:04:00 IST)" was missed by 0:00:42.921510
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 09:05:00 IST)" was missed by 0:02:42.922596
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 09:05:00 IST)" was missed by 0:02:42.922862
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 09:10:00 IST)" was missed by 0:02:42.923021
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 09:10:00 IST)" was missed by 0:02:42.923147
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 09:15:00 IST)" was missed by 0:02:42.923299
+Scheduled task error: [Errno 49] Can't assign requested address
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:05:00 IST)" was missed by 0:03:56.665560
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:05:00 IST)" was missed by 0:03:56.666012
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 10:04:00 IST)" was missed by 0:01:56.666151
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:10:00 IST)" was missed by 0:03:56.666399
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:10:00 IST)" was missed by 0:03:56.666499
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 10:15:00 IST)" was missed by 0:03:56.666546
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 10:14:00 IST)" was missed by 0:01:20.882368
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:15:00 IST)" was missed by 0:03:20.882639
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:15:00 IST)" was missed by 0:03:20.882739
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:20:00 IST)" was missed by 0:03:20.882812
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:20:00 IST)" was missed by 0:03:20.882914
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:30:00 IST)" was missed by 0:02:16.061539
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:30:00 IST)" was missed by 0:02:16.061929
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 10:30:00 IST)" was missed by 0:12:16.062143
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 10:28:00 IST)" was missed by 0:01:16.062265
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:30:00 IST)" was missed by 0:07:16.062327
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:30:00 IST)" was missed by 0:07:16.062371
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 10:46:00 IST)" was missed by 0:01:21.425172
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:50:00 IST)" was missed by 0:05:21.425447
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:50:00 IST)" was missed by 0:00:21.425534
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 10:50:00 IST)" was missed by 0:05:21.425596
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 11:00:00 IST)" was missed by 0:00:21.425714
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 10:50:00 IST)" was missed by 0:00:21.425767
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 11:16:00 IST)" was missed by 0:00:46.610391
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 11:20:00 IST)" was missed by 0:04:46.610636
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 11:15:00 IST)" was missed by 0:04:46.610738
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 11:20:00 IST)" was missed by 0:04:46.610778
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 11:15:00 IST)" was missed by 0:04:46.610818
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 11:15:00 IST)" was missed by 0:14:46.610915
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 11:52:00 IST)" was missed by 0:00:10.502862
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 12:00:00 IST)" was missed by 0:00:10.503106
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 11:55:00 IST)" was missed by 0:00:10.503213
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 12:00:00 IST)" was missed by 0:00:10.503291
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 11:55:00 IST)" was missed by 0:00:10.503343
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 12:00:00 IST)" was missed by 0:05:10.503385
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 13:02:00 IST)" was missed by 0:01:45.621194
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 13:05:00 IST)" was missed by 0:01:45.621454
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 13:05:00 IST)" was missed by 0:01:45.621632
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 13:10:00 IST)" was missed by 0:01:45.621707
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 13:10:00 IST)" was missed by 0:01:45.621748
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 13:15:00 IST)" was missed by 0:01:45.621773
+Scheduled task error: [Errno 60] Operation timed out
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 16:58:00 IST)" was missed by 0:01:51.727031
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:00:00 IST)" was missed by 0:07:51.728228
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:00:00 IST)" was missed by 0:02:51.727775
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:00:00 IST)" was missed by 0:07:51.727863
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:00:00 IST)" was missed by 0:02:51.727517
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 17:00:00 IST)" was missed by 0:12:51.728662
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 17:04:00 IST)" was missed by 0:00:42.788415
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:10:00 IST)" was missed by 0:02:42.788683
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:05:00 IST)" was missed by 0:02:42.788769
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:10:00 IST)" was missed by 0:02:42.788863
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 17:15:00 IST)" was missed by 0:02:42.788955
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:05:00 IST)" was missed by 0:02:42.789021
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 17:28:00 IST)" was missed by 0:01:24.016613
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:30:00 IST)" was missed by 0:02:24.016887
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 17:30:00 IST)" was missed by 0:02:24.016969
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:30:00 IST)" was missed by 0:07:24.017044
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 17:30:00 IST)" was missed by 0:07:24.017138
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 17:30:00 IST)" was missed by 0:12:24.017188
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 19:00:00 IST)" was missed by 0:00:43.733749
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 19:00:00 IST)" was missed by 0:05:43.734204
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 19:00:00 IST)" was missed by 0:00:43.734304
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 19:00:00 IST)" was missed by 0:05:43.734352
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 19:00:00 IST)" was missed by 0:10:43.734396
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 18:56:00 IST)" was missed by 0:01:43.734474
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 19:08:00 IST)" was missed by 0:00:21.053027
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 19:10:00 IST)" was missed by 0:06:21.053368
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 19:10:00 IST)" was missed by 0:01:21.053462
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 19:10:00 IST)" was missed by 0:06:21.053518
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 19:15:00 IST)" was missed by 0:06:21.053557
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 19:10:00 IST)" was missed by 0:01:21.053610
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 20:06:00 IST)" was missed by 0:01:27.432075
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 20:10:00 IST)" was missed by 0:05:27.432251
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 20:10:00 IST)" was missed by 0:00:27.432292
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 20:10:00 IST)" was missed by 0:05:27.432320
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 20:10:00 IST)" was missed by 0:00:27.432349
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 20:15:00 IST)" was missed by 0:05:27.432375
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 20:45:00 IST)" was missed by 0:01:57.942232
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 20:40:00 IST)" was missed by 0:01:57.942519
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 20:35:00 IST)" was missed by 0:01:57.942606
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 20:40:00 IST)" was missed by 0:01:57.942662
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 20:35:00 IST)" was missed by 0:01:57.942723
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 20:32:00 IST)" was missed by 0:01:57.942797
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 21:15:00 IST)" was missed by 0:09:31.851636
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 21:10:00 IST)" was missed by 0:04:31.852311
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 21:10:00 IST)" was missed by 0:09:31.852651
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 21:10:00 IST)" was missed by 0:09:31.852797
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 21:10:00 IST)" was missed by 0:01:31.852910
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 21:10:00 IST)" was missed by 0:04:31.852984
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 21:40:00 IST)" was missed by 0:00:17.968323
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 21:35:00 IST)" was missed by 0:00:17.969000
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 21:40:00 IST)" was missed by 0:00:17.968699
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 21:45:00 IST)" was missed by 0:00:17.969295
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 21:35:00 IST)" was missed by 0:00:17.968616
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 21:32:00 IST)" was missed by 0:00:17.968764
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 22:36:00 IST)" was missed by 0:01:56.751903
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 22:40:00 IST)" was missed by 0:00:56.752071
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 22:40:00 IST)" was missed by 0:00:56.752169
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 22:40:00 IST)" was missed by 0:05:56.752210
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 22:40:00 IST)" was missed by 0:05:56.752249
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 22:45:00 IST)" was missed by 0:05:56.752288
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 23:02:00 IST)" was missed by 0:00:32.754712
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 23:10:00 IST)" was missed by 0:00:32.754999
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 23:05:00 IST)" was missed by 0:00:32.755092
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-04 23:10:00 IST)" was missed by 0:00:32.755167
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-04 23:05:00 IST)" was missed by 0:00:32.755254
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-04 23:15:00 IST)" was missed by 0:00:32.755338
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-04 23:04:00 IST)" was missed by 0:01:07.205678
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: [Errno 54] Connection reset by peer
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 00:10:00 IST)" was missed by 0:03:43.442176
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 00:10:00 IST)" was missed by 0:08:43.442736
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 00:10:00 IST)" was missed by 0:08:43.442986
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 00:10:00 IST)" was missed by 0:03:43.443241
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 00:15:00 IST)" was missed by 0:08:43.443307
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='23', minute='55'], next run at: 2026-04-05 23:55:00 IST)" was missed by 0:13:43.443979
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 00:10:00 IST)" was missed by 0:00:43.444052
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 01:15:00 IST)" was missed by 0:05:13.727861
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 01:10:00 IST)" was missed by 0:05:13.728582
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 01:10:00 IST)" was missed by 0:05:13.729092
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 01:10:00 IST)" was missed by 0:00:13.729881
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 01:10:00 IST)" was missed by 0:00:13.730070
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 01:06:00 IST)" was missed by 0:01:13.730161
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 03:10:00 IST)" was missed by 0:01:31.077555
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 03:10:00 IST)" was missed by 0:04:31.078355
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 03:10:00 IST)" was missed by 0:04:31.077960
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 03:15:00 IST)" was missed by 0:09:31.078472
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 03:10:00 IST)" was missed by 0:09:31.078531
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 03:10:00 IST)" was missed by 0:09:31.077831
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 04:18:00 IST)" was missed by 0:00:11.908517
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 04:30:00 IST)" was missed by 0:01:11.908869
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 04:20:00 IST)" was missed by 0:01:11.908927
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 04:20:00 IST)" was missed by 0:06:11.908970
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 04:20:00 IST)" was missed by 0:06:11.908998
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 04:20:00 IST)" was missed by 0:01:11.909021
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 05:54:00 IST)" was missed by 0:01:44.230439
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 06:00:00 IST)" was missed by 0:03:44.230675
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 05:55:00 IST)" was missed by 0:03:44.230725
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 06:00:00 IST)" was missed by 0:03:44.230768
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 05:55:00 IST)" was missed by 0:03:44.230798
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 06:00:00 IST)" was missed by 0:08:44.230836
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 06:44:00 IST)" was missed by 0:00:58.696671
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 06:45:00 IST)" was missed by 0:02:58.696885
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 06:50:00 IST)" was missed by 0:02:58.696974
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 06:45:00 IST)" was missed by 0:12:58.697018
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 06:45:00 IST)" was missed by 0:02:58.697050
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 06:50:00 IST)" was missed by 0:02:58.697080
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 07:50:00 IST)" was missed by 0:00:46.069013
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 07:50:00 IST)" was missed by 0:03:46.069832
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 08:00:00 IST)" was missed by 0:03:46.069452
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 07:50:00 IST)" was missed by 0:08:46.069627
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 07:50:00 IST)" was missed by 0:08:46.069685
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 07:50:00 IST)" was missed by 0:03:46.069321
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 08:40:00 IST)" was missed by 0:02:04.579451
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 08:40:00 IST)" was missed by 0:02:04.580192
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 08:40:00 IST)" was missed by 0:07:04.580336
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='8', minute='0'], next run at: 2026-04-06 08:00:00 IST)" was missed by 0:37:04.580447
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 08:45:00 IST)" was missed by 0:07:04.580517
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 08:40:00 IST)" was missed by 0:07:04.580563
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 08:38:00 IST)" was missed by 0:01:04.580604
+Scheduled task error: [Errno 60] Operation timed out
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:00:00 IST)" was missed by 0:01:48.174190
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 11:00:00 IST)" was missed by 0:06:48.175062
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 10:55:00 IST)" was missed by 0:01:48.177350
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:00:00 IST)" was missed by 0:01:48.177573
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 10:55:00 IST)" was missed by 0:01:48.174640
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 10:52:00 IST)" was missed by 0:01:48.177650
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 11:16:00 IST)" was missed by 0:00:20.554167
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 11:15:00 IST)" was missed by 0:04:20.554468
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:20:00 IST)" was missed by 0:04:20.554610
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 11:15:00 IST)" was missed by 0:14:20.554703
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 11:15:00 IST)" was missed by 0:04:20.554749
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:20:00 IST)" was missed by 0:04:20.554782
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 11:25:00 IST)" was missed by 0:03:59.317281
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:30:00 IST)" was missed by 0:03:59.318154
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 11:25:00 IST)" was missed by 0:03:59.317829
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 11:24:00 IST)" was missed by 0:01:59.317936
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 11:30:00 IST)" was missed by 0:08:59.317711
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 11:30:00 IST)" was missed by 0:03:59.318290
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 12:10:00 IST)" was missed by 0:04:57.744454
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 12:10:00 IST)" was missed by 0:04:57.744893
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 12:10:00 IST)" was missed by 0:01:57.745008
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 12:10:00 IST)" was missed by 0:09:57.745096
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 12:10:00 IST)" was missed by 0:09:57.745151
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 12:15:00 IST)" was missed by 0:09:57.745244
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 12:40:00 IST)" was missed by 0:00:36.980593
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 12:40:00 IST)" was missed by 0:00:36.981253
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 12:45:00 IST)" was missed by 0:00:36.981082
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 12:32:00 IST)" was missed by 0:00:36.981439
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 12:35:00 IST)" was missed by 0:00:36.981494
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 12:35:00 IST)" was missed by 0:00:36.980982
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 14:02:00 IST)" was missed by 0:01:57.844668
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 14:10:00 IST)" was missed by 0:01:57.845240
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 14:05:00 IST)" was missed by 0:01:57.845513
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 14:05:00 IST)" was missed by 0:01:57.845662
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 14:10:00 IST)" was missed by 0:01:57.845746
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 14:15:00 IST)" was missed by 0:01:57.845795
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 14:42:00 IST)" was missed by 0:00:30.495827
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 14:50:00 IST)" was missed by 0:00:30.496577
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 14:50:00 IST)" was missed by 0:00:30.496752
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 14:45:00 IST)" was missed by 0:10:30.496829
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 14:45:00 IST)" was missed by 0:00:30.496882
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 14:45:00 IST)" was missed by 0:00:30.496255
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 15:30:00 IST)" was missed by 0:03:26.570459
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 15:25:00 IST)" was missed by 0:03:26.570727
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 15:30:00 IST)" was missed by 0:08:26.570800
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 15:25:00 IST)" was missed by 0:03:26.570841
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 15:30:00 IST)" was missed by 0:03:26.570881
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 15:24:00 IST)" was missed by 0:01:26.570916
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 16:06:00 IST)" was missed by 0:01:01.870469
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 16:10:00 IST)" was missed by 0:00:01.871085
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 16:10:00 IST)" was missed by 0:05:01.871209
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 16:10:00 IST)" was missed by 0:05:01.871303
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 16:15:00 IST)" was missed by 0:05:01.871368
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 16:10:00 IST)" was missed by 0:00:01.870827
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 16:46:00 IST)" was missed by 0:01:55.293879
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 16:50:00 IST)" was missed by 0:05:55.294218
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 16:50:00 IST)" was missed by 0:00:55.294328
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 16:50:00 IST)" was missed by 0:05:55.294472
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 16:50:00 IST)" was missed by 0:00:55.294616
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 17:00:00 IST)" was missed by 0:00:55.294693
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 17:50:00 IST)" was missed by 0:00:47.253766
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 17:50:00 IST)" was missed by 0:08:47.254403
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 18:00:00 IST)" was missed by 0:03:47.254597
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 17:50:00 IST)" was missed by 0:03:47.254744
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 17:50:00 IST)" was missed by 0:08:47.254127
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 17:50:00 IST)" was missed by 0:03:47.254221
+Scheduled task error: [Errno 60] Operation timed out
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 18:28:00 IST)" was missed by 0:01:35.887733
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 18:30:00 IST)" was missed by 0:07:35.888149
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 18:30:00 IST)" was missed by 0:07:35.888286
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 18:30:00 IST)" was missed by 0:12:35.888336
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:30:00 IST)" was missed by 0:02:35.888371
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:30:00 IST)" was missed by 0:02:35.887997
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 18:32:00 IST)" was missed by 0:00:12.112221
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 18:40:00 IST)" was missed by 0:00:12.112481
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:35:00 IST)" was missed by 0:00:12.112587
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 18:40:00 IST)" was missed by 0:00:12.112660
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 18:45:00 IST)" was missed by 0:00:12.112712
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:35:00 IST)" was missed by 0:00:12.112754
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 18:40:00 IST)" was missed by 0:00:22.163541
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:40:00 IST)" was missed by 0:03:22.163985
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 18:40:00 IST)" was missed by 0:03:22.164122
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 19:30:00 IST)" was missed by 0:01:56.944568
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 19:30:00 IST)" was missed by 0:01:56.944808
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 19:28:00 IST)" was missed by 0:00:56.944896
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 19:30:00 IST)" was missed by 0:06:56.944967
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 19:30:00 IST)" was missed by 0:06:56.945024
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 19:30:00 IST)" was missed by 0:11:56.945072
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 20:14:00 IST)" was missed by 0:01:33.761456
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 20:20:00 IST)" was missed by 0:03:33.761651
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 20:15:00 IST)" was missed by 0:03:33.761705
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 20:20:00 IST)" was missed by 0:03:33.761736
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 20:15:00 IST)" was missed by 0:13:33.761769
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 20:15:00 IST)" was missed by 0:03:33.761801
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 20:42:00 IST)" was missed by 0:01:59.718671
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 20:45:00 IST)" was missed by 0:01:59.719502
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 20:50:00 IST)" was missed by 0:01:59.719689
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 20:50:00 IST)" was missed by 0:01:59.719766
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 20:45:00 IST)" was missed by 0:11:59.719819
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 20:45:00 IST)" was missed by 0:01:59.719150
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 22:00:00 IST)" was missed by 0:03:09.549908
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 21:55:00 IST)" was missed by 0:03:09.550254
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 22:00:00 IST)" was missed by 0:08:09.550436
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 21:55:00 IST)" was missed by 0:03:09.550527
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 22:00:00 IST)" was missed by 0:03:09.550570
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 21:54:00 IST)" was missed by 0:01:09.550612
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 22:22:00 IST)" was missed by 0:00:33.853188
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 22:25:00 IST)" was missed by 0:00:33.853502
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 22:25:00 IST)" was missed by 0:00:33.853644
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 22:30:00 IST)" was missed by 0:00:33.853708
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-05 22:30:00 IST)" was missed by 0:00:33.853761
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-05 22:30:00 IST)" was missed by 0:05:33.853840
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-05 23:54:00 IST)" was missed by 0:01:13.262349
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 23:55:00 IST)" was missed by 0:03:13.262766
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 00:00:00 IST)" was missed by 0:03:13.262976
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 00:00:00 IST)" was missed by 0:08:13.263165
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-05 23:55:00 IST)" was missed by 0:03:13.263222
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 00:00:00 IST)" was missed by 0:03:13.263265
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 00:10:00 IST)" was missed by 0:00:49.671606
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 00:10:00 IST)" was missed by 0:03:49.671902
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='23', minute='55'], next run at: 2026-04-06 23:55:00 IST)" was missed by 0:13:49.672000
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 00:10:00 IST)" was missed by 0:03:49.672093
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 00:10:00 IST)" was missed by 0:08:49.672151
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 00:10:00 IST)" was missed by 0:08:49.672205
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 00:15:00 IST)" was missed by 0:08:49.672266
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 01:15:00 IST)" was missed by 0:09:47.227150
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 01:10:00 IST)" was missed by 0:04:47.227463
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 01:10:00 IST)" was missed by 0:09:47.227599
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 01:10:00 IST)" was missed by 0:01:47.227704
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 01:10:00 IST)" was missed by 0:04:47.227767
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 01:10:00 IST)" was missed by 0:09:47.227856
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 01:30:00 IST)" was missed by 0:07:32.750920
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 01:30:00 IST)" was missed by 0:02:32.751212
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 01:30:00 IST)" was missed by 0:07:32.751320
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 01:28:00 IST)" was missed by 0:01:32.751403
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 01:30:00 IST)" was missed by 0:02:32.751452
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 01:30:00 IST)" was missed by 0:12:32.751497
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 02:12:00 IST)" was missed by 0:00:38.976594
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 02:20:00 IST)" was missed by 0:00:38.976763
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 02:15:00 IST)" was missed by 0:00:38.976837
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 02:20:00 IST)" was missed by 0:00:38.976881
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 02:15:00 IST)" was missed by 0:10:38.976919
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 02:15:00 IST)" was missed by 0:00:38.976956
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 04:10:00 IST)" was missed by 0:01:15.779552
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 04:10:00 IST)" was missed by 0:04:15.779832
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 04:15:00 IST)" was missed by 0:09:15.779924
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 04:10:00 IST)" was missed by 0:04:15.780002
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 04:10:00 IST)" was missed by 0:09:15.780054
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 04:10:00 IST)" was missed by 0:09:15.780127
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 05:20:00 IST)" was missed by 0:03:02.719250
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 05:15:00 IST)" was missed by 0:03:02.719532
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 05:20:00 IST)" was missed by 0:03:02.719591
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 05:14:00 IST)" was missed by 0:01:02.720105
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 05:15:00 IST)" was missed by 0:03:02.720223
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 05:15:00 IST)" was missed by 0:13:02.720259
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 05:32:00 IST)" was missed by 0:01:08.681343
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 05:35:00 IST)" was missed by 0:01:08.681612
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 05:45:00 IST)" was missed by 0:01:08.681728
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 05:35:00 IST)" was missed by 0:01:08.681829
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 05:40:00 IST)" was missed by 0:01:08.681897
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 05:40:00 IST)" was missed by 0:01:08.681948
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 07:04:00 IST)" was missed by 0:01:11.851542
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 07:05:00 IST)" was missed by 0:03:11.851682
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 07:05:00 IST)" was missed by 0:03:11.851752
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 07:10:00 IST)" was missed by 0:03:11.851794
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 07:10:00 IST)" was missed by 0:03:11.851880
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 07:15:00 IST)" was missed by 0:03:11.851913
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[hour='8', minute='0'], next run at: 2026-04-07 08:00:00 IST)" was missed by 0:05:51.919885
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 08:10:00 IST)" was missed by 0:00:51.920269
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 08:10:00 IST)" was missed by 0:05:51.920525
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[day_of_week='mon', hour='7', minute='30'], next run at: 2026-04-13 07:30:00 IST)" was missed by 0:35:51.920713
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 08:10:00 IST)" was missed by 0:00:51.920941
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 08:10:00 IST)" was missed by 0:05:51.921166
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 08:06:00 IST)" was missed by 0:01:51.921406
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 08:15:00 IST)" was missed by 0:05:51.921529
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 08:18:00 IST)" was missed by 0:01:00.711143
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 08:20:00 IST)" was missed by 0:07:00.711359
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 08:20:00 IST)" was missed by 0:02:00.711492
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 08:20:00 IST)" was missed by 0:07:00.711575
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 08:20:00 IST)" was missed by 0:02:00.711651
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 08:30:00 IST)" was missed by 0:02:00.711750
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 10:10:00 IST)" was missed by 0:00:02.069251
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 10:10:00 IST)" was missed by 0:08:02.069495
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 10:10:00 IST)" was missed by 0:03:02.069569
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 10:10:00 IST)" was missed by 0:08:02.069617
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 10:10:00 IST)" was missed by 0:03:02.069653
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 10:15:00 IST)" was missed by 0:08:02.069689
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:09:44.313577
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:04:44.313786
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:09:44.313840
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:01:44.313886
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:04:44.313913
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 13:00:00 IST)" was missed by 0:14:44.313939
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:10:00 IST)" was missed by 0:05:56.450422
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:10:00 IST)" was missed by 0:00:56.450761
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:10:00 IST)" was missed by 0:05:56.450867
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 13:15:00 IST)" was missed by 0:05:56.450959
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 13:06:00 IST)" was missed by 0:01:56.451019
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:10:00 IST)" was missed by 0:00:56.451074
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 13:28:00 IST)" was missed by 0:00:51.028322
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:30:00 IST)" was missed by 0:06:51.028446
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:30:00 IST)" was missed by 0:01:51.028486
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:30:00 IST)" was missed by 0:06:51.028508
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:30:00 IST)" was missed by 0:01:51.028524
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 13:30:00 IST)" was missed by 0:11:51.028555
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 13:32:00 IST)" was missed by 0:00:39.694129
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:40:00 IST)" was missed by 0:00:39.694481
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:35:00 IST)" was missed by 0:00:39.694668
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 13:40:00 IST)" was missed by 0:00:39.694795
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 13:45:00 IST)" was missed by 0:00:39.694869
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 13:35:00 IST)" was missed by 0:00:39.694932
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 14:12:00 IST)" was missed by 0:01:54.302188
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 14:15:00 IST)" was missed by 0:01:54.302381
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/5'], next run at: 2026-04-06 14:15:00 IST)" was missed by 0:01:54.302445
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 14:20:00 IST)" was missed by 0:01:54.302491
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/10'], next run at: 2026-04-06 14:20:00 IST)" was missed by 0:01:54.302539
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/15'], next run at: 2026-04-06 14:15:00 IST)" was missed by 0:11:54.302592
+Run time of job "_run_async.<locals>.wrapper (trigger: cron[minute='*/2'], next run at: 2026-04-06 14:16:00 IST)" was missed by 0:00:56.409402
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+Scheduled task error: ('invalid_request: Missing required parameter: refresh_token', {'error': 'invalid_request', 'error_description': 'Missing required parameter: refresh_token'})
+/bin/sh: line 1: 85846 Killed: 9               uvicorn app.main:app --host 0.0.0.0 --port 8003
+INFO:     Started server process [13443]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8003 (Press CTRL+C to quit)
+Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:05:00.004910', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:06:00.007665', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:08:00.010880', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 09:10:00.003970', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:10:00.005441', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:10:00.006397', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:12:00.006180', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:14:00.007650', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:15:00.009717', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 09:15:00.009219', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:root:check_replies skipped: [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2700)
+ERROR:app.workers.email_tasks:Gmail sent sync failed: [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2700)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:16:00.008467', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:18:00.008113', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 09:20:00.009857', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:20:00.012579', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:20:00.009336', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:22:00.006284', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:24:00.008305', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:25:00.009168', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:26:00.009886', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:28:00.005409', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:30:00.010038', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 09:30:00.019476', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 09:30:00.021567', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:30:00.017850', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:root:check_replies skipped: The read operation timed out
+ERROR:app.workers.email_tasks:Gmail sent sync failed: The read operation timed out
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:32:00.009521', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:34:00.008471', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:35:00.008430', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:36:00.010927', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:38:00.009379', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 09:40:00.008594', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:40:00.008999', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:40:00.003866', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:42:00.009175', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:44:00.004067', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 09:45:00.015585', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:45:00.016437', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:46:00.001600', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR:app.workers.email_tasks:Gmail sent sync failed: The read operation timed out
+WARNING:root:check_replies skipped: The read operation timed out
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:48:00.006910', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 09:50:00.018446', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:50:00.018754', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:50:00.017121', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:52:00.008867', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:54:00.006221', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 09:55:00.016371', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:56:00.009781', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 09:58:00.004037', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 10:00:00.012128', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:00:00.014830', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:00:00.016113', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 10:00:00.012996', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR:app.workers.email_tasks:Gmail sent sync failed: [SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC] decryption failed or bad record mac (_ssl.c:2700)
+WARNING:root:check_replies skipped: [SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC] decryption failed or bad record mac (_ssl.c:2700)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:02:00.002273', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:04:00.009689', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:05:00.012951', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:06:00.008748', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:08:00.011147', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 10:10:00.009716', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:10:00.015180', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:10:00.011194', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:12:00.017664', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:14:00.005408', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:15:00.018118', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 10:15:00.015506', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:16:00.013787', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+ERROR:app.workers.email_tasks:Gmail sent sync failed: The read operation timed out
+WARNING:root:check_replies skipped: The read operation timed out
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:18:00.021846', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:20:00.019355', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 10:20:00.013932', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:20:00.017132', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:22:00.010235', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:24:00.016415', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:25:00.020761', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:26:00.007411', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:28:00.015886', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_instagram_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'instagram', '2026-04-18 10:30:00.028070', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_linkedin_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'linkedin', '2026-04-18 10:30:00.026884', 10, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_whatsapp_queue failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'whatsapp', '2026-04-18 10:30:00.027402', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+WARNING:app.scheduler:Scheduled task process_scheduled_sends failed: (sqlite3.OperationalError) no such column: messages.delivered_at
+[SQL: SELECT messages.lead_id, messages.campaign_id, messages.enrollment_id, messages.channel, messages.direction, messages.template_id, messages.variant, messages.subject, messages.body, messages.status, messages.classification, messages.classification_confidence, messages.ai_suggested_reply, messages.external_id, messages.extra_data, messages.scheduled_at, messages.sent_at, messages.delivered_at, messages.read_at, messages.opened_at, messages.replied_at, messages.created_at, messages.id 
+FROM messages 
+WHERE messages.status = ? AND messages.channel = ? AND messages.scheduled_at <= ?
+ LIMIT ? OFFSET ?]
+[parameters: ('queued', 'email', '2026-04-18 10:30:00.021656', 20, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

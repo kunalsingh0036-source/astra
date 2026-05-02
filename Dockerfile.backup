@@ -1,0 +1,28 @@
+# Astra backup service — runs pg_dump → R2 once per day.
+#
+# Why a separate image (not the unified scheduler one):
+#   pg_dump's wire protocol is tied to the server major version. Our
+#   Postgres on Railway is 18; the Debian-trixie postgresql-client in
+#   the scheduler image is 15, which can dump from 18 with caveats.
+#   Cleaner to use the official postgres:18-alpine image which ships
+#   pg_dump 18 natively + tiny footprint (~85MB total).
+#
+# Build context: astra/ root (only needs scripts/backup-postgres.py).
+
+FROM postgres:18-alpine
+
+# Install python + boto3 for the R2 upload step. We use the alpine
+# system python via apk (avoiding the heavy pip toolchain).
+RUN apk add --no-cache python3 py3-pip ca-certificates \
+ && pip3 install --no-cache-dir --break-system-packages boto3 \
+ && rm -rf /var/cache/apk/*
+
+WORKDIR /app
+
+COPY scripts/backup-postgres.py /app/backup-postgres.py
+RUN chmod +x /app/backup-postgres.py
+
+# Default CMD = run once and exit. Railway's "Cron Schedule" service
+# config triggers a fresh container on each schedule fire; the
+# container runs CMD then exits. No long-lived process to manage.
+CMD ["python3", "/app/backup-postgres.py"]

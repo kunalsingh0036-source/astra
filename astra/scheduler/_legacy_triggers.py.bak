@@ -1,0 +1,39 @@
+"""
+Manual triggers for scheduled tasks.
+
+These allow Astra to fire tasks on-demand from conversation,
+rather than waiting for the Celery Beat schedule.
+
+Each returns a Celery AsyncResult ID that can be polled for status.
+"""
+
+from astra.scheduler.tasks import (
+    morning_briefing,
+    fleet_health_check,
+    run_memory_consolidation,
+    generate_cost_report,
+)
+
+
+def trigger_briefing() -> str:
+    """Trigger the morning briefing task now. Returns task ID."""
+    result = morning_briefing.delay()
+    return result.id
+
+
+def trigger_health_check() -> str:
+    """Trigger a fleet health check now. Returns task ID."""
+    result = fleet_health_check.delay()
+    return result.id
+
+
+def trigger_consolidation() -> str:
+    """Trigger memory consolidation now. Returns task ID."""
+    result = run_memory_consolidation.delay()
+    return result.id
+
+
+def trigger_cost_report() -> str:
+    """Trigger a cost report now. Returns task ID."""
+    result = generate_cost_report.delay()
+    return result.id

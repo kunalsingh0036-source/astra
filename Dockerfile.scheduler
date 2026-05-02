@@ -1,0 +1,68 @@
+# Astra scheduler — the always-on cron host.
+#
+# This image runs ONLY the scheduler service: APScheduler ticking
+# through the 20 registered jobs (briefings, calendar sync, share
+# pipeline, fleet health, research, etc). It does NOT serve HTTP;
+# stream + web are separate Railway services.
+#
+# Why a Dockerfile instead of Railway's nixpacks autodetect:
+#   - We want exact control over the Python version (3.12+ for
+#     PEP 695 generics in some of our typing) and the system
+#     packages whisper needs (ffmpeg) — even though whisper runs on
+#     the laptop satellite, the scheduler imports from the same
+#     codebase and a missing system lib would break import-time.
+#   - Reproducibility — same image locally and on Railway.
+#
+# Build context expectation: the astra/ project root.
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# System deps: psql client (for dump-restore-debug only), build tools
+# for asyncpg/sentence-transformers wheels that don't ship arm64 wheels
+# for every Python version.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        ca-certificates \
+        postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps first (layer-cached when only code changes)
+COPY pyproject.toml /app/pyproject.toml
+RUN pip install --upgrade pip setuptools wheel \
+ && pip install -e .
+
+# Now copy the source. We copy both the astra/ package AND services/
+# (which holds vendored stream code) so the SAME image can serve as
+# either the scheduler container OR the stream container — Railway
+# overrides via per-service Custom Start Command.
+COPY astra /app/astra
+COPY services /app/services
+COPY alembic.ini /app/alembic.ini
+
+# Migration entrypoint for the SCHEDULER role: waits for Postgres,
+# enables pgvector, runs alembic upgrade, then boots APScheduler.
+# Stream service does NOT run this — it overrides via Custom Start
+# Command so its container never tries to migrate (only one service
+# should hold the migration lock at a time).
+COPY scripts/scheduler-entrypoint.sh /app/scheduler-entrypoint.sh
+RUN chmod +x /app/scheduler-entrypoint.sh
+
+ENV PYTHONPATH=/app:/app/services
+
+# Default CMD = scheduler. Stream service overrides this in Railway
+# Settings → Deploy → Custom Start Command:
+#   sh -c 'cd /app && exec uvicorn stream.main:app --host 0.0.0.0 --port ${PORT:-8700}'
+# Note: stream.main imports `from stream.events ...` (bare top-level
+# `stream` package). To make that importable when the code is vendored
+# under /app/services/stream/, we add /app/services to PYTHONPATH.
+# Same change on the local dev side is unnecessary because the laptop
+# venv already has astra-stream/ on path via pip install -e ../.
+CMD ["/app/scheduler-entrypoint.sh"]

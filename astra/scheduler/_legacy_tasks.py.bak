@@ -1,0 +1,268 @@
+"""
+Celery tasks for Astra's proactive capabilities.
+
+Each task bridges sync Celery workers to Astra's async codebase via _run_async().
+Tasks are designed to be safe — they catch all exceptions and log rather than crash.
+
+Tasks:
+- morning_briefing: Generate a daily status summary
+- fleet_health_check: HTTP health check all services every 5 min
+- run_memory_consolidation: Nightly memory maintenance
+- generate_cost_report: Weekly API usage and cost summary
+"""
+
+import asyncio
+import logging
+from datetime import datetime, timezone
+
+from astra.scheduler.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+
+def _run_async(coro):
+    """Bridge: run an async coroutine in a sync Celery task.
+
+    Creates a fresh event loop per invocation. This is safe because
+    Celery workers are process-based, not sharing an event loop.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Morning Briefing
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="astra.scheduler.tasks.morning_briefing",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def morning_briefing(self):
+    """Generate a daily morning briefing for Kunal.
+
+    Gathers:
+    - Fleet service status (which agents are running)
+    - Memory stats (total memories, types)
+    - Any issues from the last 24 hours
+    Stores the briefing as an episodic memory.
+    """
+    logger.info("Generating morning briefing...")
+
+    async def _generate():
+        from astra.services.manager import service_manager
+        from astra.memory.consolidation import get_memory_stats
+        from astra.db.engine import async_session
+
+        # Fleet status
+        fleet = service_manager.status_all()
+        running = [s for s in fleet if s["status"] == "running"]
+        stopped = [s for s in fleet if s["status"] != "running"]
+
+        # Memory stats
+        async with async_session() as session:
+            mem_stats = await get_memory_stats(session)
+
+        # Build briefing
+        now = datetime.now(timezone.utc)
+        lines = [
+            f"Morning Briefing — {now.strftime('%A, %B %d %Y')}",
+            "",
+            f"Fleet: {len(running)}/{len(fleet)} services running",
+        ]
+        if stopped:
+            lines.append(f"  Stopped: {', '.join(s['name'] for s in stopped)}")
+        lines.extend([
+            "",
+            f"Memory: {mem_stats['total_memories']} memories stored",
+            f"  Types: {mem_stats['by_type']}",
+            f"  Avg importance: {mem_stats['avg_importance']}",
+        ])
+
+        briefing_text = "\n".join(lines)
+        logger.info(f"Briefing:\n{briefing_text}")
+
+        # Store as episodic memory
+        from astra.memory.store import store_memory
+        from astra.memory.models import MemoryType
+
+        async with async_session() as session:
+            await store_memory(
+                session=session,
+                content=briefing_text,
+                memory_type=MemoryType.EPISODIC,
+                source="scheduler",
+                tags="briefing,daily,proactive",
+                importance=0.4,
+            )
+
+        return briefing_text
+
+    try:
+        result = _run_async(_generate())
+        return {"status": "success", "briefing": result}
+    except Exception as e:
+        logger.error(f"Morning briefing failed: {e}")
+        raise self.retry(exc=e)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Fleet Health Check
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="astra.scheduler.tasks.fleet_health_check",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=30,
+)
+def fleet_health_check(self):
+    """Deep health check of all agent services.
+
+    Makes HTTP requests to each service's health endpoint.
+    Logs warnings for unhealthy services and stores memory of issues.
+    """
+    async def _check():
+        from astra.services.manager import service_manager
+
+        results = await service_manager.health_check_all()
+
+        healthy = [r for r in results if r["status"] == "healthy"]
+        unhealthy = [r for r in results if r["status"] == "unhealthy"]
+        stopped = [r for r in results if r["status"] == "stopped"]
+
+        summary = {
+            "healthy": len(healthy),
+            "unhealthy": len(unhealthy),
+            "stopped": len(stopped),
+            "total": len(results),
+            "details": results,
+        }
+
+        if unhealthy:
+            names = ", ".join(r["service"] for r in unhealthy)
+            logger.warning(f"Unhealthy services: {names}")
+
+            # Store a memory about the issue
+            from astra.memory.store import store_memory
+            from astra.memory.models import MemoryType
+            from astra.db.engine import async_session
+
+            async with async_session() as session:
+                await store_memory(
+                    session=session,
+                    content=f"Fleet health issue: {names} unhealthy at {datetime.now(timezone.utc).isoformat()}",
+                    memory_type=MemoryType.EPISODIC,
+                    source="scheduler",
+                    tags="health,alert,fleet",
+                    importance=0.7,
+                )
+        else:
+            logger.info(
+                f"Fleet health: {len(healthy)} healthy, "
+                f"{len(stopped)} stopped, all OK"
+            )
+
+        return summary
+
+    try:
+        return _run_async(_check())
+    except Exception as e:
+        logger.error(f"Fleet health check failed: {e}")
+        raise self.retry(exc=e)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Memory Consolidation
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="astra.scheduler.tasks.run_memory_consolidation",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=300,
+    time_limit=600,  # 10 minute timeout (summarization can be slow)
+)
+def run_memory_consolidation(self):
+    """Run the full memory consolidation pipeline.
+
+    Steps: prune working → decay importance → prune low importance →
+    merge duplicates → summarize old episodic clusters.
+    """
+    logger.info("Starting scheduled memory consolidation...")
+
+    async def _consolidate():
+        from astra.db.engine import async_session
+        from astra.memory.consolidation import run_full_consolidation
+
+        async with async_session() as session:
+            report = await run_full_consolidation(session)
+
+        return report
+
+    try:
+        report = _run_async(_consolidate())
+        logger.info(f"Consolidation complete: {report}")
+        return {"status": "success", "report": report}
+    except Exception as e:
+        logger.error(f"Memory consolidation failed: {e}")
+        raise self.retry(exc=e)
+
+
+# ---------------------------------------------------------------------------
+# Task 4: Weekly Cost Report
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="astra.scheduler.tasks.generate_cost_report",
+    bind=True,
+    max_retries=1,
+)
+def generate_cost_report(self):
+    """Generate a weekly report on API usage and costs.
+
+    Currently a stub — will be fleshed out once we add cost tracking
+    to the audit log (tracking which model was used, token counts).
+    """
+    logger.info("Generating weekly cost report...")
+
+    async def _report():
+        from astra.db.engine import async_session
+        from astra.memory.store import store_memory
+        from astra.memory.models import MemoryType
+
+        # Placeholder — in future, query audit_log for model usage
+        now = datetime.now(timezone.utc)
+        report_text = (
+            f"Weekly Cost Report — {now.strftime('%B %d, %Y')}\n"
+            f"Cost tracking not yet implemented. "
+            f"Will track per-model token usage from the audit log."
+        )
+
+        async with async_session() as session:
+            await store_memory(
+                session=session,
+                content=report_text,
+                memory_type=MemoryType.EPISODIC,
+                source="scheduler",
+                tags="cost,weekly,report",
+                importance=0.3,
+            )
+
+        return report_text
+
+    try:
+        result = _run_async(_report())
+        return {"status": "success", "report": result}
+    except Exception as e:
+        logger.error(f"Cost report failed: {e}")
+        return {"status": "error", "error": str(e)}

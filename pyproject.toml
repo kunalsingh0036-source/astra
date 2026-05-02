@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astra"
+version = "0.1.0"
+description = "Astra — Personal AI Agent Operating System"
+requires-python = ">=3.12"
+dependencies = [
+    # Agent runtime
+    "claude-agent-sdk>=0.1.0",
+    "anthropic>=0.50.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    # psycopg2-binary is needed by APScheduler's SQLAlchemyJobStore
+    # (it speaks SYNC SQLAlchemy only — asyncpg won't work there).
+    # Locally we have it transitively via sqlalchemy/alembic, but the
+    # slim Docker image doesn't pull it in.
+    "psycopg2-binary>=2.9.0",
+    "pgvector>=0.3.0",
+    "alembic>=1.14.0",
+
+    # Embeddings
+    "sentence-transformers>=3.0.0",
+
+    # Task queue
+    "celery[redis]>=5.4.0",
+    "redis>=5.0.0",
+
+    # Scheduling — APScheduler runs the cron loop. Not transitive
+    # via celery; was hand-installed locally and never declared.
+    # Without this, the scheduler container ImportErrors at boot.
+    "apscheduler>=3.10.0",
+
+    # API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets>=13.0",
+
+    # HTTP client
+    "httpx>=0.27.0",
+
+    # Content extraction (shares pipeline: PDFs + URLs)
+    "pypdf>=4.0.0",
+    "beautifulsoup4>=4.12.0",
+
+    # Calendar + email integrations (calendar_sync + gmail_watch_renew jobs)
+    "google-api-python-client>=2.100.0",
+    "google-auth>=2.30.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth-httplib2>=0.2.0",
+
+    # Web push (briefings + share-filed notifications)
+    "pywebpush>=2.0.0",
+
+    # Email-agent vendored deps: HTML parsing for Gmail body text
+    "lxml>=5.0.0",
+    # WhatsApp-gateway vendored: phone number normalization
+    "phonenumbers>=8.13.0",
+
+    # SSE for the stream service (deployed in Session 2 but shares the
+    # same image base; cheap to keep declared).
+    "sse-starlette>=2.0.0",
+
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    # tzdata: Python's zoneinfo on slim Linux images doesn't ship the
+    # tz database. APScheduler's CronTrigger(timezone="Asia/Kolkata")
+    # needs it to parse local times.
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+astra = "astra.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["astra*"]

@@ -1,0 +1,1143 @@
+"""
+Scheduled jobs for Astra — async implementations.
+
+Pure async functions that APScheduler invokes directly. No Celery, no
+subprocess pool, no C extensions — just Python coroutines on the same
+event loop as the main app.
+
+Each job is defensive: it catches all exceptions and logs rather than
+crashing the scheduler. A single failing job must never break the rest.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+
+async def morning_briefing() -> dict:
+    """Generate a daily status summary and store it as episodic memory.
+
+    Folds in today's Research Intel briefing (fired 30 min earlier at
+    07:00 IST) so the morning read shows the gist + top build /
+    subtract / urgency lines without having to click through.
+    """
+    from astra.services.manager import service_manager
+    from astra.memory.consolidation import get_memory_stats
+    from astra.memory.store import store_memory
+    from astra.memory.models import MemoryType
+    from astra.db.engine import async_session
+    from sqlalchemy import text
+    from datetime import timedelta
+
+    fleet = service_manager.status_all()
+    running = [s for s in fleet if s["status"] == "running"]
+    stopped = [s for s in fleet if s["status"] != "running"]
+
+    async with async_session() as session:
+        mem_stats = await get_memory_stats(session)
+
+    # Today's research — most recent briefing created within last 3h.
+    research_lines: list[str] = []
+    try:
+        since = datetime.now(timezone.utc) - timedelta(hours=3)
+        async with async_session() as session:
+            r = await session.execute(
+                text(
+                    """
+                    SELECT id, topic, status, body_md
+                    FROM research_briefings
+                    WHERE created_at >= :since
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"since": since},
+            )
+            row = r.first()
+        if row and row[2] == "ready":
+            research_lines = [
+                "",
+                f"Research Intel #{row[0]} — {row[1]}",
+                _extract_gist_and_top(row[3]),
+            ]
+        elif row:
+            research_lines = [
+                "",
+                f"Research Intel #{row[0]} — {row[1]} (status: {row[2]})",
+            ]
+    except Exception as e:
+        logger.warning("[morning] research fold-in failed: %s", e)
+
+    now = datetime.now(timezone.utc)
+    lines = [
+        f"Morning Briefing — {now.strftime('%A, %B %d %Y')}",
+        "",
+        f"Fleet: {len(running)}/{len(fleet)} services running",
+    ]
+    if stopped:
+        lines.append(f"  Stopped: {', '.join(s['name'] for s in stopped)}")
+    lines.extend([
+        "",
+        f"Memory: {mem_stats['total_memories']} memories stored",
+        f"  Types: {mem_stats['by_type']}",
+        f"  Avg importance: {mem_stats['avg_importance']}",
+    ])
+    lines.extend(research_lines)
+
+    briefing_text = "\n".join(lines)
+    logger.info("[scheduler] morning_briefing: %s", briefing_text.replace("\n", " | "))
+
+    async with async_session() as session:
+        await store_memory(
+            session=session,
+            content=briefing_text,
+            memory_type=MemoryType.EPISODIC,
+            source="scheduler",
+            tags="briefing,daily,proactive",
+            importance=0.4,
+        )
+
+    return {"status": "success", "briefing": briefing_text}
+
+
+def _extract_gist_and_top(body_md: str) -> str:
+    """Pull the gist line + first bullet from Build/Subtract/Urgent
+    sections. Graceful fallback to first 400 chars."""
+    if not body_md:
+        return ""
+    gist = ""
+    blocks: dict[str, list[str]] = {"Build": [], "Subtract": [], "Urgent": []}
+    current: str | None = None
+    for line in body_md.splitlines():
+        if line.startswith("**Gist.**"):
+            gist = line.replace("**Gist.**", "").strip()
+            continue
+        stripped = line.strip()
+        for header in blocks.keys():
+            if stripped == f"## {header}":
+                current = header
+                break
+        else:
+            if stripped.startswith("## "):
+                current = None
+            elif current and stripped.startswith("- ") and len(blocks[current]) < 1:
+                blocks[current].append(stripped[2:])
+    out: list[str] = []
+    if gist:
+        out.append(gist)
+    for h in ("Urgent", "Build", "Subtract"):
+        if blocks[h]:
+            out.append(f"  {h.lower()}: {blocks[h][0][:160]}")
+    return "\n".join(out) if out else body_md[:400]
+
+
+async def scheduler_self_check() -> dict:
+    """Every 5 min — verify the scheduler's own jobstore is healthy.
+
+    Reads `astra_scheduler_jobs` directly. Alerts if any job has a
+    NULL next_run_time (paused / never scheduled) or a next_run_time
+    more than 2× its interval in the past (stuck).
+
+    Closes the loop on tasks #19 / #30 / #31 (alerting requirement).
+    """
+    from sqlalchemy import text as _text
+    from astra.db.engine import async_session
+    from astra.memory.store import store_memory
+    from astra.memory.models import MemoryType
+    from astra.notifications import notify
+    import datetime as _dt
+
+    issues: list[str] = []
+    async with async_session() as s:
+        # Detect missing jobs (jobstore should have ~19; threshold 15)
+        r = await s.execute(_text(
+            "SELECT id, next_run_time FROM astra_scheduler_jobs ORDER BY id"
+        ))
+        rows = r.all()
+    if not rows:
+        msg = "scheduler jobstore empty — scheduler likely down"
+        issues.append(msg)
+    else:
+        now_ts = _dt.datetime.now(_dt.timezone.utc).timestamp()
+        for jid, nrt in rows:
+            if nrt is None:
+                issues.append(f"{jid}: next_run_time NULL (paused)")
+            elif nrt < now_ts - 1800:  # 30 min past due
+                overdue_min = (now_ts - nrt) / 60
+                issues.append(f"{jid}: overdue by {overdue_min:.0f}m")
+
+    if issues:
+        body = "Scheduler health alert:\n" + "\n".join(f"  · {i}" for i in issues[:8])
+        logger.warning("[scheduler-self-check] %s", body.replace("\n", " | "))
+        async with async_session() as session:
+            await store_memory(
+                session=session,
+                content=body,
+                memory_type=MemoryType.EPISODIC,
+                source="scheduler",
+                tags="alert,scheduler,health",
+                importance=0.75,
+            )
+        notify(
+            title="astra · scheduler issue",
+            body=f"{len(issues)} scheduler problem(s) — see briefing",
+            url="/today",
+            tag="scheduler-alert",
+        )
+        return {"status": "alert", "issues": issues}
+    return {"status": "ok", "job_count": len(rows)}
+
+
+async def run_scheduler_self_check():
+    return await _safe("scheduler_self_check", scheduler_self_check)
+
+
+# ── External uptime heartbeat (BetterStack) ───────────────────────
+
+
+async def betterstack_heartbeat() -> dict:
+    """Ping BetterStack's heartbeat URL so an external watcher knows
+    the scheduler is alive.
+
+    Why an external watcher: scheduler_self_check is internal (it runs
+    inside the scheduler's own process). If the scheduler is dead, it
+    can't tell anyone. BetterStack's heartbeat model inverts that:
+    BetterStack expects a periodic GET; if N+grace seconds pass without
+    one, it pages Kunal. So a dead scheduler = a missed ping = an alert.
+
+    Configured via the BETTERSTACK_HEARTBEAT_URL env var; if unset,
+    this job is a silent no-op (lets dev mode run without a paid
+    monitoring relationship).
+    """
+    import os
+
+    url = os.environ.get("BETTERSTACK_HEARTBEAT_URL", "").strip()
+    if not url:
+        return {"status": "skipped", "reason": "BETTERSTACK_HEARTBEAT_URL not set"}
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+        return {"status": "pinged", "code": r.status_code}
+    except Exception as e:
+        # Don't raise — a heartbeat ping that fails should not crash the
+        # scheduler. The whole point is to detect THAT crash separately.
+        logger.warning("[scheduler] betterstack heartbeat failed: %s", e)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+async def run_betterstack_heartbeat():
+    return await _safe("betterstack_heartbeat", betterstack_heartbeat)
+
+
+async def fleet_health_check() -> dict:
+    """Probe every service; log and remember any unhealthy ones."""
+    from astra.services.manager import service_manager
+    from astra.memory.store import store_memory
+    from astra.memory.models import MemoryType
+    from astra.db.engine import async_session
+
+    results = await service_manager.health_check_all()
+    healthy = [r for r in results if r["status"] == "healthy"]
+    unhealthy = [r for r in results if r["status"] == "unhealthy"]
+    stopped = [r for r in results if r["status"] == "stopped"]
+
+    summary = {
+        "healthy": len(healthy),
+        "unhealthy": len(unhealthy),
+        "stopped": len(stopped),
+        "total": len(results),
+    }
+
+    if unhealthy:
+        names = ", ".join(r["service"] for r in unhealthy)
+        logger.warning("[scheduler] fleet_health: unhealthy → %s", names)
+        async with async_session() as session:
+            await store_memory(
+                session=session,
+                content=(
+                    f"Fleet health issue: {names} unhealthy at "
+                    f"{datetime.now(timezone.utc).isoformat()}"
+                ),
+                memory_type=MemoryType.EPISODIC,
+                source="scheduler",
+                tags="health,alert,fleet",
+                importance=0.7,
+            )
+    else:
+        logger.info(
+            "[scheduler] fleet_health: %d healthy, %d stopped, all OK",
+            len(healthy), len(stopped),
+        )
+
+    return summary
+
+
+async def memory_consolidation() -> dict:
+    """Nightly: prune, decay, merge, summarize old memories."""
+    from astra.db.engine import async_session
+    from astra.memory.consolidation import run_full_consolidation
+
+    async with async_session() as session:
+        report = await run_full_consolidation(session)
+
+    logger.info("[scheduler] consolidation: %s", report)
+    return {"status": "success", "report": report}
+
+
+async def gmail_watch_renew() -> dict:
+    """Renew Gmail push notification watch before it expires (7d cycle)."""
+    import httpx
+
+    # email-agent exposes the watch renewal at /api/v1/webhook/gmail/watch
+    email_url = "http://localhost:8005/api/v1/webhook/gmail/watch"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(email_url)
+            if resp.status_code != 200:
+                logger.warning("[scheduler] gmail_watch_renew failed: %s", resp.status_code)
+                return {"status": "error", "code": resp.status_code}
+            body = resp.json()
+            logger.info("[scheduler] gmail_watch_renew: %s", body)
+            return {"status": "success", "body": body}
+    except Exception as e:
+        logger.error("[scheduler] gmail_watch_renew error: %s", e)
+        return {"status": "error", "error": str(e)}
+
+
+async def cost_report() -> dict:
+    """Weekly: write a cost-tracking memo. Placeholder until usage logging lands."""
+    from astra.db.engine import async_session
+    from astra.memory.store import store_memory
+    from astra.memory.models import MemoryType
+
+    now = datetime.now(timezone.utc)
+    text = (
+        f"Weekly Cost Report — {now.strftime('%B %d, %Y')}\n"
+        f"Cost tracking not yet implemented. Will track per-model token "
+        f"usage from the audit log."
+    )
+
+    async with async_session() as session:
+        await store_memory(
+            session=session,
+            content=text,
+            memory_type=MemoryType.EPISODIC,
+            source="scheduler",
+            tags="cost,weekly,report",
+            importance=0.3,
+        )
+
+    return {"status": "success", "report": text}
+
+
+async def notes_sync() -> dict:
+    """Pull the latest from Apple Notes into the `apple_notes` mirror.
+
+    Incremental: only notes whose modification date changed are
+    re-fetched. Typical run: <2s for no-op, 10–30s on a full re-sync.
+    """
+    from astra.notes.harvester import sync_all
+
+    report = await sync_all(force=False)
+    logger.info(
+        "[scheduler] notes_sync: %d seen, +%d new, ~%d updated in %dms",
+        report.total_notes_seen,
+        report.new_notes,
+        report.updated_notes,
+        report.elapsed_ms,
+    )
+    return {
+        "status": "success",
+        "seen": report.total_notes_seen,
+        "new": report.new_notes,
+        "updated": report.updated_notes,
+        "failed": report.failed_notes,
+        "elapsed_ms": report.elapsed_ms,
+    }
+
+
+async def missed_session_snapshot() -> dict:
+    """Daily snapshot of Kunal's missed-session counters from the
+    "Kunal" Apple Note.
+
+    Idempotent per UTC day — re-runs update the same row, so a
+    mid-day catch-up after Saturday training reflects in the debt
+    numbers without waiting for tomorrow. After ~7 consecutive runs
+    the evening briefing gains a real week-over-week trendline.
+    """
+    from astra.notes.harvester import sync_all
+    from astra.notes.missed_sessions import snapshot_today
+
+    # Make sure the note mirror is fresh before parsing.
+    try:
+        await sync_all(force=False)
+    except Exception as e:
+        logger.warning("[scheduler] notes pre-sync failed: %s", e)
+
+    result = await snapshot_today()
+    logger.info("[scheduler] missed_session_snapshot: %s", result)
+    return result
+
+
+async def evening_briefing() -> dict:
+    """22:00 IST daily briefing — the two-section end-of-day report.
+
+    Section 1: what we did today (measured against Kunal's compass).
+    Section 2: what we're setting out to achieve tomorrow.
+
+    Data sources:
+      - Gmail: today's sent + received (via email-agent)
+      - Tasks: completed + opened today (via astra DB)
+      - Agent activity: usage_events turns today
+      - Memory: anything important filed today
+      - Compass: loaded from ~/.claude/.../memory/kunal_compass.md
+
+    Output:
+      - Stored as episodic memory (tag: briefing,evening,proactive)
+      - Emailed to kunalsingh0036@gmail.com
+      - Available at /briefing in astra-web
+    """
+    from datetime import datetime, timedelta, timezone
+
+    import httpx
+    from sqlalchemy import text
+
+    from astra.db.engine import async_session
+    from astra.memory.models import MemoryType
+    from astra.memory.store import store_memory
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist)
+    today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = today_start_ist.astimezone(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+
+    # ── gather: tasks ──────────────────────────────────────
+    tasks_done: list[dict] = []
+    tasks_open: list[dict] = []
+    async with async_session() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT id, title, note, status, priority, completed_at, created_at
+                FROM tasks
+                WHERE completed_at >= :since
+                   OR (status = 'open' AND created_at >= :since)
+                ORDER BY COALESCE(completed_at, created_at) DESC
+                LIMIT 50
+                """
+            ),
+            {"since": today_start_utc},
+        )
+        for r in rows.all():
+            row = {
+                "id": r[0],
+                "title": r[1],
+                "note": r[2] or "",
+                "status": r[3],
+                "priority": r[4],
+                "completed_at": r[5].isoformat() if r[5] else None,
+                "created_at": r[6].isoformat() if r[6] else None,
+            }
+            (tasks_done if row["status"] == "done" else tasks_open).append(row)
+
+        # Also get open-high-priority tasks (regardless of age) so tomorrow
+        # knows what's overdue / pending.
+        rows = await session.execute(
+            text(
+                """
+                SELECT id, title, priority, due_at, created_at
+                FROM tasks
+                WHERE status = 'open' AND priority >= 2
+                ORDER BY COALESCE(due_at, created_at) ASC
+                LIMIT 10
+                """
+            )
+        )
+        high_pri_open = [
+            {
+                "id": r[0],
+                "title": r[1],
+                "priority": r[2],
+                "due_at": r[3].isoformat() if r[3] else None,
+            }
+            for r in rows.all()
+        ]
+
+        # ── gather: agent usage ──────────────────────────────
+        usage_row = await session.execute(
+            text(
+                """
+                SELECT COUNT(*), COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0),
+                       COALESCE(SUM(output_tokens), 0)
+                FROM usage_events WHERE ts >= :since
+                """
+            ),
+            {"since": today_start_utc},
+        )
+        uc = usage_row.one()
+        usage_today = {
+            "turns": int(uc[0] or 0),
+            "cost_usd": float(uc[1] or 0),
+            "input_tokens": int(uc[2] or 0),
+            "output_tokens": int(uc[3] or 0),
+        }
+
+        # ── gather: memories written today ──────────────────
+        mem_rows = await session.execute(
+            text(
+                """
+                SELECT content, memory_type::text, tags, importance
+                FROM memories WHERE created_at >= :since
+                ORDER BY importance DESC LIMIT 12
+                """
+            ),
+            {"since": today_start_utc},
+        )
+        memories_today = [
+            {
+                "content": r[0],
+                "type": r[1],
+                "tags": r[2],
+                "importance": float(r[3] or 0),
+            }
+            for r in mem_rows.all()
+        ]
+
+    # ── gather: email digest + unanswered ────────────────
+    # Briefings need a real read on the inbox, not just a counter.
+    # The astra.email module filters out noreply noise, surfaces
+    # unanswered threads, and returns notable subjects with senders.
+    email_summary: dict = {}
+    try:
+        from astra.email.signals import daily_digest, unanswered_incoming
+
+        digest = await daily_digest(window_hours=24)
+        unanswered = (await unanswered_incoming(days=14))[:8]
+        email_summary = {
+            "digest_24h": digest,
+            "unanswered_14d_top8": unanswered,
+        }
+    except Exception as e:
+        logger.warning("[scheduler] email signal gather failed: %s", e)
+        # Fall back to the raw summary counter if the signal pipe
+        # is down — better than nothing.
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(
+                    "http://localhost:8005/api/v1/messages/summary"
+                )
+                if r.status_code == 200:
+                    email_summary = {"raw_summary": r.json()}
+        except Exception:
+            pass
+
+    # ── ingest catch-up reply BEFORE notes gather ──────────
+    # The 21:30 prompt (astra · catch-up) asks Kunal what he got
+    # done today. If he replied in the 30 minutes between 21:30 and
+    # 22:00, ingest now so the writeback runs and the counters we
+    # read below are already decremented. Idempotent by reply id.
+    catchup_result: dict = {"status": "not_run"}
+    try:
+        from astra.scheduler.catchup import ingest_latest_reply
+
+        catchup_result = await ingest_latest_reply()
+        logger.info("[scheduler] evening catchup ingest: %s", catchup_result)
+    except Exception as e:
+        logger.warning("[scheduler] catchup ingest failed: %s", e)
+        catchup_result = {"status": "error", "error": str(e)}
+
+    # ── gather: Apple Notes signals ────────────────────────
+    # The "Kunal" note is the training log; other recent edits
+    # surface what Kunal has been thinking about today.
+    notes_signal: dict = {
+        "training_log_excerpt": "",
+        "recent_edits": [],
+        "missed_sessions": None,
+        "catchup_tonight": catchup_result,
+    }
+    try:
+        from astra.notes.store import list_notes, search_notes
+
+        kunal_hits = await search_notes("Kunal", limit=1)
+        if kunal_hits:
+            notes_signal["training_log_excerpt"] = kunal_hits[0].get(
+                "body_text", ""
+            )[:800]
+
+        # Notes edited today (based on modified_at_native).
+        recent = await list_notes(limit=10, min_chars=20)
+        edited_today = [
+            n
+            for n in recent
+            if n.get("modified_at_native")
+            and n["modified_at_native"] >= today_start_utc.isoformat()
+        ]
+        notes_signal["recent_edits"] = [
+            {
+                "title": n["title"],
+                "folder": n["folder"],
+                "chars": n["char_count"],
+                "modified": n["modified_at_native"],
+                "preview": (n.get("body_text") or "")[:240],
+            }
+            for n in edited_today
+        ]
+
+        # Missed-session trendline — today's debt + week-over-week
+        # delta + direction per type. After ~7 daily snapshots the
+        # direction dict has real "gap closed / gap grew / flat"
+        # values; before then the briefing should say it's still
+        # collecting baseline.
+        try:
+            from astra.notes.missed_sessions import trend, snapshot_today
+
+            # Refresh today's row so this evening's catch-up training
+            # is reflected before we diff.
+            await snapshot_today()
+            trend_data = await trend(days=14)
+            notes_signal["missed_sessions"] = {
+                "today": trend_data["today"],
+                "week_ago": trend_data["week_ago"],
+                "wow_delta": trend_data["wow_delta"],
+                "direction": trend_data["direction"],
+                "baseline_days_collected": len(trend_data["series"]),
+            }
+        except Exception as e:
+            logger.warning("[scheduler] missed-session trend gather failed: %s", e)
+    except Exception as e:
+        logger.warning("[scheduler] notes signal gather failed: %s", e)
+
+    # ── gather: calendar events (today + tomorrow) ────────
+    # The briefing's core purpose is "tomorrow's game plan" — without
+    # real calendar data we were flying blind on the work window.
+    calendar_signal: dict = {
+        "today_events": [],
+        "tomorrow_events": [],
+        "authorized": False,
+    }
+    try:
+        from astra.calendar.client import is_authorized
+        from astra.calendar.store import (
+            list_events_today,
+            list_events_tomorrow,
+        )
+
+        calendar_signal["authorized"] = is_authorized()
+        if calendar_signal["authorized"]:
+            today_ev = await list_events_today()
+            tomorrow_ev = await list_events_tomorrow()
+            # Trim for prompt length — drop description if long, keep
+            # the things a briefing needs: title, time, attendees, meet.
+            def _trim(ev: dict) -> dict:
+                return {
+                    "summary": ev.get("summary", ""),
+                    "start_at": ev.get("start_at"),
+                    "end_at": ev.get("end_at"),
+                    "is_all_day": ev.get("is_all_day"),
+                    "tz": ev.get("tz"),
+                    "location": ev.get("location", ""),
+                    "meet_link": ev.get("meet_link", ""),
+                    "attendees": [
+                        a.get("email") for a in (ev.get("attendees") or [])
+                    ][:12],
+                    "organizer_email": ev.get("organizer_email", ""),
+                }
+
+            calendar_signal["today_events"] = [_trim(e) for e in today_ev]
+            calendar_signal["tomorrow_events"] = [_trim(e) for e in tomorrow_ev]
+    except Exception as e:
+        logger.warning("[scheduler] calendar signal gather failed: %s", e)
+
+    # ── load compass from memory file ──────────────────────
+    compass_text = ""
+    try:
+        from pathlib import Path
+
+        compass_path = Path(
+            "/Users/kunalsingh/.claude/projects/"
+            "-Users-kunalsingh-Claude-Code/memory/kunal_compass.md"
+        )
+        if compass_path.exists():
+            compass_text = compass_path.read_text()
+    except Exception:
+        pass
+
+    # ── synthesize with Claude ─────────────────────────────
+    # Resolve the API key robustly: Claude Code harness + `astra up`
+    # can pass an empty ANTHROPIC_API_KEY down to child processes which
+    # pydantic-settings then prefers over the .env file. Fall back to
+    # reading .env directly when settings/env are both empty.
+    import os as _os
+    from pathlib import Path as _Path
+
+    from astra.config import settings as astra_settings
+    import anthropic
+
+    api_key = astra_settings.anthropic_api_key or _os.environ.get(
+        "ANTHROPIC_API_KEY", ""
+    )
+    if not api_key:
+        try:
+            env_path = _Path(__file__).resolve().parents[2] / ".env"
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    if line.startswith("ANTHROPIC_API_KEY="):
+                        api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        except Exception:
+            pass
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+
+    signal = {
+        "date_ist": now_ist.strftime("%A, %B %d %Y"),
+        "tasks_done_today": tasks_done,
+        "tasks_created_today": tasks_open,
+        "open_high_priority": high_pri_open,
+        "agent_activity": usage_today,
+        "memories_written_today": memories_today,
+        "email_summary": email_summary,
+        "notes_signal": notes_signal,
+        "calendar_signal": calendar_signal,
+    }
+
+    prompt = f"""You are Astra, Kunal's personal AI agent. Tonight is {now_ist.strftime('%A %d %b %Y')} at 22:00 IST.
+
+Write Kunal's end-of-day briefing. Exactly two sections, italic-serif voice, short declarative sentences. Competent peer, not assistant. Lead with specifics.
+
+SECTION 1 — "What we did today"
+SECTION 2 — "What we're setting out to achieve tomorrow"
+
+Measure against the compass below: every point should advance Kunal's three ambitions (top AI person, Olympic gold in squash, tech decision-maker for India) or one of the four businesses (HelmTech, Apex, Bay, Top Studios) or directly supports the interlocks between them.
+
+Tomorrow's plan must respect Kunal's schedule:
+- 05:30–13:00 and 18:00–20:30: training (untouchable)
+- 13:00–18:00: the only work window for meetings
+- Default meeting time: 13:30–17:30 IST
+
+CALENDAR (`calendar_signal`):
+  - If `authorized=false`: the calendar integration exists but Kunal
+    hasn't completed the OAuth consent yet. Briefly note this at the
+    end: "Calendar not connected — run the one-time consent when you
+    get a minute so tomorrow's brief can see your schedule." Do NOT
+    block the brief on this.
+  - If `authorized=true`: `tomorrow_events` is a list of {{summary,
+    start_at (UTC ISO), is_all_day, location, meet_link, attendees,
+    organizer_email}}. Convert start_at to IST when narrating. For
+    each event tomorrow in the 13:00–18:00 work window, name it with
+    its time (e.g. "14:30 — Investor call with Ankur (Meet link)").
+    If there's a training-block conflict (event starts before 13:00
+    or after 18:00 IST), flag it: "14 conflicts: 09:00 event overlaps
+    with your movement block."
+  - `today_events` already happened — use sparingly, mainly to
+    acknowledge completed meetings in the "what we did today" section.
+
+CRITICAL — reading the "Kunal" training log in Apple Notes:
+  The numbers in the training log (Stretch 311, Meditate 317, Breathe 205,
+  Movement 203, Skill 178, Workout 178) are MISSED sessions, not completed
+  ones. They represent a DEBT COUNTER that Saturday and Sunday catch-up
+  days are meant to retire. A decreasing count = recovery on schedule;
+  a rising count = the compass is slipping. NEVER describe these as
+  "sessions done" or as volume achieved.
+
+If `notes_signal.missed_sessions.wow_delta` is present, report week-over-week
+movement per type in plain language — e.g. "Stretch down 7, Meditate flat,
+Skill up 3 — three types closing gap, one growing." If `wow_delta` is null
+(baseline still being collected, typical for the first week), say so briefly:
+"Baseline still collecting — N of 7 days in. Real trend next week."
+The `direction` dict maps each type to "gap closed" / "gap grew" / "flat".
+When you have it, use those words.
+
+TONIGHT'S CATCH-UP — `notes_signal.catchup_tonight`:
+  - status="applied": Kunal replied to the 21:30 prompt and the Kunal-note
+    counters were decremented. Narrate it plainly — e.g. "Catch-up tonight:
+    +2h meditate, +1h workout. Meditate debt 317 → 315, workout 178 → 177."
+    Use the `applied` dict for per-type sessions credited and the `before`
+    / `after` dicts for the exact numbers.
+  - status="no_reply": Kunal didn't reply by 22:00. Say so without
+    scolding — "No catch-up reply tonight; Saturday's window still open."
+  - status="parsed_empty": he replied but with no hours logged. Treat
+    the same as no_reply.
+  - status="error" / "not_run": skip this section silently.
+
+EMAIL (`email_summary`):
+  - `digest_24h` contains today's inbound snapshot AFTER filtering out
+    noreply/newsletter/bank-alert noise. `real_inbound` is the count
+    that actually matters; `unread` and `action_needed` are subsets.
+    `notable` is up to 10 items with `from`, `subject`, `snippet`.
+  - `unanswered_14d_top8` is messages from real humans with no reply
+    from Kunal since. Each has `age_hours` + `action_needed`. If the
+    list is non-empty, name the top 2-3 in tomorrow's plan — e.g.
+    "Owed tomorrow: reply to Ankur (72h since pre-seed question),
+    reply to Chinmay (36h since MCP review)."
+  - If both are empty, inbox is clean — say that explicitly, don't
+    pad.
+
+Don't invent activity. If the signal is thin ("no meaningful activity logged today"), say so honestly and still propose tomorrow's focus from the compass and open high-priority tasks.
+
+Rules:
+- No filler. No "I hope this helps."
+- No exclamation marks.
+- No emoji.
+- Use specific numbers, names, and amounts when you have them.
+- Keep the whole brief under ~400 words.
+
+<compass>
+{compass_text[:8000] if compass_text else "(compass not loaded)"}
+</compass>
+
+<today_signal>
+{signal}
+</today_signal>
+
+Write the briefing now."""
+
+    try:
+        response = await client.messages.create(
+            model=astra_settings.model_sonnet,
+            max_tokens=1600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        brief_md = "\n\n".join(
+            block.text for block in response.content if hasattr(block, "text")
+        ).strip()
+    except Exception as e:
+        logger.exception("[scheduler] evening_briefing synthesis failed: %s", e)
+        brief_md = (
+            f"Evening briefing — {now_ist.strftime('%A %d %b %Y')}\n\n"
+            "Synthesis failed. Raw signal:\n"
+            f"- Tasks done: {len(tasks_done)}\n"
+            f"- Agent turns: {usage_today['turns']} · ${usage_today['cost_usd']:.2f}\n"
+            f"- Memories written: {len(memories_today)}"
+        )
+
+    # ── persist as memory ──────────────────────────────────
+    async with async_session() as session:
+        await store_memory(
+            session=session,
+            content=brief_md,
+            memory_type=MemoryType.EPISODIC,
+            source="scheduler",
+            tags="briefing,evening,proactive,daily",
+            importance=0.55,
+        )
+
+    # ── primary: macOS notification ────────────────────────
+    # The brief lives on /briefing in the web app; the notification
+    # pulls Kunal there (URL on clipboard for cmd+V).
+    channel = (astra_settings.briefing_channel or "notification").lower()
+    briefing_url = (
+        astra_settings.astra_web_base_url.rstrip("/") + "/briefing"
+    )
+    notify_ok = False
+    try:
+        from astra.notifications import notify as _notify
+
+        # One-liner preview from the first non-empty line of the brief
+        # (usually the date header). Kept tight so macOS doesn't clip.
+        first_line = next(
+            (ln.strip() for ln in brief_md.splitlines() if ln.strip()),
+            "briefing ready",
+        )
+        notify_ok = _notify(
+            title="astra · evening brief",
+            subtitle=now_ist.strftime("%a %d %b"),
+            body=first_line[:180],
+            url=briefing_url,
+        )
+    except Exception as e:
+        logger.warning("[scheduler] evening notify failed: %s", e)
+
+    # ── secondary: email (opt-in via channel) ──────────────
+    send_result = None
+    if channel in ("email", "both"):
+        try:
+            subject = f"astra · evening brief · {now_ist.strftime('%a %d %b')}"
+            async with httpx.AsyncClient(timeout=15) as client2:
+                r = await client2.post(
+                    "http://localhost:8005/api/v1/messages/send",
+                    json={
+                        "to": ["kunalsingh0036@gmail.com"],
+                        "cc": [],
+                        "bcc": [],
+                        "subject": subject,
+                        "body": brief_md,
+                    },
+                )
+                if r.status_code == 200:
+                    send_result = r.json()
+                    logger.info("[scheduler] evening_briefing sent: %s", send_result)
+                else:
+                    logger.warning(
+                        "[scheduler] evening_briefing email failed: %s %s",
+                        r.status_code,
+                        r.text[:200],
+                    )
+        except Exception as e:
+            logger.exception("[scheduler] evening_briefing email error: %s", e)
+
+    return {
+        "status": "success",
+        "channel": channel,
+        "notify_ok": notify_ok,
+        "brief_preview": brief_md[:300],
+        "sent": send_result,
+        "signal_summary": {
+            "tasks_done": len(tasks_done),
+            "agent_turns": usage_today["turns"],
+            "memories_written": len(memories_today),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Safe wrappers — what the scheduler actually calls.
+# ---------------------------------------------------------------------------
+
+async def _safe(name: str, fn):
+    """Run a job, catching + logging all exceptions so one bad job never
+    takes down the scheduler loop."""
+    try:
+        return await fn()
+    except Exception as e:
+        logger.exception("[scheduler] job %s crashed: %s", name, e)
+        return {"status": "error", "error": str(e)}
+
+
+async def run_morning_briefing():
+    return await _safe("morning_briefing", morning_briefing)
+
+
+async def run_evening_briefing():
+    return await _safe("evening_briefing", evening_briefing)
+
+
+async def run_notes_sync():
+    return await _safe("notes_sync", notes_sync)
+
+
+async def run_missed_session_snapshot():
+    return await _safe("missed_session_snapshot", missed_session_snapshot)
+
+
+async def run_fleet_health_check():
+    return await _safe("fleet_health_check", fleet_health_check)
+
+
+async def run_memory_consolidation():
+    return await _safe("memory_consolidation", memory_consolidation)
+
+
+async def run_gmail_watch_renew():
+    return await _safe("gmail_watch_renew", gmail_watch_renew)
+
+
+async def run_cost_report():
+    return await _safe("cost_report", cost_report)
+
+
+async def run_training_catchup_prompt():
+    """21:30 IST — send Kunal the catch-up check-in email."""
+    from astra.scheduler.catchup import training_catchup_prompt as _tcp
+
+    return await _safe("training_catchup_prompt", _tcp)
+
+
+async def run_apply_approved_catchups():
+    """Every 60s — pick up any 'approved' catchup_approvals rows and
+    write them to the Kunal Apple Note."""
+    from astra.scheduler.catchup import apply_approved_catchups as _apply
+
+    return await _safe("apply_approved_catchups", _apply)
+
+
+async def calendar_sync() -> dict:
+    """Pull the 14-day Google Calendar window into calendar_events."""
+    from astra.calendar.harvester import sync_all
+
+    report = await sync_all()
+    logger.info(
+        "[scheduler] calendar_sync: %d seen, %d upserted, %d cancelled in %dms",
+        report.get("total_seen", 0),
+        report.get("upserted", 0),
+        report.get("cancelled", 0),
+        report.get("elapsed_ms", 0),
+    )
+    return report
+
+
+async def run_calendar_sync():
+    return await _safe("calendar_sync", calendar_sync)
+
+
+async def run_apply_approved_events():
+    """Every 60s — pick up approved calendar_event_proposals rows and
+    POST them to Google Calendar via the events API."""
+    from astra.calendar.writeback import apply_approved_proposals
+
+    return await _safe("apply_approved_events", apply_approved_proposals)
+
+
+async def run_meetings_pipeline():
+    """Every 30s — scan ~/Astra/recordings for new audio files and
+    advance any pending meeting rows (detect → transcribe → summarize)."""
+    from astra.meetings.pipeline import scan_and_process
+
+    return await _safe("meetings_pipeline", scan_and_process)
+
+
+async def run_meeting_capture_trigger():
+    """Every 60s — schedule/start/stop calendar-triggered captures."""
+    from astra.meetings.calendar_trigger import tick
+
+    return await _safe("meeting_capture_trigger", tick)
+
+
+async def run_daily_research():
+    """07:00 IST daily — Research Intel runs today's rotating topic.
+
+    Saturday routes through meta_review instead (deeper self-audit).
+    Sunday uses the standard runner but on the Sunday open-research slot.
+    """
+    from datetime import datetime, timedelta, timezone
+    ist = timezone(timedelta(hours=5, minutes=30))
+    weekday = datetime.now(ist).weekday()
+
+    if weekday == 5:  # Saturday
+        from astra.research.meta_review import run_meta_review
+        return await _safe("research_meta_review", run_meta_review)
+
+    from astra.research.runner import run_scheduled_daily
+    return await _safe("research_scheduled_daily", run_scheduled_daily)
+
+
+async def inbox_preview() -> dict:
+    """12:45 IST — lands 15 min before the 13:00 work window.
+
+    Emits a macOS notification pointing at /email with a one-line
+    summary of what's actually worth opening. Stores the digest +
+    unanswered list as an episodic memory so the evening briefing
+    (and Astra Core via MCP) can reference it.
+    """
+    from astra.email.signals import daily_digest, unanswered_incoming
+    from astra.memory.models import MemoryType
+    from astra.memory.store import store_memory
+    from astra.db.engine import async_session
+    from astra.notifications import notify
+    from astra.config import settings as astra_settings
+
+    digest = await daily_digest(window_hours=24)
+    unanswered = await unanswered_incoming(days=14)
+
+    # Compose the memory body — dense but readable.
+    lines = [
+        f"Inbox preview · last 24h · {digest.get('real_inbound', 0)} real inbound",
+        f"  unread: {digest.get('unread', 0)} · action_needed: {digest.get('action_needed', 0)}",
+        f"  filtered noise: {digest.get('noise_count', 0)}",
+    ]
+    if digest.get("notable"):
+        lines.append("")
+        lines.append("Notable today:")
+        for m in digest["notable"][:6]:
+            flag = "!" if m["action_needed"] else "•"
+            lines.append(f"  {flag} {m['from'][:40]} — {m['subject'][:80]}")
+
+    if unanswered:
+        lines.append("")
+        lines.append(f"Unanswered humans (top {min(5, len(unanswered))}):")
+        for m in unanswered[:5]:
+            lines.append(
+                f"  {m['age_hours']:>5.1f}h  {m['from'][:40]}  —  {m['subject'][:70]}"
+            )
+
+    body_md = "\n".join(lines)
+    logger.info("[scheduler] inbox_preview: %s", body_md.replace("\n", " | ")[:300])
+
+    async with async_session() as s:
+        await store_memory(
+            session=s,
+            content=body_md,
+            memory_type=MemoryType.EPISODIC,
+            source="scheduler",
+            tags="email,preview,proactive,daily",
+            importance=0.45,
+        )
+
+    # Notification headline — what most deserves Kunal's first click.
+    if unanswered:
+        top = unanswered[0]
+        head = f"Owed: {top['from'][:36]} · {top['age_hours']:.0f}h"
+    elif digest.get("action_needed", 0):
+        head = f"{digest['action_needed']} action-needed · open /email"
+    elif digest.get("unread", 0):
+        head = f"{digest['unread']} unread (no action flagged)"
+    else:
+        head = "inbox clean"
+
+    base = astra_settings.astra_web_base_url.rstrip("/")
+    notify(
+        title="astra · inbox",
+        subtitle="13:00 work window",
+        body=head[:180],
+        url=f"{base}/email",
+    )
+
+    return {
+        "status": "success",
+        "real_inbound_24h": digest.get("real_inbound", 0),
+        "unanswered_count": len(unanswered),
+        "notification_headline": head,
+    }
+
+
+async def run_inbox_preview():
+    return await _safe("inbox_preview", inbox_preview)
+
+
+async def classify_sweep_job() -> dict:
+    """Classify up to 80 unclassified inbound messages per tick.
+
+    Runs at 12:40 IST (5 min before the 12:45 inbox_preview), so the
+    notification lands on a freshly-categorized inbox. Also runs a
+    lighter sweep every 30 min as a background backstop for whatever
+    Gmail push delivered during the day.
+    """
+    from astra.email.classify import classify_sweep
+
+    return await classify_sweep(max_messages=80, include_retries=True)
+
+
+async def run_classify_sweep():
+    return await _safe("classify_sweep", classify_sweep_job)
+
+
+async def classify_sweep_light() -> dict:
+    """Smaller tick — 15 messages, retries disabled so we don't
+    re-burn tokens on the same stuck rows every half hour."""
+    from astra.email.classify import classify_sweep
+
+    return await classify_sweep(max_messages=15, include_retries=False)
+
+
+async def run_classify_sweep_light():
+    return await _safe("classify_sweep_light", classify_sweep_light)
+
+
+async def shares_pipeline() -> dict:
+    """Every 30s — walk shares in state='received' and route each to
+    memory/task/meeting via Claude Haiku classification."""
+    from astra.shares.pipeline import tick
+
+    return await tick()
+
+
+async def run_shares_pipeline():
+    return await _safe("shares_pipeline", shares_pipeline)

@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.local-postgres-backup
+.venv/
+venv/
+
+# Railway / cloud migration artifacts (sensitive)
+.dumps/
+.railway/
+
+# Local credentials never go to git
+credentials/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sentence transformers model cache
+.model_cache/

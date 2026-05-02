@@ -1,0 +1,50 @@
+# Railway service config for the astra-scheduler service.
+#
+# Why this file exists at the repo root: Railway's CLI `up` command
+# uses this for build + deploy settings. We want:
+#
+#   - Use our Dockerfile.scheduler explicitly (default would be
+#     Nixpacks autodetect — which would build the whole astra
+#     package fine but would not pick our entrypoint).
+#   - Expose no public port — the scheduler only talks to Postgres
+#     and Redis on the internal network.
+#   - Restart on crash with backoff.
+#
+# Other services (stream, web, external agents) will get their own
+# railway.toml in subsequent sessions, scoped to those services'
+# directories.
+
+# Default build config (used by services without an override).
+# When `railway up --service <name>` is run from this repo, Railway
+# applies this section unless the service has a per-service block
+# below.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.scheduler"
+
+[deploy]
+numReplicas = 1
+sleepApplication = false
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# ── Per-service overrides ─────────────────────────────────────
+#
+# Railway honors [services.<name>] blocks so two services in the same
+# repo can use different Dockerfiles. Without these the stream
+# service would silently use Dockerfile.scheduler and fail to bind
+# the HTTP port.
+
+[services.scheduler.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.scheduler"
+
+[services.stream.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.stream"
+
+[services.stream.deploy]
+# Stream serves HTTP — Railway needs to know the listen port for
+# the public domain to map. uvicorn binds whatever $PORT we pass it.
+healthcheckPath = "/health"
+healthcheckTimeout = 30

@@ -1,0 +1,86 @@
+"""
+Celery application for Astra's scheduled tasks.
+
+Beat schedule:
+- Morning briefing: 7:30 AM daily
+- Fleet health check: Every 5 minutes
+- Memory consolidation: 3:00 AM nightly
+- Weekly cost report: Monday 9:00 AM
+
+Start worker + beat (development):
+    celery -A astra.scheduler.celery_app worker --beat --loglevel=info -Q astra_scheduler
+
+Start separately (production):
+    celery -A astra.scheduler.celery_app worker --loglevel=info -Q astra_scheduler
+    celery -A astra.scheduler.celery_app beat --loglevel=info
+"""
+
+from celery import Celery
+from celery.schedules import crontab
+
+from astra.config import settings
+
+celery_app = Celery("astra")
+
+celery_app.conf.update(
+    # Broker & backend
+    broker_url=settings.redis_url,
+    result_backend=settings.redis_url,
+
+    # Serialization
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+
+    # Timezone
+    timezone="UTC",
+    enable_utc=True,
+
+    # Routing
+    task_default_queue="astra_scheduler",
+    task_routes={
+        "astra.scheduler.tasks.*": {"queue": "astra_scheduler"},
+    },
+
+    # Reliability
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    worker_prefetch_multiplier=1,
+
+    # Task discovery
+    include=["astra.scheduler.tasks"],
+
+    # Beat schedule — the core of proactive Astra
+    beat_schedule={
+        "morning-briefing": {
+            "task": "astra.scheduler.tasks.morning_briefing",
+            "schedule": crontab(
+                hour=settings.briefing_hour,
+                minute=settings.briefing_minute,
+            ),
+            "options": {"queue": "astra_scheduler"},
+        },
+        "fleet-health-check": {
+            "task": "astra.scheduler.tasks.fleet_health_check",
+            "schedule": settings.health_check_interval_seconds,
+            "options": {"queue": "astra_scheduler"},
+        },
+        "memory-consolidation": {
+            "task": "astra.scheduler.tasks.run_memory_consolidation",
+            "schedule": crontab(
+                hour=settings.consolidation_hour,
+                minute=0,
+            ),
+            "options": {"queue": "astra_scheduler"},
+        },
+        "cost-report-weekly": {
+            "task": "astra.scheduler.tasks.generate_cost_report",
+            "schedule": crontab(
+                hour=9,
+                minute=0,
+                day_of_week=1,  # Monday
+            ),
+            "options": {"queue": "astra_scheduler"},
+        },
+    },
+)
