@@ -1,52 +1,77 @@
 # HelmTech brand kit
-# Auto-filled from compass (kunal_compass.md + business_helmtech.md).
-# Verify everything before first use; replace `<TBD>` placeholders.
+# Sources:
+#   HelmTech_BrandIdentity.pdf (canonical formal identity — used here)
+#   helmtech-outreach-agent/backend/app/core/brand_voice.py (lived SMB voice)
+#   helmtech.in (live site — note: site uses different greens/fonts than
+#     the formal brand identity PDF; flagged below for Kunal)
+#   business_helmtech.md (compass — investor / institutional positioning)
+# Last refresh: 2026-05-02
 
-name: "HelmTech"
+# ⚠️ KNOWN CONFLICTS — Kunal to resolve:
+# 1. The brand identity PDF specifies Matte Black + Emerald Green (#2ECC71)
+#    + Soft Sand (#E8DFD6) with Satoshi/Poppins fonts. The live site
+#    helmtech.in uses acid green (#22C55E) on dark surfaces with what
+#    appears to be Inter or similar. The site is not following the
+#    brand identity. Locking in the brand identity PDF here as canonical;
+#    site should be updated to match (or the brand identity refreshed).
+# 2. There are two distinct HelmTech voices in active use:
+#    - SMB-customer voice: "websites + AI agents" at ₹15k–₹45k pricing
+#    - Investor / institutional voice: "India's Intelligence Layer",
+#      $20–30M raise, MCP fabric thesis
+#    Both audiences have their own audiences/*.md files; brand.yml
+#    represents the formal HelmTech corporate identity (which serves
+#    both).
+
+name: "Helm Tech"
 slug: "helmtech"
 
-tagline_short: "AI backbone of the country"
-tagline_long: "India's intelligence layer — the execution fabric for sovereign AI"
+tagline_short: "Building India's AI Backbone"
+tagline_long: "A world where every business — from a local shop to a global enterprise — has an intelligent digital presence that works as hard as its founder."
 about: |
-  HelmTech builds India's Intelligence Layer — the foundational
-  models, MCP protocol fabric, and execution products that let AI
-  *do* things, not just talk. Shotgun (the AI platform) and Buckshot
-  (AI film-making) are the consumer surfaces; the MCP wedge is the
-  thesis.
+  Helm Tech empowers businesses of every size with intelligent,
+  beautifully designed digital systems that drive growth — combining
+  world-class websites with AI-powered customer-engagement agents.
+  Strategic mission: build the execution layer for India's
+  intelligence economy.
 
 # ── Visual brand ────────────────────────────────────────────────────
-# TBD — Kunal will provide actual brand guidelines.
-# Placeholder values let Astra render something coherent until then.
 
 brand:
   colors:
-    primary: "<TBD — likely a deep navy or matte black per the 'institutional, decisive' positioning>"
-    secondary: "<TBD>"
-    surface: "#FAF7F2"
-    ink: "#0F0F0F"
+    # Per HelmTech_BrandIdentity.pdf — the formal identity.
+    primary: "#111111"           # Matte Black — authority, grounding
+    secondary: "#2ECC71"          # Emerald Green — growth, technology accent
+    surface: "#E8DFD6"            # Soft Sand — warm, distinct from generic white
+    ink: "#111111"
     muted: "#6B6B6B"
     chart:
-      - "<TBD>"
+      - "#111111"
+      - "#2ECC71"
+      - "#E8DFD6"
 
   typography:
+    # Per HelmTech_BrandIdentity.pdf
     display:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Satoshi"
+      fallback: "'Inter', 'Helvetica Neue', system-ui, sans-serif"
     body:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Poppins"
+      fallback: "'Inter', 'Helvetica Neue', system-ui, sans-serif"
     mono:
       family: "JetBrains Mono"
       fallback: "monospace"
 
   logo:
-    full_light: "content/logos/full-light.svg"   # provide SVG
-    full_dark: "content/logos/full-dark.svg"
-    mark_light: "content/logos/mark-light.svg"
-    mark_dark: "content/logos/mark-dark.svg"
+    # "HELM TECH" wordmark — wide-tracked bold uppercase.
+    # Soft Sand on Matte Black for dark backgrounds.
+    # Matte Black on Soft Sand for light backgrounds.
+    full_light: "content/logos/logo-light.svg"
+    full_dark: "content/logos/logo-dark.svg"
+    mark_light: "content/logos/logo.svg"
+    mark_dark: "content/logos/logo.svg"
 
   imagery:
-    style: "<TBD — likely architectural/industrial photography given the 'backbone of the country' positioning. No stock-photo people. No glowing brain abstractions.>"
+    style: "High-contrast, geometric, with terminal/CLI motifs (matching the helmtech.in implementation). Photography is architectural/industrial when used; primary imagery is typography-driven and product-screenshot-driven. No glowing brain abstractions, no stock-photo people, no AI visual clichés."
 
 # ── References ──────────────────────────────────────────────────────
 
@@ -58,7 +83,7 @@ content_dir: "content/"
 # ── Forbidden phrases ──────────────────────────────────────────────
 
 forbidden_phrases:
-  - "AI-powered"
+  - "AI-powered"            # Generic. Describe what it does instead.
   - "leverage synergies"
   - "revolutionary"
   - "disruptive"
@@ -66,10 +91,12 @@ forbidden_phrases:
   - "best-in-class"
   - "cutting-edge"
   - "next-generation"
-  # HelmTech-specific:
-  - "ChatGPT for India"        # we are not a wrapper
-  - "AI assistant"             # too generic
-  - "intelligent automation"   # buzzword
+  - "ChatGPT for India"
+  - "AI assistant"          # Too generic
+  - "intelligent automation"
+  - "democratize AI"
+  - "unicorn"
+  - "decacorn"
 
 output:
   doc_page_size: "A4"

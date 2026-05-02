@@ -1,58 +1,69 @@
 # Apex Human Company brand kit
-# Auto-filled from compass; verify everything before first use.
+# Sources: apex_human_brand_guidelines_v2.docx (typography + voice rules),
+# Apex_Human_Growth_Strategy_Final.pdf (hex codes + positioning),
+# theapexhumancompany.com (current public expression).
+# Last refresh: 2026-05-02
 
-name: "Apex Human Company"
+name: "The Apex Human Company"
 slug: "apex"
 
-tagline_short: "Garments built like equipment"
-tagline_long: "Apex Human — the apparel arm building like the Indian Naval Forces taught us to."
+tagline_short: "Your Brand. Your People. No Compromise."
+tagline_long: "We are the only end-to-end design-led manufacturer in India that delivers premium quality equivalent to Lacoste and Ralph Lauren, branded entirely as your company, at factory-direct pricing — with a design studio, AQL 2.5 QC, and Naval Forces-grade delivery standards included."
 about: |
-  Apex Human Company makes premium garments and merch — from bulk
-  corporate orders to one-off custom fixes via Apex Experimental.
-  Built around a 220 GSM fabric thesis: more weight, more honesty,
-  more wear. Indian Naval Forces is a current client.
+  The Apex Human Company is India's premier design-led, end-to-end
+  corporate merchandise and apparel manufacturer. Zero middlemen.
+  Same quality as premium brands, branded as yours. Factory-direct
+  with AQL 2.5 QC and Naval Forces-grade delivery standards.
 
-# ── Visual brand ───────────────────────────────────────────────────
-# TBD — Kunal will provide actual brand guidelines.
+# ── Visual brand ────────────────────────────────────────────────────
 
 brand:
   colors:
-    # Apex aesthetic per compass: industrial, durable, military-derived.
-    # Likely a deep neutral + one warm accent.
-    primary: "<TBD — likely matte black or deep navy>"
-    secondary: "<TBD — possibly khaki/olive nodding to military origin>"
-    surface: "#FAFAFA"
-    ink: "#0F0F0F"
+    # Per Apex_Human_Growth_Strategy_Final.pdf:
+    # Deep crimson dominant against warm parchment surface.
+    primary: "#7B1A2E"          # Deep institutional crimson-maroon
+    secondary: "#C9A96E"         # Crème/gold accent (per brand guidelines)
+    surface: "#FAF6F0"           # Warm parchment off-white
+    ink: "#1A1A1A"               # Near-black for body
     muted: "#6B6B6B"
     chart:
-      - "<TBD>"
+      - "#7B1A2E"
+      - "#C9A96E"
+      - "#1A1A1A"
+      - "#FAF6F0"
 
   typography:
+    # Per apex_human_brand_guidelines_v2.docx — serif heritage,
+    # signaling craft and authority.
     display:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Palatino Linotype"
+      fallback: "'Palatino', 'Hoefler Text', Georgia, serif"
     body:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Georgia"
+      fallback: "'Times New Roman', serif"
     mono:
       family: "JetBrains Mono"
       fallback: "monospace"
 
   logo:
-    full_light: "content/logos/full-light.svg"
-    full_dark: "content/logos/full-dark.svg"
-    mark_light: "content/logos/mark-light.svg"
-    mark_dark: "content/logos/mark-dark.svg"
+    # The wordmark "THE APEX HUMAN COMPANY" — full caps, designated
+    # typeface, deep crimson on crème or crème on deep crimson.
+    full_light: "content/logos/apex-logo.pdf"
+    full_dark: "content/logos/apex-logo.pdf"
+    mark_light: "content/logos/apex-logo.png"
+    mark_dark: "content/logos/apex-logo.png"
 
   imagery:
-    style: "<TBD — likely product photography on plain backdrops + wear-tested-in-the-field shots. No fashion-editorial styling.>"
+    style: "Premium product photography on plain backdrops; institutional contexts (corporate offsites, naval vessels); zero fashion-editorial styling. Imagery should signal weight, craft, and use — not display."
 
-# ── References ─────────────────────────────────────────────────────
+# ── References ──────────────────────────────────────────────────────
 
 voice_file: "voice.md"
 thesis_file: "thesis.md"
 audiences_dir: "audiences/"
 content_dir: "content/"
+
+# ── Forbidden phrases ──────────────────────────────────────────────
 
 forbidden_phrases:
   - "AI-powered"
@@ -60,9 +71,11 @@ forbidden_phrases:
   - "revolutionary"
   - "world-class"
   - "best-in-class"
-  - "premium"        # overused in apparel; describe the GSM instead
-  - "luxury"
-  - "lifestyle brand"
+  - "premium"               # describe the GSM / cert / standard instead
+  - "luxury brand"           # we are luxury manufacturing, not a luxury brand
+  - "fashion-forward"
+  - "lifestyle"              # wrong category
+  - "merch"                  # for our own product line; client merch is "merchandise"
 
 output:
   doc_page_size: "A4"

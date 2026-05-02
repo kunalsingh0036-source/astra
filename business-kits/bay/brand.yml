@@ -1,59 +1,76 @@
 # BAY (Black And Yellow Squash) brand kit
-# Auto-filled from compass + the BAY deck Kunal shared (share #12).
+# Sources: BAY-Brand-Identity-System.html.pdf (canonical visual identity),
+# theblackandyellow.com (live site — accessibility-led voice),
+# share #12 in Astra (the recent BAY pitch deck).
+# Last refresh: 2026-05-02
 
-name: "Black And Yellow Squash"
+# ⚠️ KNOWN CONFLICTS — Kunal to resolve:
+# 1. Name "Black and Yellow" but brand identity uses GOLD (#D4A843), not bright yellow.
+#    Currently using gold per the brand identity PDF — change here if name is canonical.
+# 2. Three different program lists exist (BI PDF / website / shared deck).
+#    Currently using the website's 4 programs as primary; the BI PDF's
+#    "Excellence Centre / Squash Jailbreak / Street to Elite" framing
+#    appears in audience-specific docs.
+
+name: "Black And Yellow"
 slug: "bay"
 
-tagline_short: "India's first performance institution for squash"
-tagline_long: "Black And Yellow — where Olympic ambition, clinical wellness, and cultural prestige converge under one uncompromising standard."
+tagline_short: "Liberating Squash"
+tagline_long: "BAY is a performance institution — India's first vertical ecosystem where Olympic ambition, clinical wellness, and cultural prestige converge under one uncompromising standard."
 about: |
-  BAY is India's first performance institution dedicated to squash.
-  A vertical ecosystem: 5 programs from grassroots to elite training,
-  outdoor all-glass courts, an outreach initiative for underserved
-  communities. Operating from Colaba and BKC, Mumbai. Founded by
-  Kunal Singh (India Rank 18, 2024 WUC Bronze).
+  BAY (Black and Yellow Squash) exists at the intersection of
+  discipline and desire — where the rigor of elite sport meets the
+  sensibility of architectural luxury. Performance institution, not
+  a club. Members are athletes, not customers.
 
-# ── Visual brand ───────────────────────────────────────────────────
-# Brand name implies the colors literally — black and yellow are
-# part of the IP. Kunal will provide the exact shades.
+# ── Visual brand ────────────────────────────────────────────────────
 
 brand:
   colors:
-    primary: "#000000"          # black — likely the actual brand color
-    secondary: "<TBD — the specific yellow. Mustard? Cab yellow? Neon? Kunal will specify>"
-    surface: "#FFFFFF"
-    ink: "#0F0F0F"
+    # Per BAY-Brand-Identity-System.html.pdf:
+    # 85% deep black, 10% gold accent, 5% warm ivory relief.
+    primary: "#0A0A0A"           # Deep black (dominant)
+    secondary: "#D4A843"          # Gold accent (NOT bright yellow — see conflict note)
+    surface: "#F5F2ED"            # Warm ivory
+    ink: "#0A0A0A"
     muted: "#6B6B6B"
     chart:
-      - "#000000"
-      - "<TBD yellow>"
+      - "#0A0A0A"
+      - "#D4A843"
+      - "#F5F2ED"
 
   typography:
+    # Per the brand identity PDF.
     display:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Bebas Neue"
+      fallback: "'Oswald', 'Impact', sans-serif"
     body:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Archivo"
+      fallback: "system-ui, -apple-system, sans-serif"
     mono:
       family: "JetBrains Mono"
       fallback: "monospace"
 
   logo:
+    # Wordmark "BAY" in geometric serif-influenced display +
+    # Double Dot device + "BLACK AND YELLOW" wide-tracked.
+    # ⚠️ Not yet extracted from BI PDF — placeholder paths.
     full_light: "content/logos/full-light.svg"
     full_dark: "content/logos/full-dark.svg"
     mark_light: "content/logos/mark-light.svg"
     mark_dark: "content/logos/mark-dark.svg"
 
   imagery:
-    style: "<TBD — likely action photography of athletes, court geometry, glass-court reflections. Sport-photojournalism aesthetic, not stock-fitness.>"
+    style: "Architectural precision; high-contrast black-and-gold; movement-focused sport photography (motion-blurred glass-court action, athlete-portrait-low-key); minimalist layouts with generous negative space; numbered chapters as compositional device; zero stock-fitness imagery."
 
-# ── References ─────────────────────────────────────────────────────
+# ── References ──────────────────────────────────────────────────────
 
 voice_file: "voice.md"
 thesis_file: "thesis.md"
 audiences_dir: "audiences/"
 content_dir: "content/"
+
+# ── Forbidden phrases ──────────────────────────────────────────────
 
 forbidden_phrases:
   - "AI-powered"
@@ -62,9 +79,13 @@ forbidden_phrases:
   - "boutique fitness"
   - "world-class"
   - "premium"
-  # BAY-specific:
-  - "squash club"      # we're a performance institution, not a club
-  - "fitness center"   # wrong category
+  - "best-in-class"
+  - "fitness center"
+  - "gym"
+  - "squash club"          # we are a performance institution
+  - "members"              # they are athletes
+  - "customers"            # they are athletes
+  - "trendy"
 
 output:
   doc_page_size: "A4"

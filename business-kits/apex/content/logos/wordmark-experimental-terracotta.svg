@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <circle cx="200" cy="200" r="180" fill="#B85A3F"/>
+  <text x="200" y="200" text-anchor="middle" dominant-baseline="central"
+        font-family="'Playfair Display', 'Times New Roman', serif"
+        font-size="240" font-weight="700" fill="#F5EDD9">A</text>
+</svg>

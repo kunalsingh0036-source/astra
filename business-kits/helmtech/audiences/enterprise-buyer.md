@@ -1,81 +1,94 @@
-# Audience — `<Persona Name>`
+# Audience — Enterprise / government buyer
 
-Who Astra is writing *to* when generating an artifact pointed at this
-audience. The creator sub-agent loads the matching persona file when
-the user specifies the audience (e.g. `draft_deck(business="helmtech",
-audience="peak-xv-partner", ...)` loads `audiences/peak-xv-partner.md`).
+Generic role. Astra loads this when the artifact is for an Indian
+enterprise procurement lead, IT director, government CIO, or
+public-sector technology buyer evaluating HelmTech for the
+platform layer (Shotgun, MCP fabric) — not the SMB website-and-agent
+arm.
 
-Each persona file lives at one of two granularities:
-
-- **Specific** — a named target (e.g. `peak-xv-partner.md`,
-  `somaiya-fisu-organizer.md`). Use when the artifact is for a known
-  recipient and the relationship matters.
-- **Generic** — a role (e.g. `enterprise-buyer.md`,
-  `tier-1-investor.md`, `journalist.md`). Use when one persona file
-  covers many similar recipients.
+Voice register: **investor / institutional**, tilted toward
+sovereign-AI / compliance framing.
 
 ---
 
 ## Who they are
 
-`<2–3 sentences. Title, organization, what they do day-to-day.
-Specific not abstract. Avoid persona-survey language ("Sarah is a
-35-year-old CMO who loves yoga"). Just facts.>`
+An IT director, head of digital, or technology procurement lead at
+a large Indian enterprise (BFSI, telecom, manufacturing, energy)
+or a government department / PSU CIO. They make build-vs-buy
+calls on AI infrastructure. They've already burned 1–2 cycles on
+proof-of-concepts with foreign foundation models that hit
+data-jurisdiction or compliance walls. They are deeply familiar
+with MeitY guidance, IT Rules 2026, and the IndiaAI Mission.
 
 ## What they care about (top 3)
 
-What outcomes do they actually want? Not what they say they want
-— what they *vote with their wallet / time / attention* for.
-
-1. `<concrete outcome>`
-2. `<concrete outcome>`
-3. `<concrete outcome>`
+1. **Data jurisdiction** — does this run on Indian rails with
+   Indian data residency? Foreign-built tools are now a
+   procurement red flag for sovereign workloads.
+2. **MeitY compliance, default-on** — IT Rules 2026 (effective
+   Feb 20) require AI labeling, provenance, governance trails.
+   They want this *baked in*, not retrofit.
+3. **Production reliability + on-prem option** — chat toys won't
+   pass procurement. They need execution-grade SLAs, audit logs,
+   on-prem or VPC deploy options for sensitive workloads.
 
 ## What they discount
 
-Things that DON'T move them. Astra avoids over-indexing on these.
-
-- `<thing>`
-- `<thing>`
-- `<thing>`
+- "Cutting-edge AI" framing. They've heard it. They want
+  certifications, audit-ready logs, deployment options.
+- Comparison decks with US benchmarks. Show Indian compliance
+  posture, not Stanford LLM-leaderboard scores.
+- Founder personality. They buy from companies that look like
+  institutions; they don't bet careers on a single founder.
 
 ## Likely questions / objections
 
-The first three things they'll push back on or ask about.
-
-1. `<question>`
-2. `<question>`
-3. `<question>`
+1. "Where is the data hosted? Who has access?"
+2. "What's your DPDP Act / IT Rules 2026 posture? Show me the
+   compliance matrix, not the brochure."
+3. "What's the on-prem / VPC story for sensitive workloads?"
 
 ## How to open
 
-The first 30 seconds / first paragraph / first slide. What signals
-they look for that "this is worth my time."
-
-`<concrete instruction. Not "be engaging" — be specific. e.g.
-"Open with a number. They scan for traction before reading anything
-else.">`
+Open with the **sovereign-AI frame** in one sentence + the
+compliance-default claim. Skip the founder story; lead with the
+deployment topology and the data-flow diagram. Compliance buyers
+read for the architecture before they read for the pitch.
 
 ## How to close
 
-The last 30 seconds / closing paragraph / final slide. The ask.
-
-`<concrete instruction.>`
+The ask: a **paid pilot** scoped to a specific workload (ticket
+triage, document Q&A, internal-search agent) with success criteria
+defined upfront. Single CTA: "30 minutes with our solution architect
+to scope the pilot and walk through the compliance matrix."
 
 ## Common objections + how to handle
 
-For each objection, the one-line response that's most effective.
+- **Objection:** "We can use Claude / Gemini through Azure / AWS
+  India regions — same compliance."
+  **Response:** "Azure / AWS India regions handle infrastructure
+  residency. They don't handle model-output provenance, IT Rules
+  2026 labeling, or DPDP-grade access controls on prompts. That's
+  the layer above where we sit."
 
-- **Objection:** `<thing they'll say>`
-  **Response:** `<one-line counter that lands>`
+- **Objection:** "We'll wait for Sarvam / Krutrim — they're
+  India-native."
+  **Response:** "They're foundational models; we're the protocol
+  fabric and execution layer. We work with whichever Indian model
+  you standardize on. The choices are complementary."
 
-- **Objection:** `<thing>`
-  **Response:** `<counter>`
+- **Objection:** "Show me a Fortune India 100 reference customer."
+  **Response:** "Pre-seed stage; first enterprise references
+  closing in the next 2 quarters. Pilot now and you set the
+  reference precedent on your terms — including pricing."
+
+- **Objection:** "What's your security audit / SOC 2 posture?"
+  **Response:** "On the Series A roadmap. Pilot scope defines the
+  required controls; we contractually commit to the audit timeline."
 
 ## What's the WIN here?
 
-When this person says yes to whatever Astra is generating, what
-specifically have they agreed to?
-
-`<concrete outcome — "first-call meeting" / "PO signature" / "speaking
-slot" / etc.>`
+A scoped paid pilot — typically ₹25L–₹2Cr depending on the
+workload — with a 90-day success criteria and a defined path to
+production deployment.

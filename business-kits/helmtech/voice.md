@@ -1,85 +1,198 @@
 # Voice — HelmTech
 
-Auto-drafted from the founder's known patterns + thesis tone.
-**Kunal: edit this file with 2–3 paragraphs of your real writing
-when you're ready.** Until then this is best-effort.
+Extracted from `HelmTech_BrandIdentity.pdf` (formal identity),
+`helmtech-outreach-agent/backend/app/core/brand_voice.py` (lived
+SMB voice, in production for outreach), and
+[helmtech.in](https://helmtech.in) (live site copy).
+
+**HelmTech operates in two registers depending on audience.** Both
+are authentic. The audience persona file picks which one applies.
+
+| Register | When | Tone |
+|---|---|---|
+| **SMB-customer** | helmtech.in, WhatsApp/email outreach, the website-and-agent arm (₹15k–₹45k) | Direct, practical, helpful. Hinglish on WhatsApp. Outcome-led. |
+| **Investor / institutional** | Pitch decks, fundraising, partnership BD, government/policy | Decisive, infrastructure-framed, "India's Intelligence Layer" |
+
+Both share the underlying spine — direct, declarative, no hype, no
+hedging. The difference is vocabulary and frame, not voice.
 
 ---
 
 ## Tone in three words
 
-*decisive · institutional · uncluttered*
+*direct · uncluttered · earned*
 
-The voice should sound like a company that already exists and
-matters. Not a hopeful startup pitching its way in.
+Both registers share these. SMB-customer tilts toward
+practical-warmth ("smart friend who knows tech"). Investor tilts
+toward institutional ("a company that already exists and matters").
+Neither is performative.
 
 ## How sentences look
 
-- Sentence length preference: **mixed** — short for assertions,
-  longer for explanation. Never long for length's sake.
-- Hedging: **never** — no "we believe", "perhaps", "we think this
-  could be". State the position.
-- Imperative voice frequency: **occasional** — used for the reader
-  ("note that", "consider"), not for ourselves.
-- First-person: **plural ("we" / "the company")** — not "I", even
-  for founder-led pieces. HelmTech speaks as an institution.
-- Active vs passive: **active dominant** — passive only when the
-  agent is intentionally backgrounded (e.g. regulation analysis).
+- **Sentence length**: short for assertions, longer for explanation.
+  Never long for length's sake. SMB messages are especially short —
+  SMB owners are busy.
+- **Hedging**: never. No "we believe", "perhaps", "we think this
+  could be". State the position. The product backs it up.
+- **Imperative voice**: occasional, used to invite the reader
+  ("compare", "consider", "try the demo"). Never to push or beg.
+- **Person**:
+  - **First-person plural ("we")** for institutional contexts —
+    HelmTech speaks as a company, not as Kunal personally
+  - **First-person singular ("I", "Kunal from HelmTech")** for
+    SMB-customer outreach — these are real messages from a real
+    person, signed off as Kunal
+  - **Second-person ("you")** when addressing the buyer directly
+    in either register
+- **Active vs passive**: active dominant. Passive only when describing
+  a process step neutrally (e.g. "the agent is trained on your industry").
+- **Lists / formatting in SMB**: never. No bullet points, no
+  checkmarks, no numbered lists, no markdown. Flowing paragraphs
+  like a real person texting or emailing. (This is a hard rule from
+  brand_voice.py — over-formatted SMB outreach reads like AI spam.)
 
 ## What HelmTech sounds like — voice samples
 
-> *Placeholder. Kunal: paste 2–3 paragraphs from real HelmTech
-> writing — LinkedIn posts, sales emails, the existing pitch deck
-> — that capture how the company should sound. Astra reads these
-> as the canonical reference, so they need to be authentic.*
+### From helmtech.in (SMB-customer register)
 
-> *Sample 1 (TBD):*
+> *"We build growth engines — not just websites."*
+> — site hero
 
-> *Sample 2 (TBD):*
+> *"A beautiful website that doesn't convert is just art. We build
+> digital assets that drive real business outcomes."*
 
-> *Sample 3 (TBD):*
+> *"Most agencies stop at design. We optimize for revenue."*
+
+> *"Building India's AI Backbone."*
+> — site footer (the bridge to the investor register)
+
+### From brand_voice.py (SMB-customer outreach voice — verbatim system prompt)
+
+> *"You are writing as Kunal from HelmTech. You are a real person
+> sending a real message, not an AI generating content."*
+> — opening directive
+
+> *"Speak like a smart friend who knows tech. Lead with the business
+> outcome, not the technology. Never pushy, never desperate, never
+> condescending about their current online presence. Never beg for
+> meetings. Never use hype language."*
+> — voice rules
+
+> *"Website: Rs 15,000. Custom design, mobile first, SEO optimized,
+> delivered in 1 week."*
+> — pricing voice (matter-of-fact, no euphemism)
+
+> *"We also do strategy first. We think about what actually gets
+> customers, not just build."*
+
+### From the HelmTech investor materials (institutional register)
+
+> *"India's Intelligence Layer."*
+> — canonical positioning
+
+> *"The execution layer for India's intelligence economy."*
+
+> *"Three layers — foundational models, MCP fabric, execution
+> products. The MCP layer is the wedge."*
+> — three-layer thesis structure
+
+> *"AI that acts in the real world. Sends emails. Files compliance.
+> Books travel. Runs ads. Not a chat toy."*
 
 ## Words and phrases HelmTech DOES use
 
-- **"India's intelligence layer"** — the canonical positioning phrase
-- **"execution layer"** — what differentiates from chat-toys
-- **"MCP fabric"** / **"MCP rails"** — for the protocol layer
-- **"sovereign AI"** — when discussing geopolitics
+### Cross-register
+- **"India's Intelligence Layer"** / **"India's AI Backbone"** —
+  canonical positioning. Both are legitimate; the BI PDF favors
+  "AI Backbone", the deck favors "Intelligence Layer". Use whichever
+  the audience persona specifies.
+- **"execution layer"** / **"AI that acts"** — what differentiates
+  from chat toys. Used in both registers (SMB: "an agent that books
+  appointments"; investor: "the execution layer").
+- **"strategy first"** — the SMB-friendly version of "we think before
+  we ship"
+- **"growth engines"** — the SMB framing for what we build
+
+### SMB-customer register
+- **"website + AI agent"** — the canonical product framing. Always
+  in this order.
+- **"Rs 15,000 / Rs 30,000 / Rs 45,000"** — pricing. State plainly.
+- **"free audit"** / **"quick WhatsApp call"** / **"demo"** — the
+  three CTAs. Low-friction by design.
+- **Industry-specific outcome phrases** — "40% more appointments",
+  "save 25–30% Zomato/Swiggy commissions", "qualify leads
+  automatically". Concrete numbers, real outcomes.
+- **Natural Hinglish on WhatsApp** — when it fits. Never forced.
+  Never on email.
+
+### Investor / institutional register
+- **"MCP fabric"** / **"MCP rails"** / **"MCP-standardized"** —
+  the protocol layer. Always uppercase MCP.
+- **"sovereign AI"** — when discussing geopolitics / data jurisdiction
 - **"foundational, MCP, execution"** — the three-layer structure
 - **"Shotgun"** / **"Buckshot"** — product names. Always capitalized.
-- **"backbone of the country"** — heavy-lift phrase, used sparingly
-  in hero contexts. Never twice in the same artifact.
+  Shotgun = the prosumer AI platform. Buckshot = AI film-making.
+- **"India-native"** — built for Indian data, languages, regulation
+- **"the rails models plug into"** — the wedge framing
+- **"backbone of the country"** — heavy-lift phrase. Used sparingly,
+  hero contexts only. Never twice in the same artifact.
 
 ## Words and phrases HelmTech NEVER uses
 
 - **"AI-powered"** — no longer a differentiator; everyone is.
+  Describe what it *does* instead.
+- **"AI assistant" / "intelligent automation"** — too generic;
+  describes any product. Be specific: "books appointments",
+  "qualifies leads".
+- **"ChatGPT for India"** — concedes the model is the product.
+  HelmTech's thesis is the *layer above* the model.
+- **"democratize AI"** — politically loaded and overused. Describe
+  the actual access mechanism (₹15K, free audit, etc.).
 - **"revolutionary" / "disruptive"** — overused, hollow.
-- **"world-class" / "best-in-class"** — empty boast.
-- **"ChatGPT for India"** — concedes the model is the product;
-  HelmTech's thesis is the *layer above*.
-- **"AI assistant" / "intelligent automation"** — too generic,
-  describes any product.
-- **"democratize AI"** — politically loaded and overused; describe
-  the actual access mechanism instead.
-- **"cutting-edge" / "next-generation"** — placeholder words.
+- **"world-class" / "best-in-class" / "cutting-edge" /
+  "next-generation"** — empty placeholders. Replace with the
+  specific claim.
 - **"unicorn" / "decacorn"** — talks down to the reader.
+- **Hype language in SMB outreach** — even "amazing", "incredible",
+  "game-changer". The voice is "smart friend", not "marketing copy".
+- **Tick boxes, checkmarks, bullet points, numbered lists, or
+  dashes to separate ideas in SMB outreach** — flowing paragraphs
+  only.
+- **"Here's what you'd get:" / "Here's what we offer:"** — listicle
+  intros. Banned in SMB voice.
+- **Excessive emojis** — one or two max per WhatsApp. Zero in emails.
+  Zero in investor materials.
 
 ## Signatures and sign-offs
 
-- Email sign-off: **"— Kunal"** for founder-direct emails. **"Team
-  HelmTech"** for institutional comms.
-- Doc footer: **"© 2026 HelmTech. India's Intelligence Layer."**
-- Slide deck closing slide: **single line — `helmtech.com` + a
-  contact email**. No "Thank you" / "Questions?" — feels weak.
+- **WhatsApp**: `"Kunal"` (just the name, signed off naturally at
+  the end of a flowing message)
+- **SMB email**: `"Kunal, HelmTech"`
+- **Institutional / investor email**: `"— Kunal Singh, Founder &
+  CEO, HelmTech"` when the founder credential matters; `"— Team
+  HelmTech"` for routine institutional sends
+- **Doc footer**: `"© 2026 HelmTech · India's Intelligence Layer ·
+  helmtech.in"`
+- **Slide deck closing**: a single line — `helmtech.in` + a contact
+  email. Never "Thank you" or "Questions?" — feels weak and apologetic.
 
 ## Voice the audience should hear
 
-**The voice of the company.** Plural. Institutional. Even when
-Kunal is the named author, HelmTech speaks as a coherent thing
-larger than its founders. Investors, customers, and policymakers
-should feel they're hearing from a company that already operates
-at scale, even when traction numbers are early.
+**Layered.** HelmTech-as-company speaks confidently, plurally, with
+infrastructure-grade authority — institutional voice for investors,
+press, partnership outreach. Founder-direct (Kunal, signing as
+Kunal) speaks personally to SMB owners and partners — same spine,
+warmer surface, Hinglish-comfortable.
 
-When personal voice IS appropriate (founder LinkedIn, an essay,
-podcast notes), the voice shifts to first-person and the institutional
-"we" recedes — but the tone (decisive, uncluttered) stays.
+When generating:
+- **Investor decks** (audience: `peak-xv-partner.md`,
+  `elevation-partner.md`) — institutional voice, three-layer thesis,
+  "India's Intelligence Layer"
+- **Enterprise/government BD** (audience: `enterprise-buyer.md`) —
+  institutional voice tilted toward sovereign-AI / compliance framing
+- **SMB cold outreach** (audience: SMB segments not yet defined as
+  files; pull from brand_voice.py industry overrides) — founder voice,
+  Hinglish on WhatsApp, professional English on email, Rs-pricing
+  stated plainly, free-audit / demo CTA
+
+The audience persona file says which.
