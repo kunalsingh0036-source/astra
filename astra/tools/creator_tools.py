@@ -36,11 +36,15 @@ from astra.creators.analyze_reference_site import analyze_reference_site
 from astra.creators.critique import critique_artifact
 from astra.creators.draft import draft_deck
 from astra.creators.draft_brand_kit import draft_brand_kit
+from astra.creators.draft_caption_set import draft_caption_set
+from astra.creators.draft_carousel import draft_carousel
 from astra.creators.draft_component_spec import draft_component_spec
 from astra.creators.draft_doc import draft_doc
+from astra.creators.draft_hashtag_set import draft_hashtag_set
 from astra.creators.draft_one_pager import draft_one_pager
 from astra.creators.draft_page_content import draft_page_content
 from astra.creators.draft_site_brief import draft_site_brief
+from astra.creators.draft_thread import draft_thread
 from astra.creators.image import generate_hero_image
 from astra.creators.kits import list_kits, load_kit
 from astra.creators.render import (
@@ -788,6 +792,223 @@ async def render_site_preview_tool(args: dict) -> dict:
     )}]}
 
 
+# ── Phase B4: Social media ──────────────────────────────────────────
+
+
+@tool(
+    "draft_carousel",
+    "Draft a social-media carousel — slide-by-slide copy + image direction "
+    "+ caption + hashtags + first-comment + best-post-time hint. Tunes to "
+    "platform conventions (LinkedIn 7-12 slides, Instagram 6-10, X 4-7). "
+    "Returns artifact id; the JSON is structured for direct use by a "
+    "designer or a future render_carousel_pdf tool.",
+    {
+        "business": str,
+        "audience": str,
+        "topic": str,
+        "platform": str,            # linkedin (default) | instagram | twitter
+        "slide_count_hint": int,    # optional override
+        "context": str,
+    },
+)
+async def draft_carousel_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    topic = (args.get("topic") or "").strip()
+    platform = (args.get("platform") or "linkedin").strip()
+    slide_count = int(args.get("slide_count_hint") or 0) or None
+    context = (args.get("context") or "").strip()
+    if not (business and audience and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_carousel requires: business, audience, topic"
+        )}]}
+    try:
+        artifact = await draft_carousel(
+            business_slug=business, audience_slug=audience, topic=topic,
+            platform=platform, slide_count_hint=slide_count, context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    slides = c.get("slides", []) or []
+    summary = (
+        f"Drafted carousel #{artifact['id']} ({c.get('platform','?')})\n"
+        f"  Topic: {topic}\n"
+        f"  Hook: {c.get('hook_promise','')}\n"
+        f"  Slides ({len(slides)}):\n"
+    )
+    for s in slides:
+        summary += f"    {s.get('position','?'):>2}. [{s.get('type','?'):10}] {(s.get('headline','') or '')[:70]}\n"
+    summary += (
+        f"  Caption: {len(c.get('caption','') or ''):,} chars\n"
+        f"  Hashtags: {len(c.get('hashtags',[]) or [])} ({c.get('hashtags',[])[:5]})\n"
+    )
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_thread",
+    "Draft a long-form thread for X (Twitter) or LinkedIn. Hook post + "
+    "sequence of body posts + closing post. Each post stands alone AND "
+    "earns the next swipe. Tunes to platform char limits.",
+    {
+        "business": str,
+        "audience": str,
+        "topic": str,
+        "platform": str,            # twitter (default) | linkedin
+        "thread_kind": str,         # narrative | argument | framework | case_study | lessons | thread_essay
+        "context": str,
+    },
+)
+async def draft_thread_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    topic = (args.get("topic") or "").strip()
+    platform = (args.get("platform") or "twitter").strip()
+    thread_kind = (args.get("thread_kind") or "narrative").strip()
+    context = (args.get("context") or "").strip()
+    if not (business and audience and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_thread requires: business, audience, topic"
+        )}]}
+    try:
+        artifact = await draft_thread(
+            business_slug=business, audience_slug=audience, topic=topic,
+            platform=platform, thread_kind=thread_kind, context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    posts = c.get("posts", []) or []
+    summary = (
+        f"Drafted thread #{artifact['id']} ({c.get('platform','?')}, "
+        f"{c.get('thread_kind','?')})\n"
+        f"  Topic: {topic}\n"
+        f"  Hook: {(c.get('hook_post','') or '')[:140]}\n"
+        f"  Body posts ({len(posts)}):\n"
+    )
+    for p in posts:
+        summary += f"    {p.get('position','?'):>2}. {(p.get('body','') or '')[:80]}\n"
+    summary += (
+        f"  Closing: {(c.get('closing_post','') or '')[:120]}\n"
+        f"  Read time: ~{c.get('estimated_read_time_seconds','?')}s\n"
+    )
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_caption_set",
+    "Draft 3-5 distinct caption variants for the same topic — different "
+    "hook style / length / register, all voice-compliant. Use for A/B "
+    "testing or picking best-of-N. Each variant has 'predicted_strength' "
+    "noting when it would beat the others.",
+    {
+        "business": str,
+        "audience": str,
+        "topic": str,
+        "platform": str,            # linkedin (default) | instagram | twitter | facebook
+        "variant_count": int,       # 3-5, clamped
+        "context": str,
+    },
+)
+async def draft_caption_set_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    topic = (args.get("topic") or "").strip()
+    platform = (args.get("platform") or "linkedin").strip()
+    variant_count = int(args.get("variant_count") or 4)
+    context = (args.get("context") or "").strip()
+    if not (business and audience and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_caption_set requires: business, audience, topic"
+        )}]}
+    try:
+        artifact = await draft_caption_set(
+            business_slug=business, audience_slug=audience, topic=topic,
+            platform=platform, variant_count=variant_count, context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    variants = c.get("variants", []) or []
+    summary = (
+        f"Drafted caption set #{artifact['id']} ({c.get('platform','?')}, "
+        f"{len(variants)} variants)\n"
+        f"  Topic: {topic}\n\n"
+    )
+    for v in variants:
+        summary += (
+            f"  ── {v.get('label','?')} ({v.get('length_target','?')}) ──\n"
+            f"    Hook: {v.get('hook_style','')}\n"
+            f"    First line: {(v.get('first_line','') or '')[:100]}\n"
+            f"    Strength: {(v.get('predicted_strength','') or '')[:120]}\n\n"
+        )
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_hashtag_set",
+    "Draft an audience-tuned hashtag set with three layers: brand "
+    "(company-tied), topical (this post's subject), reach (broader "
+    "discovery). Plus per-platform recommendations for which subset to "
+    "use, and an avoid-list with rationale.",
+    {
+        "business": str,
+        "topic": str,
+        "primary_platform": str,    # linkedin (default) | instagram | twitter | facebook
+        "audience": str,            # optional persona
+        "context": str,
+    },
+)
+async def draft_hashtag_set_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    topic = (args.get("topic") or "").strip()
+    platform = (args.get("primary_platform") or "linkedin").strip()
+    audience = (args.get("audience") or "").strip() or None
+    context = (args.get("context") or "").strip()
+    if not (business and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_hashtag_set requires: business, topic"
+        )}]}
+    try:
+        artifact = await draft_hashtag_set(
+            business_slug=business, topic=topic, primary_platform=platform,
+            audience_slug=audience, context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    summary = (
+        f"Hashtag set #{artifact['id']}\n"
+        f"  Topic: {topic}\n"
+        f"  Brand tags ({len(c.get('brand_tags',[]))}): {c.get('brand_tags',[])}\n"
+        f"  Topical tags ({len(c.get('topical_tags',[]))}): {c.get('topical_tags',[])}\n"
+        f"  Reach tags ({len(c.get('reach_tags',[]))}): {c.get('reach_tags',[])}\n"
+        f"\n  Recommendations:\n"
+    )
+    for plat, rec in (c.get("platform_recommendations") or {}).items():
+        if isinstance(rec, dict):
+            tags = rec.get("use", []) or []
+            summary += f"    {plat:10} {len(tags):>2} tags  ({rec.get('rationale','')})\n"
+            summary += f"               {tags}\n"
+    avoid = c.get("avoid", []) or []
+    if avoid:
+        summary += f"  Avoid: {avoid[:3]}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
 # ── Listing ─────────────────────────────────────────────────────────
 
 
@@ -819,7 +1040,7 @@ async def list_creator_artifacts_tool(args: dict) -> dict:
 def create_creators_mcp_server():
     return create_sdk_mcp_server(
         name="astra-creators",
-        version="0.3.0",
+        version="0.4.0",
         tools=[
             list_business_kits_tool,
             read_business_kit_tool,
@@ -833,6 +1054,11 @@ def create_creators_mcp_server():
             draft_site_brief_tool,
             draft_page_content_tool,
             draft_component_spec_tool,
+            # Drafters — social (Phase B4)
+            draft_carousel_tool,
+            draft_thread_tool,
+            draft_caption_set_tool,
+            draft_hashtag_set_tool,
             # Quality + image
             critique_artifact_tool,
             generate_hero_image_tool,
