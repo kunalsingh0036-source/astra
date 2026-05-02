@@ -44,7 +44,10 @@ from astra.creators.draft_hashtag_set import draft_hashtag_set
 from astra.creators.draft_one_pager import draft_one_pager
 from astra.creators.draft_page_content import draft_page_content
 from astra.creators.draft_site_brief import draft_site_brief
+from astra.creators.draft_subtitle_set import draft_subtitle_set
 from astra.creators.draft_thread import draft_thread
+from astra.creators.draft_video_brief import draft_video_brief
+from astra.creators.draft_voiceover_script import draft_voiceover_script
 from astra.creators.image import generate_hero_image
 from astra.creators.kits import list_kits, load_kit
 from astra.creators.render import (
@@ -1009,6 +1012,204 @@ async def draft_hashtag_set_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": summary}]}
 
 
+# ── Phase B5: AI video brief ────────────────────────────────────────
+
+
+@tool(
+    "draft_video_brief",
+    "Draft an AI-video brief — shot list + voiceover line-by-line + on-screen "
+    "text + per-shot image-gen prompt + b-roll list + music vibe. The "
+    "prompt-first artifact for AI video generation: paste the per-shot "
+    "prompts into Sora / Runway / Veo (their UIs get the latest models "
+    "first), or hand to a human editor. Brand colors anchored in every "
+    "image prompt; kit's imagery anti-patterns in negative prompts. "
+    "Tunes to format (vertical_short / horizontal_short / square) and "
+    "platform (instagram_reels / youtube_shorts / linkedin / etc).",
+    {
+        "business": str,
+        "audience": str,
+        "topic": str,
+        "runtime_seconds": int,         # 15-90 typical for shorts; up to 180
+        "format": str,                  # vertical_short (default) | horizontal_short | square
+        "platform": str,                # instagram_reels | youtube_shorts | linkedin | twitter | tiktok | internal_brief
+        "context": str,
+    },
+)
+async def draft_video_brief_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip()
+    audience = (args.get("audience") or "").strip()
+    topic = (args.get("topic") or "").strip()
+    runtime = int(args.get("runtime_seconds") or 30)
+    fmt = (args.get("format") or "vertical_short").strip()
+    platform = (args.get("platform") or "instagram_reels").strip()
+    context = (args.get("context") or "").strip()
+    if not (business and audience and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_video_brief requires: business, audience, topic"
+        )}]}
+    try:
+        artifact = await draft_video_brief(
+            business_slug=business, audience_slug=audience, topic=topic,
+            runtime_seconds=runtime, format=fmt, platform=platform,
+            context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    shots = c.get("shots", []) or []
+    total_dur = sum(float(s.get("duration_seconds") or 0) for s in shots)
+    summary = (
+        f"Drafted video brief #{artifact['id']}\n"
+        f"  Format: {c.get('format')} on {c.get('platform')}\n"
+        f"  Runtime: {c.get('runtime_seconds')}s (shot total: {total_dur:.1f}s)\n"
+        f"  Logline: {c.get('logline','')}\n"
+        f"  Music vibe: {c.get('music_vibe','')[:120]}\n"
+        f"  Shots ({len(shots)}):\n"
+    )
+    for s in shots:
+        vo_preview = (s.get('voiceover_text','') or '')[:60]
+        summary += (
+            f"    {s.get('position','?'):>2}. {s.get('duration_seconds','?')!s:>4}s  "
+            f"[{s.get('shot_type','?'):14}] {vo_preview!r}\n"
+        )
+    bl = c.get("b_roll_list", []) or []
+    summary += f"  B-roll items: {len(bl)}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_voiceover_script",
+    "Draft a voiceover script suitable for TTS (ElevenLabs, OpenAI TTS) "
+    "or human read-aloud. Two modes: convert an existing artifact (deck, "
+    "doc, one-pager, video_brief, carousel, thread) into spoken form, OR "
+    "generate standalone from a topic + duration. Outputs per-segment "
+    "timing, delivery cues, emphasis words, pronunciation notes for "
+    "acronyms. Spoken-voice discipline is stricter than written.",
+    {
+        "business": str,                # required if no source_artifact_id
+        "audience": str,                # required if no source_artifact_id
+        "duration_seconds": int,
+        "source_artifact_id": int,      # optional — convert this artifact
+        "topic": str,                   # required if no source_artifact_id
+        "voice_persona_hint": str,      # optional — 'founder voice', 'institutional narrator', etc.
+        "context": str,
+    },
+)
+async def draft_voiceover_script_tool(args: dict) -> dict:
+    business = (args.get("business") or "").strip() or None
+    audience = (args.get("audience") or "").strip() or None
+    duration = int(args.get("duration_seconds") or 60)
+    src_id = int(args.get("source_artifact_id") or 0) or None
+    topic = (args.get("topic") or "").strip() or None
+    persona = (args.get("voice_persona_hint") or "").strip()
+    context = (args.get("context") or "").strip()
+
+    if not src_id and not (business and audience and topic):
+        return {"content": [{"type": "text", "text": (
+            "draft_voiceover_script: provide source_artifact_id OR "
+            "(business + audience + topic)"
+        )}]}
+
+    try:
+        artifact = await draft_voiceover_script(
+            business_slug=business, audience_slug=audience,
+            duration_seconds=duration,
+            source_artifact_id=src_id, topic=topic,
+            voice_persona_hint=persona, context=context,
+        )
+    except FileNotFoundError as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    segs = c.get("segments", []) or []
+    summary = (
+        f"Voiceover script #{artifact['id']}\n"
+        f"  Duration target: {c.get('duration_seconds')}s (estimated speaking: {c.get('estimated_speaking_seconds')}s)\n"
+        f"  Word count: {c.get('estimated_total_words','?')}\n"
+        f"  Voice persona: {(c.get('voice_persona','') or '')[:120]}\n"
+        f"  Delivery: {(c.get('delivery_notes','') or '')[:140]}\n"
+        f"  Segments ({len(segs)}):\n"
+    )
+    for s in segs:
+        summary += (
+            f"    {s.get('position','?'):>2}. {s.get('duration_seconds','?')!s:>4}s  "
+            f"{(s.get('spoken_text','') or '')[:80]}\n"
+        )
+    tts = c.get("tts_recommendations") or {}
+    if tts:
+        summary += f"  TTS hint: voice={tts.get('best_voice_style','?')}, rate={tts.get('speaking_rate','?')}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
+@tool(
+    "draft_subtitle_set",
+    "Draft multilingual subtitles in SRT-compatible format. Source can be "
+    "a voiceover_script or video_brief artifact (timing inherited) OR raw "
+    "text + duration. Validates reading rate (≤17 chars/sec ideal). "
+    "Defaults to English + Hindi for India-targeted content. Translations "
+    "preserve the kit's voice register, NOT word-for-word.",
+    {
+        "source_artifact_id": int,           # optional — voiceover_script or video_brief
+        "raw_text": str,                     # alternative — raw spoken text
+        "raw_duration_seconds": int,         # required with raw_text
+        "languages": str,                    # comma-separated ISO codes; default 'en,hi'
+        "business": str,                     # optional override
+    },
+)
+async def draft_subtitle_set_tool(args: dict) -> dict:
+    src_id = int(args.get("source_artifact_id") or 0) or None
+    raw_text = (args.get("raw_text") or "").strip() or None
+    raw_dur = int(args.get("raw_duration_seconds") or 0) or None
+    langs_csv = (args.get("languages") or "en,hi").strip()
+    business = (args.get("business") or "").strip() or None
+    languages = [s.strip() for s in langs_csv.split(",") if s.strip()]
+
+    if not src_id and not raw_text:
+        return {"content": [{"type": "text", "text": (
+            "draft_subtitle_set: provide source_artifact_id OR raw_text + raw_duration_seconds"
+        )}]}
+
+    try:
+        artifact = await draft_subtitle_set(
+            source_artifact_id=src_id,
+            raw_text=raw_text,
+            raw_duration_seconds=raw_dur,
+            languages=languages,
+            business_slug=business,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        return {"content": [{"type": "text", "text": f"Cannot draft: {e}"}]}
+    except Exception as e:
+        return {"content": [{"type": "text", "text": f"Draft failed: {type(e).__name__}: {e}"}]}
+
+    c = artifact["content"]
+    langs = c.get("languages", []) or []
+    summary = (
+        f"Subtitle set #{artifact['id']}\n"
+        f"  Source kind: {c.get('source_kind','?')}\n"
+        f"  Languages ({len(langs)}):\n"
+    )
+    for lng in langs:
+        lines = lng.get("lines", []) or []
+        summary += (
+            f"    {lng.get('code','?')} ({lng.get('label','?')})  "
+            f"{len(lines)} lines\n"
+        )
+    val = c.get("validation") or {}
+    summary += (
+        f"  Total duration: {val.get('total_duration_seconds','?')}s\n"
+        f"  Max cps: {val.get('max_cps_seen','?')}\n"
+    )
+    if val.get("warnings"):
+        summary += f"  Warnings: {len(val.get('warnings',[]))}\n"
+    return {"content": [{"type": "text", "text": summary}]}
+
+
 # ── Listing ─────────────────────────────────────────────────────────
 
 
@@ -1040,7 +1241,7 @@ async def list_creator_artifacts_tool(args: dict) -> dict:
 def create_creators_mcp_server():
     return create_sdk_mcp_server(
         name="astra-creators",
-        version="0.4.0",
+        version="0.5.0",
         tools=[
             list_business_kits_tool,
             read_business_kit_tool,
@@ -1059,6 +1260,10 @@ def create_creators_mcp_server():
             draft_thread_tool,
             draft_caption_set_tool,
             draft_hashtag_set_tool,
+            # Drafters — video (Phase B5)
+            draft_video_brief_tool,
+            draft_voiceover_script_tool,
+            draft_subtitle_set_tool,
             # Quality + image
             critique_artifact_tool,
             generate_hero_image_tool,
