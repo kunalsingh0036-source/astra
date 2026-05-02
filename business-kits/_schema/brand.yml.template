@@ -1,0 +1,118 @@
+# Brand kit — STRUCTURED FIELDS for one company.
+#
+# Anything the renderer needs to read deterministically goes here.
+# Anything the LLM needs to read narratively goes in voice.md /
+# thesis.md / audiences/.
+#
+# Path conventions: all paths are relative to THIS file's directory.
+# So `content/logos/full.svg` resolves to
+# `business-kits/<company>/content/logos/full.svg`.
+
+# ── Identity ────────────────────────────────────────────────────────
+
+name: "<Canonical Company Name>"           # how it appears in titles
+slug: "<lowercase-kebab-case>"             # matches directory name; used as the key in tool calls
+
+# Single-sentence taglines used on slide titles, email signatures,
+# website hero, etc. Keep them stable — these get embedded in many
+# generated artifacts, and inconsistency reads as sloppy.
+tagline_short: "<5–7 word version>"        # for slide footers, sigs
+tagline_long: "<one full sentence>"        # for hero slides, about pages
+
+# Two-sentence company description for "About" boilerplate slides.
+about: |
+  <Sentence 1: what the company does, in plain language.>
+  <Sentence 2: who it's for or what makes it different.>
+
+# ── Visual brand ────────────────────────────────────────────────────
+
+brand:
+  colors:
+    # Primary — the dominant brand color. Used on title backgrounds,
+    # CTAs, accent shapes. Hex required.
+    primary: "#000000"
+
+    # Secondary — accent color. Used sparingly for callouts and highlights.
+    secondary: "#000000"
+
+    # Surface — slide/page background. Usually a very light or very
+    # dark neutral.
+    surface: "#FFFFFF"
+
+    # Ink — body text color. Should pass WCAG AA against `surface`.
+    ink: "#0F0F0F"
+
+    # Muted — secondary text (captions, footnotes). Subtler than ink.
+    muted: "#6B6B6B"
+
+    # Optional accent palette — used by charts and data viz when more
+    # than two colors are needed. Order matters (Astra uses these in
+    # sequence so charts stay consistent across decks).
+    chart:
+      - "#000000"
+      - "#000000"
+      - "#000000"
+      - "#000000"
+
+  typography:
+    # Display — used for slide titles and large headers.
+    # Prefer a font family with a free CSS @font-face source so
+    # rendered PDFs look identical everywhere.
+    display:
+      family: "<Font Name>"
+      fallback: "system-ui, -apple-system, sans-serif"
+      # Optional: path to a .woff2 file if self-hosted
+      # woff2: "content/fonts/display.woff2"
+
+    body:
+      family: "<Font Name>"
+      fallback: "system-ui, -apple-system, sans-serif"
+
+    mono:
+      family: "<Font Name>"          # for code snippets, optional
+      fallback: "monospace"
+
+  logo:
+    # Full lockup (logo + wordmark)
+    full_light: "content/logos/full-light.svg"   # for dark backgrounds
+    full_dark: "content/logos/full-dark.svg"     # for light backgrounds
+    # Mark only (icon, no wordmark) — for tight spaces, favicons
+    mark_light: "content/logos/mark-light.svg"
+    mark_dark: "content/logos/mark-dark.svg"
+
+  imagery:
+    # Free-text directional cue for hero/illustrative images. The
+    # creator sub-agent passes this to the image-gen tool.
+    style: "<e.g. 'high-contrast architectural photography, cool tones, no people'>"
+
+# ── Voice + content references ──────────────────────────────────────
+
+voice_file: "voice.md"
+thesis_file: "thesis.md"
+audiences_dir: "audiences/"
+content_dir: "content/"
+
+# ── Forbidden phrases — MUST never appear in generated content ─────
+
+forbidden_phrases:
+  # Common AI-startup tropes — most companies want to avoid these.
+  # Customize per company.
+  - "leverage synergies"
+  - "AI-powered"
+  - "revolutionary"
+  - "best-in-class"
+  - "world-class"
+  - "cutting-edge"
+  # Add company-specific ones:
+  # - "<phrase the founder hates>"
+
+# ── Output preferences ─────────────────────────────────────────────
+
+output:
+  # Default page size for documents. ISO/A4 vs US Letter.
+  doc_page_size: "A4"
+  # Default slide aspect ratio. 16:9 is standard; 4:3 reads as dated.
+  slide_aspect: "16:9"
+  # Whether to include slide numbers + footer with company name.
+  slide_footer: true
+  slide_numbers: true

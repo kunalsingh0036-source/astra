@@ -47,6 +47,15 @@ COPY astra /app/astra
 COPY services /app/services
 COPY alembic.ini /app/alembic.ini
 
+# Business kits — the data layer for Astra's creator capability
+# (decks, docs, brand kits, one-pagers per company). Read by the
+# `astra-creators` MCP tools at runtime. Tiny (markdown + YAML +
+# light asset files), so safe to ship in every container; only the
+# stream service's creator tools actually load it, but co-locating
+# avoids a separate volume mount.
+COPY business-kits /app/business-kits
+ENV BUSINESS_KITS_DIR=/app/business-kits
+
 # Migration entrypoint for the SCHEDULER role: waits for Postgres,
 # enables pgvector, runs alembic upgrade, then boots APScheduler.
 # Stream service does NOT run this — it overrides via Custom Start

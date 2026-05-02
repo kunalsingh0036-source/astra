@@ -1,0 +1,78 @@
+# Voice — `<Company Name>`
+
+How this company *talks*. Astra's creator sub-agent loads this file
+when generating any artifact for the company and uses it as a hard
+constraint on tone, sentence shape, and word choice.
+
+This is narrative on purpose. Don't try to compress it to a JSON
+schema — the LLM internalizes the *feel* better from prose.
+
+---
+
+## Tone in three words
+
+`<adjective>` · `<adjective>` · `<adjective>`
+
+(e.g. *direct · honest · uncluttered*. Or *playful · provocative ·
+warm*. The three should feel slightly tense against each other —
+that's where character lives.)
+
+## How sentences look
+
+- Sentence length preference: `<short / medium / mixed>`
+- Hedging (e.g. "we believe", "perhaps"): `<allowed / never>`
+- Imperative voice frequency: `<rare / occasional / common>`
+- First-person ("we") vs third-person ("the company"): `<which dominant>`
+- Active vs passive: `<which dominant>`
+
+## What this company sounds like — voice samples
+
+Paste 2–3 paragraphs of *real* writing the company has produced —
+LinkedIn posts, sales emails, internal memos, founder tweets.
+Astra reads these as the canonical voice reference.
+
+> Sample 1: <real text>
+
+> Sample 2: <real text>
+
+> Sample 3: <real text>
+
+## Words and phrases the company DOES use
+
+A short list of vocabulary that's distinctively ours.
+
+- "<phrase>" — used in <context>
+- "<phrase>"
+
+## Words and phrases the company NEVER uses
+
+Beyond the structured `forbidden_phrases` in brand.yml — narrative
+notes on *why* certain things are off-limits. Helps the LLM
+generalize, not just match strings.
+
+- We never call ourselves "AI-powered" — every modern product uses AI.
+  Saying so is no longer a differentiator. Describe what it *does*
+  instead.
+- We don't say "revolutionary" or "disruptive" — overused, hollow.
+- <Company-specific aversions>
+
+## Signatures and sign-offs
+
+How emails / docs end. Keep this consistent — it's a small thing
+that pattern-matches as authentic.
+
+- Email sign-off: `<e.g. "— Kunal" or "Team <Company>">`
+- Doc footer: `<e.g. "© 2026 <Company>. All rights reserved.">`
+- Slide deck closing slide: `<style — "Thank you" / "Questions?" / a contact card>`
+
+## Voice the audience should hear
+
+When someone reads a deck or doc from this company, what should
+they feel they're hearing? Pick from:
+
+- The voice of the *founder* (personal, specific, opinionated)
+- The voice of the *company* (institutional, plural, polished)
+- The voice of a *peer* (informal, casual, with the reader)
+- The voice of an *expert* (authoritative, citations, careful)
+
+State explicitly: `<one of the above, or describe a hybrid>`

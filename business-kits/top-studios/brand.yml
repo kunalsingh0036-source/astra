@@ -1,0 +1,70 @@
+# Top Studios brand kit
+# Auto-filled from compass; fewer details than the others (Top
+# Studios has the lightest compass entry). Heavier autofill from
+# Kunal once brand guidelines arrive.
+
+name: "Top Studios"
+slug: "top-studios"
+
+tagline_short: "AI-native film + creative studio"
+tagline_long: "<TBD — likely combining AI capability with classical film-making craft>"
+about: |
+  Top Studios is the media arm of Kunal's portfolio. AI + classical
+  film-making craft. Internal: produces marketing for HelmTech,
+  Apex, BAY. External: paying clients across creative production,
+  brand kits, social content. Editor in seat; AI filmmaker hire next.
+
+# ── Visual brand ───────────────────────────────────────────────────
+
+brand:
+  colors:
+    primary: "<TBD>"
+    secondary: "<TBD>"
+    surface: "#FFFFFF"
+    ink: "#0F0F0F"
+    muted: "#6B6B6B"
+    chart:
+      - "<TBD>"
+
+  typography:
+    display:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    body:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    mono:
+      family: "JetBrains Mono"
+      fallback: "monospace"
+
+  logo:
+    full_light: "content/logos/full-light.svg"
+    full_dark: "content/logos/full-dark.svg"
+    mark_light: "content/logos/mark-light.svg"
+    mark_dark: "content/logos/mark-dark.svg"
+
+  imagery:
+    style: "<TBD — film-still aesthetic. Top Studios should imply 'we make the visual reference', so its own visual identity has to be high-craft.>"
+
+# ── References ─────────────────────────────────────────────────────
+
+voice_file: "voice.md"
+thesis_file: "thesis.md"
+audiences_dir: "audiences/"
+content_dir: "content/"
+
+forbidden_phrases:
+  - "AI-powered"
+  - "leverage synergies"
+  - "revolutionary"
+  - "world-class"
+  - "best-in-class"
+  - "creative agency"      # we are a studio, not an agency
+  - "content creator"      # too generic
+  - "branding company"     # too generic
+
+output:
+  doc_page_size: "A4"
+  slide_aspect: "16:9"
+  slide_footer: true
+  slide_numbers: true

@@ -1,0 +1,78 @@
+# HelmTech brand kit
+# Auto-filled from compass (kunal_compass.md + business_helmtech.md).
+# Verify everything before first use; replace `<TBD>` placeholders.
+
+name: "HelmTech"
+slug: "helmtech"
+
+tagline_short: "AI backbone of the country"
+tagline_long: "India's intelligence layer — the execution fabric for sovereign AI"
+about: |
+  HelmTech builds India's Intelligence Layer — the foundational
+  models, MCP protocol fabric, and execution products that let AI
+  *do* things, not just talk. Shotgun (the AI platform) and Buckshot
+  (AI film-making) are the consumer surfaces; the MCP wedge is the
+  thesis.
+
+# ── Visual brand ────────────────────────────────────────────────────
+# TBD — Kunal will provide actual brand guidelines.
+# Placeholder values let Astra render something coherent until then.
+
+brand:
+  colors:
+    primary: "<TBD — likely a deep navy or matte black per the 'institutional, decisive' positioning>"
+    secondary: "<TBD>"
+    surface: "#FAF7F2"
+    ink: "#0F0F0F"
+    muted: "#6B6B6B"
+    chart:
+      - "<TBD>"
+
+  typography:
+    display:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    body:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    mono:
+      family: "JetBrains Mono"
+      fallback: "monospace"
+
+  logo:
+    full_light: "content/logos/full-light.svg"   # provide SVG
+    full_dark: "content/logos/full-dark.svg"
+    mark_light: "content/logos/mark-light.svg"
+    mark_dark: "content/logos/mark-dark.svg"
+
+  imagery:
+    style: "<TBD — likely architectural/industrial photography given the 'backbone of the country' positioning. No stock-photo people. No glowing brain abstractions.>"
+
+# ── References ──────────────────────────────────────────────────────
+
+voice_file: "voice.md"
+thesis_file: "thesis.md"
+audiences_dir: "audiences/"
+content_dir: "content/"
+
+# ── Forbidden phrases ──────────────────────────────────────────────
+
+forbidden_phrases:
+  - "AI-powered"
+  - "leverage synergies"
+  - "revolutionary"
+  - "disruptive"
+  - "world-class"
+  - "best-in-class"
+  - "cutting-edge"
+  - "next-generation"
+  # HelmTech-specific:
+  - "ChatGPT for India"        # we are not a wrapper
+  - "AI assistant"             # too generic
+  - "intelligent automation"   # buzzword
+
+output:
+  doc_page_size: "A4"
+  slide_aspect: "16:9"
+  slide_footer: true
+  slide_numbers: true

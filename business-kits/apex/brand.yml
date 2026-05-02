@@ -1,0 +1,71 @@
+# Apex Human Company brand kit
+# Auto-filled from compass; verify everything before first use.
+
+name: "Apex Human Company"
+slug: "apex"
+
+tagline_short: "Garments built like equipment"
+tagline_long: "Apex Human — the apparel arm building like the Indian Naval Forces taught us to."
+about: |
+  Apex Human Company makes premium garments and merch — from bulk
+  corporate orders to one-off custom fixes via Apex Experimental.
+  Built around a 220 GSM fabric thesis: more weight, more honesty,
+  more wear. Indian Naval Forces is a current client.
+
+# ── Visual brand ───────────────────────────────────────────────────
+# TBD — Kunal will provide actual brand guidelines.
+
+brand:
+  colors:
+    # Apex aesthetic per compass: industrial, durable, military-derived.
+    # Likely a deep neutral + one warm accent.
+    primary: "<TBD — likely matte black or deep navy>"
+    secondary: "<TBD — possibly khaki/olive nodding to military origin>"
+    surface: "#FAFAFA"
+    ink: "#0F0F0F"
+    muted: "#6B6B6B"
+    chart:
+      - "<TBD>"
+
+  typography:
+    display:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    body:
+      family: "<TBD>"
+      fallback: "Helvetica Neue, system-ui, sans-serif"
+    mono:
+      family: "JetBrains Mono"
+      fallback: "monospace"
+
+  logo:
+    full_light: "content/logos/full-light.svg"
+    full_dark: "content/logos/full-dark.svg"
+    mark_light: "content/logos/mark-light.svg"
+    mark_dark: "content/logos/mark-dark.svg"
+
+  imagery:
+    style: "<TBD — likely product photography on plain backdrops + wear-tested-in-the-field shots. No fashion-editorial styling.>"
+
+# ── References ─────────────────────────────────────────────────────
+
+voice_file: "voice.md"
+thesis_file: "thesis.md"
+audiences_dir: "audiences/"
+content_dir: "content/"
+
+forbidden_phrases:
+  - "AI-powered"
+  - "leverage synergies"
+  - "revolutionary"
+  - "world-class"
+  - "best-in-class"
+  - "premium"        # overused in apparel; describe the GSM instead
+  - "luxury"
+  - "lifestyle brand"
+
+output:
+  doc_page_size: "A4"
+  slide_aspect: "16:9"
+  slide_footer: true
+  slide_numbers: true
