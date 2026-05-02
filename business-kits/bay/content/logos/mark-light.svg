@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BAY mark — light variant (ivory wordmark on transparent).
+  Compact form: just "BAY" + the Double Dot device.
+  Use when space is limited (favicons, app icons, small badges).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img"
+     aria-label="BAY">
+  <defs>
+    <style><![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+      .wordmark { font-family: 'Bebas Neue', 'Oswald', 'Impact', sans-serif;
+                  font-weight: 400; letter-spacing: 0.04em; }
+    ]]></style>
+  </defs>
+
+  <text class="wordmark" x="200" y="240"
+        text-anchor="middle"
+        font-size="180"
+        fill="#F5F2ED">BAY</text>
+
+  <!-- Double Dot — anchor of the mark -->
+  <circle cx="180" cy="280" r="8" fill="#D4A843"/>
+  <circle cx="220" cy="280" r="8" fill="#D4A843"/>
+</svg>

@@ -1,35 +1,54 @@
-# BAY logo assets — source state
+# BAY logo assets
 
-**Status (2026-05-02):** No standalone logo files have been
-extracted from the brand identity. The canonical source is the
-`BAY-Brand-Identity-System.pdf` in this directory.
+## Files
 
-The brand kit's `brand.yml` references logo paths under
-`content/logos/full-light.svg`, `full-dark.svg`, `mark-light.svg`,
-`mark-dark.svg` — **these placeholders do not yet exist**. Astra's
-deck templates will fall back to text-only rendering of "BAY" in
-Bebas Neue + the Double Dot device drawn in CSS until proper
-SVG/PNG files are exported from the BI PDF.
+| File | Use |
+|---|---|
+| `full-light.svg` | Full wordmark — ivory + gold for dark backgrounds |
+| `full-dark.svg` | Full wordmark — black + gold for light backgrounds |
+| `mark-light.svg` | Compact mark (just "BAY" + Double Dot) for dark backgrounds |
+| `mark-dark.svg` | Compact mark (just "BAY" + Double Dot) for light backgrounds |
+| `BAY-Brand-Identity-System.pdf` | Source — full brand guidelines reference |
 
-## To resolve
+## Construction
 
-1. Open `BAY-Brand-Identity-System.pdf` in a vector editor
-   (Illustrator, Affinity Designer, Inkscape, Figma)
-2. Extract the canonical wordmark in two color variants:
-   - **Light variant** (gold + ivory on black) → `full-light.svg`
-   - **Dark variant** (gold + black on ivory) → `full-dark.svg`
-3. Extract the "BAY" mark alone (no "BLACK AND YELLOW" subline) in
-   the same two variants → `mark-light.svg`, `mark-dark.svg`
-4. Update `brand.yml` to remove the placeholder warning
+The logos are hand-built SVGs per the BI PDF spec rather than
+PDF-extracted, because:
+1. PyMuPDF found zero embedded raster images in the BI PDF — the
+   wordmark is drawn as PDF vector ops, which extract messily.
+2. Hand-built SVGs using the spec are smaller, cleaner, and easier
+   to maintain than path-extracted blobs.
+
+The SVGs use Google Fonts (`Bebas Neue` for the wordmark, `Archivo`
+for the subline) loaded via `@import` inside the SVG `<defs>`. This
+means:
+- The SVGs render correctly when viewed in any web browser (which
+  fetches the fonts on demand)
+- For print / static-image rendering (PNG export, slide embed),
+  the rendering engine should have these fonts available locally OR
+  network access at render time
+
+If absolute portability matters (e.g. for a sponsor deliverable),
+convert the `<text>` elements to outlined `<path>` glyphs using
+Inkscape's "Object to Path" or Illustrator's "Create Outlines".
+
+## brand.yml mapping
+
+```yaml
+logo:
+  full_light: "content/logos/full-light.svg"
+  full_dark:  "content/logos/full-dark.svg"
+  mark_light: "content/logos/mark-light.svg"
+  mark_dark:  "content/logos/mark-dark.svg"
+```
 
 ## Brand-system specifics (per the BI PDF)
 
-- **Wordmark**: "BAY" in Bebas Neue, geometric serif-influenced
-  display, wide-tracked
-- **Subline**: "BLACK AND YELLOW" wide-tracked uppercase, thin
-  weight
-- **Double Dot device**: two gold dots (#D4A843), used as a
-  punctuation/separator element
+- **Wordmark**: "BAY" in Bebas Neue, geometric, wide-tracked
+- **Subline**: "BLACK AND YELLOW" in Archivo wide-tracked uppercase,
+  thin weight
+- **Double Dot device**: two gold dots (#D4A843) — the brand's
+  punctuation element, signaling the "Double Yellow Dot" of pro
+  squash
 - **Color rule**: 85% deep black (#0A0A0A), 10% gold (#D4A843), 5%
-  warm ivory (#F5F2ED). The gold is *gold*, not bright yellow —
-  flagged in `brand.yml` for Kunal to confirm or override.
+  warm ivory (#F5F2ED). Gold is canonical, not bright yellow.

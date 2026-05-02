@@ -1,0 +1,260 @@
+{# Document template — multi-page A4. Cover page, exec summary, sections,
+   appendix, CTA. WeasyPrint flows the content across pages naturally. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --brand-primary: {{ colors.primary or '#0A1F3D' }};
+    --brand-secondary: {{ colors.secondary or '#FF6B35' }};
+    --brand-surface: {{ colors.surface or '#FFFFFF' }};
+    --brand-ink: {{ colors.ink or '#0F0F0F' }};
+    --brand-muted: {{ colors.muted or '#6B6B6B' }};
+    --display-font: '{{ fonts.display.family or "Helvetica Neue" }}', {{ fonts.display.fallback or "system-ui, -apple-system, sans-serif" }};
+    --body-font: '{{ fonts.body.family or "Helvetica Neue" }}', {{ fonts.body.fallback or "system-ui, -apple-system, sans-serif" }};
+  }
+
+  @page {
+    size: A4;
+    margin: 22mm 22mm 18mm 22mm;
+    @bottom-left {
+      content: "{{ company_name }}";
+      font-family: var(--body-font);
+      font-size: 8pt;
+      color: var(--brand-muted);
+    }
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-family: var(--body-font);
+      font-size: 8pt;
+      color: var(--brand-muted);
+    }
+    @top-right {
+      content: "{{ doc_type|upper }}";
+      font-family: var(--display-font);
+      font-size: 8pt;
+      color: var(--brand-muted);
+      letter-spacing: 0.15em;
+    }
+  }
+  @page :first {
+    @bottom-left { content: ""; }
+    @bottom-right { content: ""; }
+    @top-right { content: ""; }
+  }
+
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--body-font);
+    color: var(--brand-ink);
+    background: var(--brand-surface);
+    font-size: 11pt;
+    line-height: 1.55;
+  }
+
+  /* Cover */
+  .cover {
+    page-break-after: always;
+    height: 250mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover-tag {
+    color: var(--brand-secondary);
+    font-family: var(--display-font);
+    font-size: 11pt;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+  }
+  .cover h1 {
+    font-family: var(--display-font);
+    font-size: 38pt;
+    line-height: 1.05;
+    color: var(--brand-ink);
+    margin: 0 0 4mm 0;
+    letter-spacing: -0.02em;
+    max-width: 90%;
+  }
+  .cover .cover-subtitle {
+    font-size: 14pt;
+    color: var(--brand-muted);
+    margin: 0;
+    max-width: 80%;
+  }
+  .cover .cover-meta {
+    color: var(--brand-muted);
+    font-size: 10pt;
+    border-top: 0.5pt solid var(--brand-muted);
+    padding-top: 4mm;
+  }
+  .cover .cover-meta .row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1mm;
+  }
+
+  /* Body content */
+  h2 {
+    font-family: var(--display-font);
+    font-size: 20pt;
+    line-height: 1.15;
+    margin: 14mm 0 4mm 0;
+    color: var(--brand-ink);
+    page-break-after: avoid;
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-family: var(--display-font);
+    font-size: 14pt;
+    margin: 8mm 0 3mm 0;
+    color: var(--brand-ink);
+    page-break-after: avoid;
+  }
+  h4 {
+    font-family: var(--body-font);
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 5mm 0 2mm 0;
+    color: var(--brand-ink);
+  }
+  p {
+    margin: 0 0 4mm 0;
+    text-align: justify;
+    text-justify: inter-word;
+  }
+  ul, ol {
+    margin: 2mm 0 4mm 0;
+    padding-left: 6mm;
+  }
+  li { margin-bottom: 1.5mm; }
+  blockquote {
+    border-left: 2pt solid var(--brand-primary);
+    padding: 1mm 0 1mm 5mm;
+    margin: 4mm 0;
+    color: var(--brand-muted);
+    font-style: italic;
+  }
+  table {
+    border-collapse: collapse;
+    margin: 4mm 0;
+    width: 100%;
+    font-size: 9.5pt;
+  }
+  th, td {
+    border: 0.5pt solid var(--brand-muted);
+    padding: 2mm 3mm;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    font-family: var(--display-font);
+    font-weight: 700;
+  }
+
+  /* Executive summary box */
+  .exec-summary {
+    background: var(--brand-surface);
+    border: 1pt solid var(--brand-primary);
+    border-left: 4pt solid var(--brand-primary);
+    padding: 5mm 7mm;
+    margin: 0 0 8mm 0;
+  }
+  .exec-summary h2 {
+    margin-top: 0;
+    color: var(--brand-primary);
+  }
+
+  /* Appendix */
+  .appendix {
+    page-break-before: always;
+  }
+  .appendix h2 {
+    color: var(--brand-primary);
+    border-bottom: 1pt solid var(--brand-muted);
+    padding-bottom: 2mm;
+  }
+
+  /* CTA */
+  .cta {
+    margin-top: 10mm;
+    padding: 5mm 7mm;
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    page-break-inside: avoid;
+  }
+  .cta h2 {
+    color: #FFFFFF;
+    margin-top: 0;
+  }
+  .cta p {
+    color: #FFFFFF;
+    text-align: left;
+  }
+
+  .footer-note {
+    margin-top: 8mm;
+    padding-top: 3mm;
+    border-top: 0.5pt solid var(--brand-muted);
+    color: var(--brand-muted);
+    font-size: 8.5pt;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div>
+    <div class="cover-tag">{{ doc_type|replace('_', ' ')|upper }}</div>
+    <h1>{{ title }}</h1>
+    {% if subtitle %}<p class="cover-subtitle">{{ subtitle }}</p>{% endif %}
+  </div>
+  <div class="cover-meta">
+    <div class="row"><span>{{ company_name }}</span><span>{{ tagline }}</span></div>
+  </div>
+</section>
+
+{% if executive_summary %}
+<section class="exec-summary">
+  <h2>Executive Summary</h2>
+  <div>{{ executive_summary|safe }}</div>
+</section>
+{% endif %}
+
+{% for s in sections %}
+<section>
+  <h2>{{ s.heading }}</h2>
+  <div>{{ s.body_md|safe }}</div>
+</section>
+{% endfor %}
+
+{% if appendix %}
+<section class="appendix">
+  <h2>Appendix</h2>
+  {% for a in appendix %}
+  <div>
+    <h3>{{ a.heading }}</h3>
+    <div>{{ a.body_md|safe }}</div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if cta %}
+<section class="cta">
+  <h2>{{ cta.headline }}</h2>
+  <p>{{ cta.detail }}</p>
+</section>
+{% endif %}
+
+{% if footer_note %}
+<div class="footer-note">{{ footer_note }}</div>
+{% endif %}
+
+</body>
+</html>

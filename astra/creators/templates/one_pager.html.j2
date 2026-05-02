@@ -1,0 +1,234 @@
+{# One-pager template — single A4 page.
+   Density-tuned: hero stat top-right, lead paragraph, 3-5 sections,
+   proof points, CTA at the bottom. Brand colors via CSS variables. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --brand-primary: {{ colors.primary or '#0A1F3D' }};
+    --brand-secondary: {{ colors.secondary or '#FF6B35' }};
+    --brand-surface: {{ colors.surface or '#FFFFFF' }};
+    --brand-ink: {{ colors.ink or '#0F0F0F' }};
+    --brand-muted: {{ colors.muted or '#6B6B6B' }};
+    --display-font: '{{ fonts.display.family or "Helvetica Neue" }}', {{ fonts.display.fallback or "system-ui, -apple-system, sans-serif" }};
+    --body-font: '{{ fonts.body.family or "Helvetica Neue" }}', {{ fonts.body.fallback or "system-ui, -apple-system, sans-serif" }};
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--body-font);
+    color: var(--brand-ink);
+    background: var(--brand-surface);
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+
+  .page {
+    padding: 16mm 18mm;
+    width: 100%;
+    height: 100vh;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1.5pt solid var(--brand-primary);
+    padding-bottom: 5mm;
+    margin-bottom: 6mm;
+  }
+  .header .titles { flex: 1; }
+  .header h1 {
+    font-family: var(--display-font);
+    font-size: 22pt;
+    line-height: 1.1;
+    margin: 0 0 2mm 0;
+    color: var(--brand-ink);
+    letter-spacing: -0.01em;
+  }
+  .header .subtitle {
+    color: var(--brand-muted);
+    font-size: 11pt;
+    margin: 0;
+  }
+  .hero-stat {
+    text-align: right;
+    margin-left: 8mm;
+    flex-shrink: 0;
+  }
+  .hero-stat .value {
+    font-family: var(--display-font);
+    font-size: 32pt;
+    font-weight: 800;
+    color: var(--brand-primary);
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .hero-stat .label {
+    color: var(--brand-muted);
+    font-size: 9pt;
+    margin-top: 1.5mm;
+  }
+
+  .lead {
+    font-size: 11pt;
+    line-height: 1.5;
+    color: var(--brand-ink);
+    margin: 0 0 5mm 0;
+    padding: 4mm 5mm;
+    background: var(--brand-surface);
+    border-left: 2pt solid var(--brand-primary);
+  }
+
+  .sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5mm;
+    margin-bottom: 6mm;
+    flex: 1;
+  }
+  .sections.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .section h3 {
+    font-family: var(--display-font);
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--brand-primary);
+    margin: 0 0 2mm 0;
+  }
+  .section p {
+    margin: 0 0 2mm 0;
+    font-size: 9.5pt;
+    line-height: 1.45;
+  }
+  .section ul {
+    margin: 0;
+    padding-left: 4mm;
+    font-size: 9.5pt;
+    line-height: 1.5;
+  }
+  .section li { margin-bottom: 1mm; }
+
+  .proof {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    padding: 4mm 5mm;
+    margin-bottom: 5mm;
+    border-radius: 2mm;
+  }
+  .proof h3 {
+    font-family: var(--display-font);
+    font-size: 9.5pt;
+    margin: 0 0 2mm 0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.8);
+  }
+  .proof ul {
+    margin: 0;
+    padding-left: 4mm;
+    font-size: 10pt;
+    list-style: none;
+  }
+  .proof li {
+    margin-bottom: 1.5mm;
+    padding-left: 4mm;
+    position: relative;
+  }
+  .proof li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--brand-secondary);
+    font-weight: 700;
+  }
+
+  .cta {
+    margin-top: auto;
+    padding: 4mm 5mm;
+    border: 1.5pt solid var(--brand-secondary);
+    border-radius: 2mm;
+  }
+  .cta h2 {
+    font-family: var(--display-font);
+    font-size: 14pt;
+    margin: 0 0 1.5mm 0;
+    color: var(--brand-ink);
+  }
+  .cta p {
+    margin: 0;
+    font-size: 10pt;
+    color: var(--brand-muted);
+  }
+
+  .footer {
+    margin-top: 4mm;
+    padding-top: 3mm;
+    border-top: 0.5pt solid var(--brand-muted);
+    color: var(--brand-muted);
+    font-size: 8pt;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+<section class="page">
+  <header class="header">
+    <div class="titles">
+      <h1>{{ title }}</h1>
+      {% if subtitle %}<div class="subtitle">{{ subtitle }}</div>{% endif %}
+    </div>
+    {% if hero_stat %}
+    <div class="hero-stat">
+      <div class="value">{{ hero_stat.value }}</div>
+      <div class="label">{{ hero_stat.label }}</div>
+    </div>
+    {% endif %}
+  </header>
+
+  {% if lead %}<div class="lead">{{ lead }}</div>{% endif %}
+
+  <div class="sections {% if sections|length > 4 %}cols-3{% endif %}">
+    {% for s in sections %}
+    <div class="section">
+      <h3>{{ s.heading }}</h3>
+      <div>{{ s.body_md|safe }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if proof %}
+  <div class="proof">
+    <h3>Proof</h3>
+    <ul>
+      {% for p in proof %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if cta %}
+  <div class="cta">
+    <h2>{{ cta.headline }}</h2>
+    <p>{{ cta.detail }}</p>
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    <span>{{ company_name }}</span>
+    <span>{{ tagline }}</span>
+  </div>
+</section>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BAY full wordmark — light variant (gold + ivory on black).
+  Use on dark surfaces.
+  Per the BAY-Brand-Identity-System.html.pdf:
+    - Wordmark "BAY" in Bebas Neue, geometric, wide-tracked
+    - Subline "BLACK AND YELLOW" wide-tracked uppercase
+    - Double Dot device — two gold dots between mark + subline
+  Colors: gold #D4A843, warm ivory #F5F2ED, deep black #0A0A0A
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" role="img"
+     aria-label="BAY — Black and Yellow Squash">
+  <defs>
+    <style><![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Archivo:wght@400;700&display=swap');
+      .wordmark { font-family: 'Bebas Neue', 'Oswald', 'Impact', sans-serif;
+                  font-weight: 400; letter-spacing: 0.04em; }
+      .subline  { font-family: 'Archivo', system-ui, sans-serif;
+                  font-weight: 400; letter-spacing: 0.42em; }
+    ]]></style>
+  </defs>
+
+  <!-- Background (transparent — caller provides background) -->
+
+  <!-- Wordmark "BAY" -->
+  <text class="wordmark" x="400" y="240"
+        text-anchor="middle"
+        font-size="240"
+        fill="#F5F2ED">BAY</text>
+
+  <!-- Double Dot device — two gold dots, the brand's punctuation element -->
+  <circle cx="365" cy="290" r="9" fill="#D4A843"/>
+  <circle cx="435" cy="290" r="9" fill="#D4A843"/>
+
+  <!-- Subline "BLACK AND YELLOW" -->
+  <text class="subline" x="400" y="335"
+        text-anchor="middle"
+        font-size="20"
+        fill="#F5F2ED">BLACK AND YELLOW</text>
+</svg>

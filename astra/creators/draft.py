@@ -1,78 +1,26 @@
 """
-LLM-driven draft generation for decks (and later docs, one-pagers,
-brand kits).
+Draft a slide deck — LLM-driven generation with voice discipline.
 
-The hard constraint is voice discipline: every draft inherits
-voice.md and forbidden_phrases verbatim from the kit. Generated
-output is checked against forbidden_phrases post-hoc; if any appear
-the model gets one regeneration attempt with explicit feedback.
+This is the original draft tool; it now delegates the LLM loop to
+_shared.generate_json so the per-kind code stays small and consistent
+with draft_one_pager / draft_doc / draft_brand_kit.
+
+Voice discipline: every draft inherits voice.md and forbidden_phrases
+verbatim from the kit. Generated output is scanned post-hoc; if any
+forbidden phrase appears the model gets one regeneration attempt with
+explicit feedback.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import re
-from pathlib import Path
 from typing import Any
 
-import anthropic
-
-from astra.config import settings
-from astra.creators.kits import BusinessKit, load_kit
+from astra.creators._shared import generate_json, join_text_fields
+from astra.creators.kits import load_kit
 from astra.creators.store import create_artifact
 
 logger = logging.getLogger(__name__)
-
-
-# Sonnet for drafting — quality matters more than cost for a deck
-# the founder is going to send to investors. Haiku is fine for
-# critique passes (Phase B2).
-_DRAFT_MODEL = os.environ.get("CREATOR_DRAFT_MODEL", "claude-sonnet-4-6")
-_MAX_TOKENS = 8000
-
-
-def _get_anthropic_key() -> str:
-    """Mirror of the key-resolution dance used elsewhere in the codebase."""
-    key = settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        env = Path(__file__).resolve().parents[2] / ".env"
-        if env.exists():
-            for line in env.read_text().splitlines():
-                if line.startswith("ANTHROPIC_API_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-    return key
-
-
-def _check_forbidden(text_blob: str, forbidden: list[str]) -> list[str]:
-    """Return the list of forbidden phrases that appear in the text.
-    Case-insensitive substring match (intentionally loose — we'd
-    rather over-flag than miss "AI-Powered" vs "AI-powered")."""
-    if not forbidden:
-        return []
-    lower = text_blob.lower()
-    return [p for p in forbidden if p.lower() in lower]
-
-
-def _slide_text(slides: list[dict[str, Any]]) -> str:
-    """Flatten all slide text into one blob for forbidden-phrase scanning."""
-    parts: list[str] = []
-    for s in slides:
-        for k in ("title", "subtitle", "heading", "body_md", "footer", "caption"):
-            v = s.get(k)
-            if isinstance(v, str):
-                parts.append(v)
-        # Bullets / lists
-        for k in ("bullets", "items"):
-            v = s.get(k)
-            if isinstance(v, list):
-                parts.extend(str(x) for x in v)
-    return "\n".join(parts)
-
-
-# ── deck ────────────────────────────────────────────────────────────
 
 
 _DECK_SYSTEM = """You are Astra's creator sub-agent — specifically the deck-drafting role.
@@ -130,6 +78,23 @@ Rules:
 Return ONLY the JSON. No prose preamble. No markdown fences. No "here is the deck:". Just the JSON object."""
 
 
+def _deck_text_blob(deck: dict[str, Any]) -> str:
+    """Flatten all deck text for forbidden-phrase scanning."""
+    parts: list[str] = []
+    parts.append(deck.get("title", "") or "")
+    parts.append(deck.get("subtitle", "") or "")
+    for s in (deck.get("slides", []) or []):
+        if isinstance(s, dict):
+            parts.append(
+                join_text_fields(
+                    s,
+                    ("title", "subtitle", "heading", "body_md",
+                     "footer", "caption", "bullets", "items"),
+                )
+            )
+    return "\n".join(parts)
+
+
 async def draft_deck(
     *,
     business_slug: str,
@@ -137,15 +102,7 @@ async def draft_deck(
     ask: str,
     context: str = "",
 ) -> dict[str, Any]:
-    """Generate a deck and persist it. Returns the saved artifact dict.
-
-    Args:
-      business_slug: directory name under business-kits/
-      audience_slug: filename (no .md) under audiences/
-      ask: explicit call-to-action that must appear on the closing slide
-      context: free-text additional context — recent events, news, the
-               specific framing the founder wants emphasized
-    """
+    """Generate a deck and persist it. Returns the saved artifact dict."""
     kit = load_kit(business_slug)
     audience_md = kit.audience(audience_slug)
     if not audience_md:
@@ -165,10 +122,11 @@ async def draft_deck(
     user_prompt += "Draft the deck now. Return JSON only."
 
     forbidden = kit.brand.get("forbidden_phrases", []) or []
-    deck_json = await _generate_deck_json(
+    deck_json = await generate_json(
         system=_DECK_SYSTEM,
         user=user_prompt,
         forbidden=forbidden,
+        text_blob_fn=_deck_text_blob,
     )
 
     title = deck_json.get("title") or f"{kit.name} — {ask[:60]}"
@@ -181,64 +139,3 @@ async def draft_deck(
         content=deck_json,
     )
     return artifact
-
-
-async def _generate_deck_json(
-    *, system: str, user: str, forbidden: list[str], _retry: bool = False
-) -> dict[str, Any]:
-    """Call Claude, parse JSON, retry once with feedback if forbidden phrases land."""
-    key = _get_anthropic_key()
-    if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set; cannot draft deck")
-    client = anthropic.AsyncAnthropic(api_key=key)
-
-    resp = await client.messages.create(
-        model=_DRAFT_MODEL,
-        max_tokens=_MAX_TOKENS,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    text_out = "\n".join(
-        b.text for b in resp.content if hasattr(b, "text")
-    ).strip()
-    # Strip code fences if the model added them despite the rule
-    if text_out.startswith("```"):
-        text_out = re.sub(r"^```(?:json)?|```$", "", text_out, flags=re.M).strip()
-
-    try:
-        deck = json.loads(text_out)
-    except json.JSONDecodeError as e:
-        logger.error("[creator] draft_deck JSON parse failed: %s", e)
-        logger.error("[creator] raw response head: %s", text_out[:500])
-        raise
-
-    # Forbidden-phrase check
-    slide_blob = _slide_text(deck.get("slides", []) or [])
-    full_blob = (
-        f"{deck.get('title','')}\n{deck.get('subtitle','')}\n{slide_blob}"
-    )
-    hits = _check_forbidden(full_blob, forbidden)
-    if hits and not _retry:
-        logger.warning(
-            "[creator] forbidden phrases hit, regenerating: %s", hits
-        )
-        feedback = (
-            "Your previous draft contained forbidden phrases: "
-            f"{hits}. Rewrite the deck without using ANY of these words "
-            "or any close variants. Same JSON schema."
-        )
-        return await _generate_deck_json(
-            system=system,
-            user=f"{user}\n\n<previous-attempt-feedback>\n{feedback}\n</previous-attempt-feedback>",
-            forbidden=forbidden,
-            _retry=True,
-        )
-    if hits and _retry:
-        # Don't fail outright — the caller will see the deck and can
-        # decide to regenerate manually. But log loudly.
-        logger.error(
-            "[creator] forbidden phrases STILL present after retry: %s",
-            hits,
-        )
-
-    return deck

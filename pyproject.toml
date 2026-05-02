@@ -66,6 +66,9 @@ dependencies = [
     "Jinja2>=3.1.0",
     "weasyprint>=63.0",
     "boto3>=1.34.0",
+    # Phase B2: editable PowerPoint output (alongside PDF) so investors /
+    # partners can edit decks before forwarding.
+    "python-pptx>=1.0.0",
 
     # SSE for the stream service (deployed in Session 2 but shares the
     # same image base; cheap to keep declared).
