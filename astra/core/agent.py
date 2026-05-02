@@ -26,6 +26,7 @@ from astra.tools.browser_tools import create_browser_mcp_server
 from astra.tools.notes_tools import create_notes_mcp_server
 from astra.tools.calendar_tools import create_calendar_mcp_server
 from astra.tools.research_tools import create_research_mcp_server
+from astra.tools.creator_tools import create_creators_mcp_server
 from astra.tools.email_tools import create_email_mcp_server
 from astra.tools.shares_tools import create_shares_mcp_server
 from astra.tools.task_tools import create_task_mcp_server
@@ -68,6 +69,7 @@ def create_astra_options(resume_session_id: str | None = None) -> ClaudeAgentOpt
     research_server = create_research_mcp_server()
     email_server = create_email_mcp_server()
     shares_server = create_shares_mcp_server()
+    creators_server = create_creators_mcp_server()
 
     options = ClaudeAgentOptions(
         # System prompt defines Astra's identity and behavior
@@ -110,6 +112,7 @@ def create_astra_options(resume_session_id: str | None = None) -> ClaudeAgentOpt
             "astra-research": research_server,
             "astra-email": email_server,
             "astra-shares": shares_server,
+            "astra-creators": creators_server,
         },
 
         # Allow all custom MCP tools
@@ -192,6 +195,12 @@ def create_astra_options(resume_session_id: str | None = None) -> ClaudeAgentOpt
             "mcp__astra-shares__list_recent_shares",
             "mcp__astra-shares__search_shares",
             "mcp__astra-shares__get_share",
+            # Creators — brand-aware deck/doc/one-pager generation per company
+            "mcp__astra-creators__list_business_kits",
+            "mcp__astra-creators__read_business_kit",
+            "mcp__astra-creators__draft_deck",
+            "mcp__astra-creators__render_deck_pdf",
+            "mcp__astra-creators__list_creator_artifacts",
             # Built-in read-only tools (safe to always allow)
             "Read",
             "Glob",

@@ -61,6 +61,12 @@ dependencies = [
     # WhatsApp-gateway vendored: phone number normalization
     "phonenumbers>=8.13.0",
 
+    # Creator capability — kit YAML, HTML→PDF rendering, R2 upload
+    "PyYAML>=6.0",
+    "Jinja2>=3.1.0",
+    "weasyprint>=63.0",
+    "boto3>=1.34.0",
+
     # SSE for the stream service (deployed in Session 2 but shares the
     # same image base; cheap to keep declared).
     "sse-starlette>=2.0.0",

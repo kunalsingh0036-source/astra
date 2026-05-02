@@ -1,0 +1,228 @@
+{# Deck template — one slide per @page block.
+   WeasyPrint converts each @page boundary to one PDF page.
+   Brand colors come from CSS variables injected at render time.
+   Fonts: kit can specify @font-face URLs in brand.yml; fallback chain
+   keeps the deck readable even without custom fonts. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --brand-primary: {{ colors.primary or '#0A1F3D' }};
+    --brand-secondary: {{ colors.secondary or '#FF6B35' }};
+    --brand-surface: {{ colors.surface or '#FFFFFF' }};
+    --brand-ink: {{ colors.ink or '#0F0F0F' }};
+    --brand-muted: {{ colors.muted or '#6B6B6B' }};
+    --display-font: '{{ fonts.display.family or "Helvetica Neue" }}', {{ fonts.display.fallback or "system-ui, -apple-system, sans-serif" }};
+    --body-font: '{{ fonts.body.family or "Helvetica Neue" }}', {{ fonts.body.fallback or "system-ui, -apple-system, sans-serif" }};
+  }
+
+  /* 16:9 slide page. WeasyPrint A4 landscape ~ 297mm x 210mm.
+     Custom @page size to nail 16:9 — 380mm x 213.75mm gives 16:9
+     at print resolution. */
+  @page {
+    size: 380mm 213.75mm;
+    margin: 0;
+  }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--body-font);
+    color: var(--brand-ink);
+    background: var(--brand-surface);
+    font-size: 18pt;
+    line-height: 1.4;
+  }
+
+  .slide {
+    page-break-after: always;
+    page-break-inside: avoid;
+    width: 100%;
+    height: 100vh;
+    box-sizing: border-box;
+    padding: 30mm 40mm;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  .slide h1 {
+    font-family: var(--display-font);
+    font-weight: 700;
+    font-size: 56pt;
+    line-height: 1.1;
+    margin: 0 0 8mm 0;
+    color: var(--brand-ink);
+    letter-spacing: -0.02em;
+  }
+  .slide h2 {
+    font-family: var(--display-font);
+    font-weight: 600;
+    font-size: 36pt;
+    line-height: 1.15;
+    margin: 0 0 6mm 0;
+    color: var(--brand-ink);
+  }
+  .slide h3 {
+    font-family: var(--display-font);
+    font-weight: 600;
+    font-size: 24pt;
+    margin: 0 0 4mm 0;
+    color: var(--brand-ink);
+  }
+  .slide p {
+    font-size: 22pt;
+    line-height: 1.4;
+    margin: 0 0 4mm 0;
+  }
+  .slide ul {
+    margin: 0;
+    padding-left: 8mm;
+    font-size: 22pt;
+    line-height: 1.5;
+  }
+  .slide ul li { margin-bottom: 3mm; }
+
+  .slide .subtitle {
+    color: var(--brand-muted);
+    font-size: 24pt;
+    margin-top: -2mm;
+  }
+  .slide .footer {
+    position: absolute;
+    bottom: 12mm;
+    left: 40mm;
+    right: 40mm;
+    display: flex;
+    justify-content: space-between;
+    color: var(--brand-muted);
+    font-size: 11pt;
+  }
+  .slide .footer .num { font-variant-numeric: tabular-nums; }
+
+  /* Cover */
+  .slide.cover {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    justify-content: center;
+  }
+  .slide.cover h1, .slide.cover h2 { color: #FFFFFF; }
+  .slide.cover .subtitle { color: rgba(255,255,255,0.85); }
+  .slide.cover h1 { font-size: 72pt; }
+
+  /* Section break */
+  .slide.section {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .slide.section h1 { color: #FFFFFF; font-size: 64pt; }
+
+  /* Data slide — number-forward */
+  .slide.data { justify-content: center; }
+  .slide.data .hero-number {
+    font-family: var(--display-font);
+    font-weight: 800;
+    font-size: 144pt;
+    line-height: 1;
+    color: var(--brand-primary);
+    letter-spacing: -0.03em;
+  }
+  .slide.data .hero-context {
+    font-size: 26pt;
+    margin-top: 6mm;
+    max-width: 70%;
+  }
+
+  /* Quote */
+  .slide.quote {
+    justify-content: center;
+    background: var(--brand-surface);
+  }
+  .slide.quote blockquote {
+    font-family: var(--display-font);
+    font-size: 36pt;
+    line-height: 1.25;
+    margin: 0 0 8mm 0;
+    color: var(--brand-ink);
+    border: 0;
+    padding: 0;
+  }
+  .slide.quote cite {
+    font-style: normal;
+    color: var(--brand-muted);
+    font-size: 18pt;
+  }
+
+  /* Close — contact / ask */
+  .slide.close {
+    background: var(--brand-primary);
+    color: #FFFFFF;
+    justify-content: center;
+  }
+  .slide.close h1, .slide.close h2 { color: #FFFFFF; }
+  .slide.close .ask {
+    font-size: 28pt;
+    line-height: 1.4;
+    margin-top: 6mm;
+    color: rgba(255,255,255,0.9);
+  }
+
+  /* Caption (image hints rendered as italic gray placeholder) */
+  .image-hint {
+    margin-top: 8mm;
+    padding: 4mm 6mm;
+    border: 1px dashed var(--brand-muted);
+    color: var(--brand-muted);
+    font-style: italic;
+    font-size: 14pt;
+  }
+</style>
+</head>
+<body>
+  {%- for slide in slides %}
+  <section class="slide {{ slide.type or 'content' }}">
+    {%- if slide.type == 'cover' %}
+      <h1>{{ slide.title or title }}</h1>
+      {% if slide.subtitle or subtitle %}<div class="subtitle">{{ slide.subtitle or subtitle }}</div>{% endif %}
+    {%- elif slide.type == 'section' %}
+      <h1>{{ slide.title }}</h1>
+      {% if slide.subtitle %}<div class="subtitle">{{ slide.subtitle }}</div>{% endif %}
+    {%- elif slide.type == 'data' %}
+      {% if slide.heading %}<h2>{{ slide.heading }}</h2>{% endif %}
+      <div class="hero-number">{{ slide.title }}</div>
+      {% if slide.body_md %}<div class="hero-context">{{ slide.body_md }}</div>{% endif %}
+    {%- elif slide.type == 'quote' %}
+      <blockquote>{{ slide.body_md or slide.heading }}</blockquote>
+      {% if slide.subtitle %}<cite>— {{ slide.subtitle }}</cite>{% endif %}
+    {%- elif slide.type == 'close' %}
+      <h1>{{ slide.title or 'Let’s talk.' }}</h1>
+      {% if slide.body_md %}<div class="ask">{{ slide.body_md }}</div>{% endif %}
+      {% if slide.bullets %}
+        <ul>{% for b in slide.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+      {% endif %}
+    {%- else %}
+      {# content slide — default #}
+      {% if slide.title %}<h2>{{ slide.title }}</h2>{% endif %}
+      {% if slide.subtitle %}<div class="subtitle">{{ slide.subtitle }}</div>{% endif %}
+      {% if slide.heading %}<h3>{{ slide.heading }}</h3>{% endif %}
+      {% if slide.body_md %}<p>{{ slide.body_md }}</p>{% endif %}
+      {% if slide.bullets %}
+        <ul>{% for b in slide.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if slide.image_hint %}<div class="image-hint">[ image: {{ slide.image_hint }} ]</div>{% endif %}
+    {%- endif %}
+    {% if footer_enabled and slide.type not in ('cover', 'close') %}
+      <div class="footer">
+        <span>{{ company_name }}</span>
+        {% if slide_numbers %}<span class="num">{{ loop.index }} / {{ slides|length }}</span>{% endif %}
+      </div>
+    {% endif %}
+  </section>
+  {%- endfor %}
+</body>
+</html>
