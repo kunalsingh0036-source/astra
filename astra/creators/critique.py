@@ -211,4 +211,23 @@ async def critique_artifact(artifact_id: int) -> dict[str, Any]:
         content=critique_json,
         parent_id=artifact_id,
     )
+
+    # Layer 4 hook: low scores log a self-improvement observation so
+    # the queue surfaces patterns over time. Lazy import to avoid
+    # circular dependency via the store layer.
+    try:
+        score = int(critique_json.get("overall_score") or 0)
+        if score and score < 60:
+            from astra.creators.self_improve import auto_observe_low_critique
+            await auto_observe_low_critique(
+                critique_artifact_id=int(saved["id"]),
+                parent_artifact_id=int(artifact_id),
+                business_slug=business_slug,
+                overall_score=score,
+            )
+    except Exception as obs_err:
+        logger.warning(
+            "[critique] self-improve hook failed: %s", obs_err
+        )
+
     return saved

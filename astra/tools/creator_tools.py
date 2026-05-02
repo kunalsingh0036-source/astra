@@ -60,6 +60,7 @@ from astra.creators.render_site_preview import render_site_preview
 from astra.creators.store import list_artifacts
 from astra.tools.code_editor_tools import CODE_EDITOR_TOOLS
 from astra.tools.kit_editor_tools import KIT_EDITOR_TOOLS
+from astra.tools.self_improve_tools import SELF_IMPROVE_TOOLS
 
 
 # ── Discovery ───────────────────────────────────────────────────────
@@ -1243,8 +1244,10 @@ async def list_creator_artifacts_tool(args: dict) -> dict:
 def create_creators_mcp_server():
     return create_sdk_mcp_server(
         name="astra-creators",
-        version="0.7.0",
+        version="0.8.0",
         tools=[
+            # Self-improvement (Layer 4 — proactive)
+            *SELF_IMPROVE_TOOLS,
             # Code self-editing (Layer 2 self-modification)
             *CODE_EDITOR_TOOLS,
             # Kit self-editing (Layer 1 self-modification)

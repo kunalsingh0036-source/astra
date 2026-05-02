@@ -106,8 +106,18 @@ async def generate_hero_image_prompt(
     """
     kit = load_kit(business_slug)
 
+    # Include the kit's imagery direction explicitly. render_for_prompt
+    # doesn't surface it (it's not relevant for most draft tools), but
+    # for image generation it's the most important kit field — the
+    # anti-patterns ("no glowing brain abstractions") drive the
+    # negative prompt.
+    imagery_direction = (
+        (kit.brand.get("brand", {}) or {}).get("imagery", "") or ""
+    )
+
     user_prompt = (
         f"<business-kit>\n{kit.render_for_prompt()}\n</business-kit>\n\n"
+        f"<imagery-direction>\n{imagery_direction}\n</imagery-direction>\n\n"
         f"<image-hint>{image_hint}</image-hint>\n"
         f"<aspect-ratio-hint>{aspect_ratio}</aspect-ratio-hint>\n"
     )

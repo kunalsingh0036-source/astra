@@ -156,6 +156,21 @@ async def generate_json(
         logger.error(
             "[creator] forbidden phrases STILL present after retry: %s", hits
         )
+        # Layer 4 hook: log this as a self-improvement observation so
+        # the queue surfaces a recurring voice-discipline failure for
+        # the founder to review. Lazy import to avoid a circular import
+        # via store -> db -> self_improve -> _shared.
+        try:
+            from astra.creators.self_improve import (
+                auto_observe_persistent_forbidden,
+            )
+            await auto_observe_persistent_forbidden(
+                forbidden_hits=hits,
+            )
+        except Exception as obs_err:
+            logger.warning(
+                "[creator] self-improve hook failed: %s", obs_err
+            )
 
     return parsed
 
