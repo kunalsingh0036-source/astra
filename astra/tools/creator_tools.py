@@ -58,6 +58,7 @@ from astra.creators.render import (
 from astra.creators.render_pptx import render_deck_pptx
 from astra.creators.render_site_preview import render_site_preview
 from astra.creators.store import list_artifacts
+from astra.tools.kit_editor_tools import KIT_EDITOR_TOOLS
 
 
 # ── Discovery ───────────────────────────────────────────────────────
@@ -1241,8 +1242,10 @@ async def list_creator_artifacts_tool(args: dict) -> dict:
 def create_creators_mcp_server():
     return create_sdk_mcp_server(
         name="astra-creators",
-        version="0.5.0",
+        version="0.6.0",
         tools=[
+            # Kit self-editing (Layer 1 self-modification)
+            *KIT_EDITOR_TOOLS,
             list_business_kits_tool,
             read_business_kit_tool,
             # Drafters — content artifacts
