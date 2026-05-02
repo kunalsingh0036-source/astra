@@ -19,15 +19,21 @@ operating backgrounds, not pure-finance.
 
 ## What they care about (top 3)
 
-1. **Defensible wedge** — not "we use Claude". They want the
-   structural reason no competitor can copy this in 18 months.
+1. **End-state ambition + a path to it** — they fund teams going
+   for the foundational layer, not perpetual application-layer
+   plays. HelmTech's destination is *building India's foundational
+   models* (the AI backbone of the country). They want the path
+   articulated: application-layer products + SMB arm today
+   generating credibility + capital → foundational-model build
+   later. Not just upside; sequenced upside.
 2. **Founder-market fit** — has this team earned the right to build
    this thing? Naval background + Apex (manufacturing) + BAY
    (institution-building) + HelmTech (infrastructure thesis) reads
    as someone who builds institutions, not apps.
 3. **Trajectory math** — does the path from $0 → $10M ARR → $100M
-   ARR pencil out at consumer pricing? Show the unit economics on
-   the SMB website-and-agent arm; that's the velocity signal.
+   ARR pencil out? Show the unit economics on the SMB arm + the
+   prosumer trajectory of Shotgun. Both feed the Series A that
+   capitalizes the foundational-model build.
 
 ## What they discount
 
@@ -49,12 +55,15 @@ operating backgrounds, not pure-finance.
 
 ## How to open
 
-Open with the **three-layer thesis** in one sentence + the wedge in
-one sentence. They scan slide 1 for the structural argument before
-deciding whether to keep reading. No hero shot, no team photo,
-no "the AI revolution" framing. Lead with: India's Intelligence
-Layer = foundational models + MCP fabric + execution products. The
-MCP layer is the wedge. Move on.
+Open with the **end-state in one sentence + the path in one sentence**.
+They scan slide 1 for the structural argument before deciding whether
+to keep reading. No hero shot, no team photo, no "the AI revolution"
+framing. Lead with: *HelmTech is building India's sovereign
+intelligence layer — the AI backbone of the country. Today: two arms
+running in parallel — world-facing application-layer products
+(Shotgun, Buckshot) and an Indian SMB digital arm — both generating
+the credibility and capital required to build and train India's
+foundational models.* Move on.
 
 ## How to close
 
@@ -72,10 +81,12 @@ the MCP architecture in 30 minutes — diary attached."
   That's developer pull, not patent."
 
 - **Objection:** "How is this different from Sarvam?"
-  **Response:** "Sarvam is the model layer (commodity over time).
-  We're the protocol layer above it — every Indian model
-  eventually plugs in. We're a complement to Sarvam, not a
-  competitor."
+  **Response:** "Sarvam is racing to the foundational layer
+  directly. We are taking the longer route — application-layer
+  products + SMB arm first to build credibility and capital, then
+  the foundational layer. We arrive later, but with operating
+  muscle, distribution, and the rails models will plug into. The
+  end-state is the same; the path matters."
 
 - **Objection:** "₹45k SMB combo doesn't scale — too services-heavy."
   **Response:** "The SMB arm is the agent demonstrating itself.

@@ -27,14 +27,26 @@ Sources: `BAY-Brand-Identity-System.html.pdf`,
 - **Origin of the name**: the Double Yellow Dot — the global
   standard of professional squash
 
-## Current state (as of Mar 2026 partnership deck)
+## Current state — Pilot Centre at Badhwar Park, Colaba
 
 - **200+ active athletes** (athletes — not members, not customers)
 - **50+ sessions/month**
-- **5 structured programs**: Grassroots · Community · Excellence ·
-  Matchplay · The BAY Experience
+- **4 programs running today** (per theblackandyellow.com):
+  Experience · Community · Grassroots · Excellence
+- **Street to Elite** — the development-pipeline program — launching
+  at the Pilot Centre next
 - **50+ weekly content pieces**
-- **1+ locations** (expanding)
+- **Pilot Centre + the future Excellence Centre flagship + 4-vertical
+  long-horizon build-out** (Excellence Centre / Experience Centres /
+  Squash Jailbreak / Outreach Program — see thesis.md)
+
+### Yet to come (with future flagship)
+
+- **Experience Centres** — Coorg / Mulshi / Alibaug wellness-paradise
+  model
+- **Nutrition Cafe** — ground-floor Social Zone
+- **Membership tiers** — formal membership architecture for the
+  flagship
 
 ## Founder credentials — Kunal Singh
 
@@ -144,14 +156,17 @@ fulfill Olympic-mandate CSR via this).
 
 ## Capabilities / scope (current)
 
-- 1+ active location (Badhwar Park, Colaba, Mumbai)
-- 5 structured programs serving 200+ athletes
+- 1 active location: the **Pilot Centre at Badhwar Park, Colaba,
+  Mumbai**
+- 4 programs serving 200+ athletes (Experience, Community,
+  Grassroots, Excellence) + Street to Elite launching
 - 50+ sessions/month delivered
 - 50+ weekly content pieces published
 - Direct ownership of athletes' developmental arc — sport,
-  recovery, nutrition, S&C, mental conditioning under one roof
-  (when Excellence Centre opens; currently delivered through
-  partnerships)
+  recovery, S&C, mental conditioning. The Pilot Centre delivers
+  this via the founder-coached Excellence track + partner network;
+  the future flagship Excellence Centre brings Lab / Sanctuary /
+  Forge / Nutrition Cafe under one roof.
 
 ## Competitive positioning
 

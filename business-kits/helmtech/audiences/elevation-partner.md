@@ -29,7 +29,10 @@ Series A, $2M–$15M sweet spot.
    as builder, not pitcher.
 3. **Revenue line in market** — the SMB website-and-agent arm at
    ₹15k/30k/45k is the immediate-revenue angle Elevation will
-   underwrite first; the MCP-layer thesis is the upside.
+   underwrite first. Shotgun + Buckshot (the application-layer
+   products) are the nearer-term upside. The foundational-model
+   end-state (sovereign intelligence layer for India) is the
+   long-horizon prize.
 
 ## What they discount
 
@@ -48,11 +51,12 @@ Series A, $2M–$15M sweet spot.
 
 ## How to open
 
-Open with a **shipped-product proof** — helmtech.in is live,
+Open with a **shipped-product proof** — helmtech.in is live, the
 HelmTech outreach agent has 50+ messages in pipeline, brand_voice.py
-codifies 12 verticals. Then the three-layer thesis. Elevation
-respects "ship first, pitch second" more than Peak XV does — lead
-with the artifact, not the abstraction.
+codifies 12 verticals, Shotgun has 520+ tools shipping. Then the
+two-arm umbrella + the sovereign-AI end-state. Elevation respects
+"ship first, pitch second" more than Peak XV does — lead with the
+artifact, then the ambition.
 
 ## How to close
 

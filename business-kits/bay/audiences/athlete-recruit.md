@@ -94,15 +94,17 @@ We'll show you the program; you decide."
 - **Objection:** "What about scholarships? My parents care about
   that."
   **Response:** "Scholar-Athletes is a structural pillar of the
-  program — Ivy League scholarships are part of the Pathways arm.
-  We invest in academic + competitive development together; the
-  scholarship math compounds the program's return."
+  program — Ivy League scholarships are part of the Outreach arm
+  of the long-horizon build. We invest in academic + competitive
+  development together; the scholarship math compounds the
+  program's return."
 
 - **Objection:** "I'm not Olympic-track. Am I in the wrong program?"
   **Response:** "The Excellence track is by application — the
-  Matchplay and Community programs serve sub-elite athletes who
-  want competitive infrastructure without the Olympic-pathway
-  intensity. Trial the right program; we'll route you."
+  Community and Grassroots programs serve sub-elite and developing
+  athletes who want competitive infrastructure without the Olympic-
+  pathway intensity. Street to Elite is the bridge between them and
+  Excellence. Trial the right program; we'll route you."
 
 ## What's the WIN here?
 

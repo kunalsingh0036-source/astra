@@ -4,13 +4,28 @@
 # share #12 in Astra (the recent BAY pitch deck).
 # Last refresh: 2026-05-02
 
-# ⚠️ KNOWN CONFLICTS — Kunal to resolve:
-# 1. Name "Black and Yellow" but brand identity uses GOLD (#D4A843), not bright yellow.
-#    Currently using gold per the brand identity PDF — change here if name is canonical.
-# 2. Three different program lists exist (BI PDF / website / shared deck).
-#    Currently using the website's 4 programs as primary; the BI PDF's
-#    "Excellence Centre / Squash Jailbreak / Street to Elite" framing
-#    appears in audience-specific docs.
+# ── Canonical decisions (resolved) ──────────────────────────────────
+#
+# Color: GOLD (#D4A843) is canonical — confirmed by Kunal 2026-05-02.
+# The brand name is "Black and Yellow", but the visual identity uses
+# gold, not bright yellow. The name is the legacy reference (Double
+# Yellow Dot in pro squash); the visual is gold.
+#
+# Programs (current operating reality, Pilot Centre at Badhwar Park):
+#   1. Experience  2. Community  3. Grassroots  4. Excellence
+#   + Street to Elite — launching at the Pilot Centre
+#
+# Yet to come (future flagship Excellence Centre):
+#   - Experience Centres (Coorg / Mulshi / Alibaug — wellness-paradise
+#     model)
+#   - Nutrition Cafe (ground-floor Social Zone)
+#   - Membership tiers
+#
+# The BI PDF's broader 4-vertical vision (Excellence Centre / BAY
+# Experience Centres / Squash Jailbreak / Outreach) is the long-horizon
+# build-out; the Pilot Centre at Badhwar Park is the current operating
+# reality. Audience docs use either framing depending on whether the
+# reader needs current-state or future-vision context.
 
 name: "Black And Yellow"
 slug: "bay"
@@ -30,7 +45,7 @@ brand:
     # Per BAY-Brand-Identity-System.html.pdf:
     # 85% deep black, 10% gold accent, 5% warm ivory relief.
     primary: "#0A0A0A"           # Deep black (dominant)
-    secondary: "#D4A843"          # Gold accent (NOT bright yellow — see conflict note)
+    secondary: "#D4A843"          # Gold accent — canonical (NOT bright yellow despite the name)
     surface: "#F5F2ED"            # Warm ivory
     ink: "#0A0A0A"
     muted: "#6B6B6B"

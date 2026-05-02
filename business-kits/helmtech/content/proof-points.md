@@ -37,16 +37,32 @@ Sources: `business_helmtech.md` (Kunal's compass), `Helm Tech.pdf`,
 - **Tier-1 investor targets engaged**: Peak XV, Elevation, Z47
 - **Non-dilutive complement targets**: NVIDIA, IndiaAI Mission
 
-## Products in market
+## Products in market — the two arms
+
+### Arm 1: Application-layer AI products (world-facing)
 
 - **Shotgun** — flagship Claude-like prosumer AI platform.
   Desktop + mobile + web. Execution-first (not a chat toy).
-  Astra is effectively Shotgun v0.
+  520+ tools, 15+ integrations. Astra is effectively Shotgun v0.
 - **Buckshot** — AI film-making aggregator. Veo / Sora / Kling /
   Runway / Higgsfield / Pika under one workflow.
-- **HelmTech Web + Agent** — SMB website + customer-engagement
-  agent. ₹15k website / ₹30k agent / ₹45k combo. 1-week delivery.
 - **MCP fabric** — the protocol layer underlying everything above.
+  The same fabric that will eventually serve HelmTech's own
+  foundational models.
+
+### Arm 2: Indian SMB digital arm (India-facing)
+
+- **HelmTech Web + Agent** — SMB website + customer-engagement
+  agent at helmtech.in. ₹15k website / ₹30k agent / ₹45k combo.
+  1-week delivery. 12 industry verticals codified.
+
+### Why both: end-state is sovereign intelligence
+
+Both arms generate the credibility and capital required to
+eventually build and train **HelmTech's own foundational models** —
+the sovereign intelligence layer of AI for India. The application-
+layer dominance is the path; the AI-backbone-of-the-country
+ambition is the destination.
 
 ## Team
 
@@ -88,12 +104,17 @@ Sources: `business_helmtech.md` (Kunal's compass), `Helm Tech.pdf`,
 ## Competitive positioning
 
 ### vs foundational-model labs (Sarvam / Krutrim / BharatGen)
-The model is the commodity. HelmTech is the rails models plug into.
-We use them; we don't compete on training.
+They are racing the foundational layer today. HelmTech will too —
+that is the end-state. Today we ship the application and protocol
+layers above the model, generating the credibility and capital that
+fund the eventual foundational-model build. We arrive at the model
+layer later, but better-capitalized, with operating muscle, and with
+the rails already in place.
 
 ### vs Claude / ChatGPT / Perplexity
-Foreign-built. US data jurisdiction. Not India-native. For Indian
-enterprise + government procurement, Indian rails is a real lever.
+Foreign-built. US data jurisdiction. Not India-native. India's
+sovereign AI cannot be foreign-owned — and our long-horizon
+ambition is to be that sovereign layer ourselves.
 
 ### vs TCS / Infosys / Wipro AI services arms
 Slow. Services-heavy. Project-not-product. HelmTech ships product

@@ -25,7 +25,10 @@ with MeitY guidance, IT Rules 2026, and the IndiaAI Mission.
 
 1. **Data jurisdiction** — does this run on Indian rails with
    Indian data residency? Foreign-built tools are now a
-   procurement red flag for sovereign workloads.
+   procurement red flag for sovereign workloads. HelmTech's
+   long-horizon ambition is to be India's sovereign intelligence
+   layer — including the foundational models themselves; that
+   roadmap is a real procurement differentiator.
 2. **MeitY compliance, default-on** — IT Rules 2026 (effective
    Feb 20) require AI labeling, provenance, governance trails.
    They want this *baked in*, not retrofit.

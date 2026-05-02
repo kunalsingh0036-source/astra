@@ -1,26 +1,54 @@
 # HelmTech brand kit
 # Sources:
-#   HelmTech_BrandIdentity.pdf (canonical formal identity — used here)
-#   helmtech-outreach-agent/backend/app/core/brand_voice.py (lived SMB voice)
-#   helmtech.in (live site — note: site uses different greens/fonts than
-#     the formal brand identity PDF; flagged below for Kunal)
-#   business_helmtech.md (compass — investor / institutional positioning)
+#   HelmTech_BrandIdentity.pdf — CANONICAL formal identity (Kunal-confirmed
+#     2026-05-02; helmtech.in implementation needs to be brought into line)
+#   helmtech-outreach-agent/backend/app/core/brand_voice.py — lived SMB voice
+#   business_helmtech.md (compass) — investor / institutional positioning
 # Last refresh: 2026-05-02
 
-# ⚠️ KNOWN CONFLICTS — Kunal to resolve:
-# 1. The brand identity PDF specifies Matte Black + Emerald Green (#2ECC71)
-#    + Soft Sand (#E8DFD6) with Satoshi/Poppins fonts. The live site
-#    helmtech.in uses acid green (#22C55E) on dark surfaces with what
-#    appears to be Inter or similar. The site is not following the
-#    brand identity. Locking in the brand identity PDF here as canonical;
-#    site should be updated to match (or the brand identity refreshed).
-# 2. There are two distinct HelmTech voices in active use:
-#    - SMB-customer voice: "websites + AI agents" at ₹15k–₹45k pricing
-#    - Investor / institutional voice: "India's Intelligence Layer",
-#      $20–30M raise, MCP fabric thesis
-#    Both audiences have their own audiences/*.md files; brand.yml
-#    represents the formal HelmTech corporate identity (which serves
-#    both).
+# ── Canonical decisions (resolved) ──────────────────────────────────
+#
+# Brand identity: HelmTech_BrandIdentity.pdf is canonical — Matte
+# Black + Emerald Green (#2ECC71) + Soft Sand (#E8DFD6) with
+# Satoshi/Poppins. The live site at helmtech.in currently uses an
+# off-spec acid-green palette + Inter; this is a site-implementation
+# bug, NOT a brand decision. The site should be updated to match the
+# BI PDF.
+#
+# Voice: HelmTech operates two voice registers — both authentic:
+#   - SMB-customer voice (per brand_voice.py): the website-and-agent
+#     arm — direct, practical, Hinglish-comfortable, ₹15k/30k/45k
+#     pricing-stated-plainly
+#   - Investor / institutional / product voice: the application-layer
+#     and platform thesis — decisive, infrastructure-framed,
+#     "AI backbone of the country"
+# Audience persona files in audiences/ pick which register applies.
+
+# ── Umbrella positioning ────────────────────────────────────────────
+#
+# HelmTech is an umbrella company working two-fold simultaneously,
+# both feeding the end-state ambition:
+#
+# End-state: India's sovereign intelligence layer — the AI backbone
+# of the country. Build our own foundational models. Train them. Own
+# the rails the country runs on.
+#
+# Path to there (today, both arms running in parallel):
+#
+#   1. APPLICATION-LAYER AI PRODUCTS — Shotgun (prosumer AI platform,
+#      520+ tools), Buckshot (AI film-making aggregator). World-facing
+#      Indian-built tools. National + worldwide consequences. These
+#      generate the credibility, financial muscle, and investment
+#      that funds the foundational-model ambition.
+#
+#   2. INDIAN SMB DIGITAL ARM — websites + AI agents at ₹15k/30k/45k
+#      via helmtech.in. Brings Indian SMBs onto the digital map.
+#      Generates short-term capital + on-the-ground credibility.
+#
+# Both arms are real businesses today. Both feed the bigger goal.
+# The kit's audience personas reflect this: SMB-side audiences for
+# arm 2; investor / partner / enterprise audiences for arm 1 + the
+# end-state thesis.
 
 name: "Helm Tech"
 slug: "helmtech"

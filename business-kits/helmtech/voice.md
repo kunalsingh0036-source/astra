@@ -87,17 +87,30 @@ Neither is performative.
 
 ### From the HelmTech investor materials (institutional register)
 
-> *"India's Intelligence Layer."*
-> — canonical positioning
+> *"Building India's AI Backbone."*
+> — canonical site footer + investor-deck hero
 
-> *"The execution layer for India's intelligence economy."*
+> *"We aim to be the AI backbone of the country. We will build the
+> sovereign intelligence layer of AI for India."*
+> — Kunal verbatim, end-state framing
 
-> *"Three layers — foundational models, MCP fabric, execution
-> products. The MCP layer is the wedge."*
-> — three-layer thesis structure
+> *"We are working on the application AI layer so that we gain
+> credibility and financial muscle and investment, so that we can
+> build our own models and train them."*
+> — Kunal verbatim, the path-to-end-state
+
+> *"HelmTech is two-fold. Bigger projects like Shotgun and Buckshot
+> that are going to have national and worldwide consequences. And
+> getting Indian SMBs onto the digital map by building functional
+> websites and AI agents for them."*
+> — Kunal verbatim, the umbrella structure
 
 > *"AI that acts in the real world. Sends emails. Files compliance.
 > Books travel. Runs ads. Not a chat toy."*
+> — execution-first framing
+
+> *"Indian tools on the world map."*
+> — the Shotgun / Buckshot framing
 
 ## Words and phrases HelmTech DOES use
 
@@ -126,16 +139,31 @@ Neither is performative.
   Never on email.
 
 ### Investor / institutional register
-- **"MCP fabric"** / **"MCP rails"** / **"MCP-standardized"** —
-  the protocol layer. Always uppercase MCP.
-- **"sovereign AI"** — when discussing geopolitics / data jurisdiction
-- **"foundational, MCP, execution"** — the three-layer structure
+- **"AI backbone of the country"** — the canonical destination
+  framing. The hero phrase. Used sparingly — hero contexts only,
+  never twice in the same artifact.
+- **"sovereign intelligence layer of AI for India"** — Kunal's
+  verbatim end-state phrasing. Slightly longer but more specific
+  than "sovereign AI"; preferred when explaining the destination.
+- **"build our own models"** / **"train our own models"** — the
+  long-horizon ambition stated plainly. Distinguishes HelmTech from
+  every wrapper / chat-toy / aggregator.
+- **"credibility and capital"** — Kunal-natural phrase for *why*
+  the application-layer arms exist. They generate the credibility
+  and capital that fund the foundational-model build.
+- **"Indian tools on the world map"** — the Shotgun + Buckshot
+  framing. World-facing, not India-only.
+- **"two-fold"** / **"two arms"** — for the umbrella structure.
+  Application-layer products + Indian SMB digital arm.
 - **"Shotgun"** / **"Buckshot"** — product names. Always capitalized.
   Shotgun = the prosumer AI platform. Buckshot = AI film-making.
+- **"MCP fabric"** / **"MCP rails"** / **"MCP-standardized"** —
+  the protocol layer. Always uppercase MCP.
+- **"execution-first"** / **"AI that acts"** — the operating thesis.
+  Not a chat toy.
 - **"India-native"** — built for Indian data, languages, regulation
-- **"the rails models plug into"** — the wedge framing
-- **"backbone of the country"** — heavy-lift phrase. Used sparingly,
-  hero contexts only. Never twice in the same artifact.
+- **"application-layer"** / **"foundational layer"** — the architecture
+  language. Application is the path; foundational is the destination.
 
 ## Words and phrases HelmTech NEVER uses
 
