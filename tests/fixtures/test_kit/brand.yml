@@ -1,0 +1,49 @@
+# Test fixture kit — TestCo
+# Used only by the test suite. Do NOT use as a real kit.
+
+name: "TestCo"
+slug: "testco"
+tagline_short: "Building things that work."
+tagline_long: "TestCo makes infrastructure that doesn't break — used in the test suite to exercise the creator stack."
+about: |
+  TestCo is a fictional company that exists solely to give the test
+  suite a stable, voice-disciplined kit to validate against. Real
+  kits should not borrow from this one.
+
+brand:
+  colors:
+    primary: "#0F1C2E"
+    secondary: "#C8B89A"
+    surface: "#FAF6F0"
+    ink: "#0A0A0A"
+    muted: "#6B6B6B"
+    chart:
+      - "#0F1C2E"
+      - "#C8B89A"
+      - "#FAF6F0"
+  typography:
+    display:
+      family: "Inter"
+      fallback: "system-ui, sans-serif"
+    body:
+      family: "Inter"
+      fallback: "system-ui, sans-serif"
+  imagery:
+    style: "Documentary-photography style; high-contrast; minimal."
+
+voice_file: "voice.md"
+thesis_file: "thesis.md"
+audiences_dir: "audiences/"
+content_dir: "content/"
+
+forbidden_phrases:
+  - "world-class"
+  - "best-in-class"
+  - "cutting-edge"
+  - "synergy"
+
+output:
+  doc_page_size: "A4"
+  slide_aspect: "16:9"
+  slide_footer: true
+  slide_numbers: true

@@ -287,9 +287,9 @@
   {% if section.bullets %}
     <ul>{% for b in section.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
   {% endif %}
-  {% if section['items'] %}
+  {% if section.get('items') %}
     <div class="items-grid">
-      {% for item in section['items'] %}
+      {% for item in section.get('items') %}
         <div class="item">
           {% if item.title %}<h3>{{ item.title }}</h3>{% endif %}
           {% if item.body_md %}<p>{{ item.body_md|safe }}</p>{% endif %}
