@@ -82,6 +82,42 @@ async def health() -> dict[str, object]:
     }
 
 
+# ── Embedding-model pre-warm ───────────────────────────────────
+#
+# The sentence-transformers model (all-MiniLM-L6-v2) lazy-loads on
+# first call to recall_memories. On a fresh container that means the
+# user's first turn pays a 30-60s cold start while ~80MB of weights
+# download from HuggingFace. The browser's heartbeat shows "no
+# activity for 48s" and the user (reasonably) thinks Astra is hung.
+#
+# Fix: kick off the model load at startup in a background thread so
+# the import + download happens while the server is otherwise idle.
+# By the time the first user request arrives, the model is hot.
+#
+# The thread is daemonized so a stuck download can't keep the process
+# alive on shutdown. If the load fails, we log and let the lazy path
+# retry on first use — same as before, just no longer dropped silently.
+
+@app.on_event("startup")
+async def _prewarm_embedding_model() -> None:
+    import threading
+
+    def _load():
+        try:
+            logger.info("[prewarm] loading sentence-transformers model in background")
+            from astra.memory.embeddings import _get_model  # type: ignore[import-not-found]
+            model = _get_model()
+            # Run a tiny encode to warm the inference path too — the
+            # first encode after load also has overhead beyond download.
+            model.encode("warmup", normalize_embeddings=True)
+            logger.info("[prewarm] embedding model ready")
+        except Exception:
+            logger.exception("[prewarm] embedding model load failed (will retry lazily)")
+
+    t = threading.Thread(target=_load, name="embedding-prewarm", daemon=True)
+    t.start()
+
+
 @app.get("/memory/search")
 async def memory_search(
     request: Request,
