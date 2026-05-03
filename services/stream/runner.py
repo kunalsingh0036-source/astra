@@ -467,7 +467,85 @@ async def run_query(
         logger.exception("astra run_query failed")
         turn_status = "failed"
         turn_error = f"{type(e).__name__}: {e}"
-        yield error(f"astra error: {e}")
+
+        # Detect the "stale session" failure mode and auto-recover.
+        # When the browser's localStorage holds a session_id from
+        # before a deploy/restart, the SDK can't resume it (session
+        # state lives in the CLI process, which is gone). The CLI
+        # exits with code 1 and emits 'No conversation found with
+        # session ID: ...' to its stderr. Without recovery the user
+        # sees a cryptic 'Command failed with exit code 1' and has
+        # to manually dismiss the conversation.
+        msg = (str(e) or "").lower()
+        looks_like_stale_session = (
+            resume_session_id
+            and (
+                "no conversation found" in msg
+                or "session id" in msg and "not found" in msg
+                or "exit code 1" in msg  # heuristic — SDK swallows the real reason
+            )
+        )
+
+        if looks_like_stale_session:
+            logger.warning(
+                "[runner] stale session_id %s — retrying with fresh session",
+                resume_session_id,
+            )
+            yield thought(
+                "previous session not found on the server — starting a fresh "
+                "conversation and continuing"
+            )
+            # Drop the stale id, mint a new one, and re-run the SDK
+            # path. Keep the same turn_id (the prompt is the same).
+            resume_session_id = None
+            session_id = str(uuid.uuid4())
+            yield session(session_id)
+            try:
+                options = create_astra_options(resume_session_id=None)
+                async with ClaudeSDKClient(options=options) as client:
+                    await client.query(prompt)
+                    async for message in client.receive_response():
+                        if isinstance(message, AssistantMessage):
+                            for block in getattr(message, "content", []) or []:
+                                if isinstance(block, ThinkingBlock):
+                                    text = getattr(block, "thinking", None)
+                                    if text:
+                                        yield thought(_preview(text, limit=220))
+                                elif isinstance(block, TextBlock):
+                                    text = getattr(block, "text", "") or ""
+                                    if text:
+                                        yield text_delta(text)
+                                        response_buffer.append(text)
+                                elif isinstance(block, ToolUseBlock):
+                                    tool_id = getattr(block, "id", "") or ""
+                                    tool_name = getattr(block, "name", "") or ""
+                                    agent = _agent_from_tool(tool_name)
+                                    tool_count += 1
+                                    yield tool_call(
+                                        id=tool_id, name=tool_name, agent=agent
+                                    )
+                        elif isinstance(message, ResultMessage):
+                            final_result = message
+                            asyncio.create_task(record_usage(message, source="chat"))
+                            break
+                        await asyncio.sleep(0)
+                # Recovery succeeded — clear the failed status so the
+                # finalize block treats this as a normal completion.
+                turn_status = "complete"
+                turn_error = None
+            except Exception as e2:
+                logger.exception("[runner] retry after stale session failed")
+                turn_status = "failed"
+                turn_error = f"{type(e2).__name__}: {e2}"
+                yield error(
+                    f"astra error: {e2} (also failed after retrying with a fresh session — "
+                    f"the agent CLI may be misconfigured on the server)"
+                )
+        else:
+            # Surface a more informative message than the SDK's default.
+            # The previous "Command failed with exit code 1" was useless;
+            # at least include the exception class so logs are findable.
+            yield error(f"astra error ({type(e).__name__}): {e}")
 
     meta: dict[str, object] = {}
     final_result_obj = locals().get("final_result")
