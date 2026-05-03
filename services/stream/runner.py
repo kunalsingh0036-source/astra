@@ -67,20 +67,45 @@ def _agent_from_tool(tool_name: str) -> str | None:
     return None
 
 
-_AUTONOMY_FILE = "/Users/kunalsingh/Claude Code/astra-control/autonomy_mode.txt"
 _AUTONOMY_ALLOWED = {"always_ask", "semi_auto", "full_auto"}
 
 
+def _autonomy_file_path() -> str:
+    """Resolve autonomy mode file path. ASTRA_AUTONOMY_FILE env wins;
+    falls back to ~/.astra-state/autonomy_mode.txt.
+
+    The original hardcoded laptop path didn't exist on Railway, so
+    UI mode toggles silently no-op'd. Env-driven path makes it work
+    on both local dev and the prod container."""
+    import os as _os  # local import — keeps stdlib name shadowing risk-free
+    env = _os.environ.get("ASTRA_AUTONOMY_FILE", "").strip()
+    if env:
+        return env
+    home = _os.environ.get("HOME", "/tmp")
+    return _os.path.join(home, ".astra-state", "autonomy_mode.txt")
+
+
+_LEGACY_AUTONOMY_FILE = (
+    "/Users/kunalsingh/Claude Code/astra-control/autonomy_mode.txt"
+)
+
+
 def _read_autonomy_override() -> str | None:
-    """Read the UI-set autonomy mode, if any. None if unset/invalid."""
-    try:
-        with open(_AUTONOMY_FILE, encoding="utf8") as f:
-            mode = f.read().strip()
-        return mode if mode in _AUTONOMY_ALLOWED else None
-    except FileNotFoundError:
-        return None
-    except Exception:
-        return None
+    """Read the UI-set autonomy mode, if any. None if unset/invalid.
+
+    Tries env-configured path first, falls back to the legacy laptop
+    path so local installs keep working without env changes."""
+    for path in (_autonomy_file_path(), _LEGACY_AUTONOMY_FILE):
+        try:
+            with open(path, encoding="utf8") as f:
+                mode = f.read().strip()
+            if mode in _AUTONOMY_ALLOWED:
+                return mode
+        except FileNotFoundError:
+            continue
+        except Exception:
+            continue
+    return None
 
 
 async def run_query(
