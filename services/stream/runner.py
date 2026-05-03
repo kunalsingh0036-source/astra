@@ -71,13 +71,12 @@ _AUTONOMY_ALLOWED = {"always_ask", "semi_auto", "full_auto"}
 
 
 def _autonomy_file_path() -> str:
-    """Resolve autonomy mode file path. ASTRA_AUTONOMY_FILE env wins;
-    falls back to ~/.astra-state/autonomy_mode.txt.
+    """File-based override path (LOCAL DEV ONLY).
 
-    The original hardcoded laptop path didn't exist on Railway, so
-    UI mode toggles silently no-op'd. Env-driven path makes it work
-    on both local dev and the prod container."""
-    import os as _os  # local import — keeps stdlib name shadowing risk-free
+    On Railway the source of truth is the shared Postgres app_settings
+    table — files don't sync across containers. The file path is kept
+    so single-host local installs continue to work without DB access."""
+    import os as _os
     env = _os.environ.get("ASTRA_AUTONOMY_FILE", "").strip()
     if env:
         return env
@@ -90,11 +89,30 @@ _LEGACY_AUTONOMY_FILE = (
 )
 
 
-def _read_autonomy_override() -> str | None:
-    """Read the UI-set autonomy mode, if any. None if unset/invalid.
+async def _read_autonomy_from_db() -> str | None:
+    """Read the autonomy mode from Postgres. Returns None on any error
+    (including 'table does not exist' pre-migration) so the file
+    fallback can still work."""
+    try:
+        from sqlalchemy import text  # type: ignore[import-not-found]
+        from astra.db.engine import async_session  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    try:
+        async with async_session() as s:
+            r = await s.execute(
+                text("SELECT value FROM app_settings WHERE key = 'autonomy_mode'")
+            )
+            row = r.first()
+            if row and row[0] in _AUTONOMY_ALLOWED:
+                return str(row[0])
+    except Exception:
+        return None
+    return None
 
-    Tries env-configured path first, falls back to the legacy laptop
-    path so local installs keep working without env changes."""
+
+def _read_autonomy_from_file() -> str | None:
+    """File-based fallback for local dev."""
     for path in (_autonomy_file_path(), _LEGACY_AUTONOMY_FILE):
         try:
             with open(path, encoding="utf8") as f:
@@ -106,6 +124,18 @@ def _read_autonomy_override() -> str | None:
         except Exception:
             continue
     return None
+
+
+async def _read_autonomy_override() -> str | None:
+    """Read the UI-set autonomy mode. Resolution order:
+      1. Postgres app_settings (production — shared across services)
+      2. File-based override (local dev — single host)
+      3. None — caller falls back to the manager's default
+    """
+    db_mode = await _read_autonomy_from_db()
+    if db_mode:
+        return db_mode
+    return _read_autonomy_from_file()
 
 
 async def run_query(
@@ -174,7 +204,7 @@ async def run_query(
     # the settings default). The autonomy hooks consult this singleton
     # on every tool call, so this takes effect immediately for the
     # turn we're about to run.
-    override = _read_autonomy_override()
+    override = await _read_autonomy_override()
     if override:
         try:
             autonomy_manager.set_mode(
