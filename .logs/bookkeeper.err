@@ -36664,3 +36664,17 @@ Not Found: /ws/extension
 [03/May/2026 17:39:06,728] - Broken pipe from ('127.0.0.1', 65265)
 Not Found: /ws/extension
 [03/May/2026 17:39:21] "GET /ws/extension HTTP/1.1" 404 2683
+Not Found: /ws/extension
+[03/May/2026 18:21:59] "GET /ws/extension HTTP/1.1" 404 2683
+Not Found: /ws/extension
+[03/May/2026 18:22:00] "GET /ws/extension HTTP/1.1" 404 2683
+Not Found: /ws/extension
+[03/May/2026 18:22:02] "GET /ws/extension HTTP/1.1" 404 2683
+Not Found: /ws/extension
+[03/May/2026 18:22:06] "GET /ws/extension HTTP/1.1" 404 2683
+[03/May/2026 18:22:06,392] - Broken pipe from ('127.0.0.1', 56275)
+Not Found: /ws/extension
+[03/May/2026 18:22:14] "GET /ws/extension HTTP/1.1" 404 2683
+[03/May/2026 18:22:14,407] - Broken pipe from ('127.0.0.1', 56278)
+Not Found: /ws/extension
+[03/May/2026 18:22:29] "GET /ws/extension HTTP/1.1" 404 2683

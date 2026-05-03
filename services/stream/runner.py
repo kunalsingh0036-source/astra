@@ -224,6 +224,10 @@ async def run_query(
 
     # Run Astra and translate messages → events
     canonical_session_emitted = False
+    # Accumulator for the assistant's text response across all
+    # AssistantMessage / TextBlock chunks. Used by the post-turn
+    # memory-extraction hook below.
+    response_buffer: list[str] = []
     try:
         async with ClaudeSDKClient(options=options) as client:
             await client.query(prompt)
@@ -252,6 +256,9 @@ async def run_query(
                             text = getattr(block, "text", "") or ""
                             if text:
                                 yield text_delta(text)
+                                # Accumulate the full response for the
+                                # post-turn memory-extraction hook below.
+                                response_buffer.append(text)
                         elif isinstance(block, ToolUseBlock):
                             tool_id = getattr(block, "id", "") or ""
                             tool_name = getattr(block, "name", "") or ""
@@ -339,4 +346,24 @@ async def run_query(
         if isinstance(usage, dict):
             meta["input_tokens"] = int(usage.get("input_tokens") or 0)
             meta["output_tokens"] = int(usage.get("output_tokens") or 0)
+
+    # Post-turn memory extraction — fire and forget. Lazy-imported so
+    # the runner stays bootable if astra core's memory module fails to
+    # import (e.g. mid-deploy, missing migration). Skipped silently when
+    # the response is too short to be store-worthy.
+    full_response = "".join(response_buffer).strip()
+    if full_response and len(full_response) > 40:
+        try:
+            from astra.memory.post_turn_extract import extract_and_store
+
+            asyncio.create_task(
+                extract_and_store(
+                    prompt=prompt,
+                    response=full_response,
+                    session_id=session_id,
+                )
+            )
+        except Exception as e:
+            logger.warning("[runner] post-turn extract spawn failed: %s", e)
+
     yield done(duration_ms=int((time.monotonic() - started) * 1000), meta=meta)
