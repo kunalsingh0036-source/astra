@@ -33,12 +33,19 @@ async def create_artifact(
     audience_slug: str | None = None,
     ask: str = "",
     parent_id: int | None = None,
+    status: str = "complete",
 ) -> dict[str, Any]:
     """Insert a new artifact and return its row as a dict.
 
     Returns the saved row including id and timestamps so the caller
     can immediately reference the new artifact (e.g. include the id
     in the agent's reply text).
+
+    `status` defaults to 'complete' for one-shot creator tools that
+    persist a finished artifact in a single call. Multi-step tools
+    (analyze_reference_site, draft_brand_kit) write 'running' first so
+    the row exists in the DB even if the long-running LLM call later
+    fails — the URL and structural summary aren't lost.
     """
     async with async_session() as s:
         r = await s.execute(
@@ -46,9 +53,9 @@ async def create_artifact(
                 """
                 INSERT INTO creator_artifacts
                   (business_slug, kind, audience_slug, title, ask,
-                   content, parent_id)
+                   content, parent_id, status)
                 VALUES
-                  (:bs, :k, :aud, :t, :ask, CAST(:c AS JSONB), :p)
+                  (:bs, :k, :aud, :t, :ask, CAST(:c AS JSONB), :p, :st)
                 RETURNING id, created_at
                 """
             ),
@@ -60,6 +67,7 @@ async def create_artifact(
                 "ask": ask or "",
                 "c": json.dumps(content),
                 "p": parent_id,
+                "st": status[:15],
             },
         )
         row = r.one()
@@ -74,7 +82,41 @@ async def create_artifact(
         "ask": ask,
         "content": content,
         "parent_id": parent_id,
+        "status": status,
     }
+
+
+async def update_artifact_content(
+    artifact_id: int,
+    *,
+    content: dict[str, Any],
+    status: str | None = None,
+    title: str | None = None,
+) -> bool:
+    """Replace an artifact's content (and optionally status/title).
+
+    Used by long-running creator tools to flip a 'running' placeholder
+    row into a 'complete' row once the LLM analysis lands. Returns
+    True if the row was found and updated.
+    """
+    sets: list[str] = ["content = CAST(:c AS JSONB)", "updated_at = now()"]
+    params: dict[str, Any] = {
+        "id": int(artifact_id),
+        "c": json.dumps(content),
+    }
+    if status is not None:
+        sets.append("status = :st")
+        params["st"] = status[:15]
+    if title is not None:
+        sets.append("title = :t")
+        params["t"] = title[:511]
+    async with async_session() as s:
+        r = await s.execute(
+            text(f"UPDATE creator_artifacts SET {', '.join(sets)} WHERE id = :id"),
+            params,
+        )
+        await s.commit()
+        return (r.rowcount or 0) > 0
 
 
 async def get_artifact(artifact_id: int) -> dict[str, Any] | None:

@@ -33,7 +33,7 @@ from astra.creators._shared import (
     generate_json,
     join_text_fields,
 )
-from astra.creators.store import create_artifact
+from astra.creators.store import create_artifact, update_artifact_content
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +268,21 @@ async def analyze_reference_site(url: str) -> dict[str, Any]:
 
     Returns the saved artifact dict. Stored as kind="site_analysis" so
     downstream tools can reference it by id.
+
+    Checkpointing strategy: this tool runs in two phases. Phase 1
+    (fetch + structural summary, ~5-20s) is fast and reliable. Phase 2
+    (LLM analysis, can take 30-90s) is where things go wrong — Railway
+    deploys, network blips, and SDK timeouts have historically killed
+    in-flight calls and lost the work entirely.
+
+    Fix: write a `status='running'` placeholder row immediately after
+    phase 1 with the URL + structural summary in `content`. Even if
+    phase 2 explodes, the row survives — the user can find it via
+    list_creator_artifacts and either resume or read the structural
+    data directly. On phase 2 success the row is updated to
+    `status='complete'` with the full analysis. On failure we mark
+    `status='failed'` with the exception message so future runs can
+    distinguish "no attempt" from "tried and broke."
     """
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
@@ -278,6 +293,29 @@ async def analyze_reference_site(url: str) -> dict[str, Any]:
         raise RuntimeError(f"Failed to fetch {url}: {type(e).__name__}: {e}") from e
 
     summary = _extract_structural_summary(html, base_url=fetch_meta["final_url"])
+
+    # ── Checkpoint: persist the running row BEFORE the slow LLM call.
+    # If the process dies mid-analysis, this row survives with the
+    # structural summary so nothing is lost.
+    placeholder_title = f"Analysis (running): {summary.get('title','') or url}"[:200]
+    placeholder_content: dict[str, Any] = {
+        "url": url,
+        "final_url": fetch_meta.get("final_url"),
+        "structural_summary": summary,
+        "fetch_meta": fetch_meta,
+        "phase": "awaiting_llm_analysis",
+    }
+    artifact = await create_artifact(
+        business_slug="top-studios",
+        kind="site_analysis",
+        audience_slug=None,
+        title=placeholder_title,
+        ask=f"analyze {url}",
+        content=placeholder_content,
+        status="running",
+    )
+    artifact_id = int(artifact["id"])
+    logger.info("analyze_reference_site checkpoint: id=%s url=%s", artifact_id, url)
 
     # The user prompt — feed the model the structural summary, not the
     # raw HTML. Saves tokens, focuses the analysis.
@@ -291,22 +329,50 @@ async def analyze_reference_site(url: str) -> dict[str, Any]:
         "Produce the analysis JSON now."
     )
 
-    analysis = await generate_json(
-        system=_ANALYZE_SYSTEM,
-        user=user_prompt,
-        forbidden=[],  # analyses describe other sites; not voice-bound
-        text_blob_fn=_analysis_text_blob,
-        model=DRAFT_MODEL,
-        max_tokens=4500,
-    )
+    try:
+        analysis = await generate_json(
+            system=_ANALYZE_SYSTEM,
+            user=user_prompt,
+            forbidden=[],  # analyses describe other sites; not voice-bound
+            text_blob_fn=_analysis_text_blob,
+            model=DRAFT_MODEL,
+            max_tokens=4500,
+        )
+    except Exception as e:
+        # Phase 2 broke. Mark the row failed with what we know — the
+        # URL and structural summary are still there. Re-raise so the
+        # agent surfaces the failure to the user.
+        logger.exception("analyze_reference_site phase 2 failed for id=%s", artifact_id)
+        await update_artifact_content(
+            artifact_id,
+            content={
+                **placeholder_content,
+                "phase": "failed",
+                "error": f"{type(e).__name__}: {e}"[:1000],
+            },
+            status="failed",
+            title=f"Analysis (failed): {summary.get('title','') or url}"[:200],
+        )
+        raise
 
-    title = f"Analysis: {summary.get('title','') or url}"[:200]
-    artifact = await create_artifact(
-        business_slug="top-studios",  # analyses live under Top Studios — they're research artifacts
-        kind="site_analysis",
-        audience_slug=None,
-        title=title,
-        ask=f"analyze {url}",
-        content=analysis,
+    # Phase 2 succeeded — flip the row to complete with the full
+    # analysis. We keep the structural_summary in content too (under
+    # `_raw`) so debugging is possible without re-fetching.
+    final_title = f"Analysis: {summary.get('title','') or url}"[:200]
+    final_content: dict[str, Any] = {
+        **analysis,
+        "_raw": {
+            "structural_summary": summary,
+            "fetch_meta": fetch_meta,
+        },
+    }
+    await update_artifact_content(
+        artifact_id,
+        content=final_content,
+        status="complete",
+        title=final_title,
     )
+    artifact["title"] = final_title
+    artifact["content"] = final_content
+    artifact["status"] = "complete"
     return artifact

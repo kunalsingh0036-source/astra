@@ -219,6 +219,22 @@ def mock_store(monkeypatch):
             return True
         return False
 
+    async def fake_update_content(artifact_id, *, content, status=None, title=None):
+        """Mirror update_artifact_content for the in-memory store.
+
+        Used by long-running creator tools that flip a 'running'
+        placeholder into 'complete' (or 'failed') after the LLM call.
+        """
+        row = artifacts.get(int(artifact_id))
+        if not row:
+            return False
+        row["content"] = content
+        if status is not None:
+            row["status"] = status
+        if title is not None:
+            row["title"] = title
+        return True
+
     # Patch the store functions in every module that imports them.
     # Using setattr on the source module catches all import-time
     # references because they call `from astra.creators.store import X`
@@ -228,6 +244,7 @@ def mock_store(monkeypatch):
     monkeypatch.setattr("astra.creators.store.get_artifact", fake_get)
     monkeypatch.setattr("astra.creators.store.list_artifacts", fake_list)
     monkeypatch.setattr("astra.creators.store.update_artifact_render_key", fake_update)
+    monkeypatch.setattr("astra.creators.store.update_artifact_content", fake_update_content)
 
     # Also patch in modules that imported them at the top level
     # (these are needed because Python module-level imports bind names
@@ -262,6 +279,17 @@ def mock_store(monkeypatch):
             monkeypatch.setattr(path, fake_create if path.endswith("create_artifact") else fake_get)
         except AttributeError:
             # Module may not have imported it; that's fine
+            pass
+
+    # Modules that call update_artifact_content directly need their
+    # imported reference patched too — analyze_reference_site is the
+    # main caller as of this commit (post-fetch checkpointing).
+    for path in [
+        "astra.creators.analyze_reference_site.update_artifact_content",
+    ]:
+        try:
+            monkeypatch.setattr(path, fake_update_content)
+        except AttributeError:
             pass
 
     return artifacts

@@ -138,6 +138,104 @@ async def _read_autonomy_override() -> str | None:
     return _read_autonomy_from_file()
 
 
+# ── Turn-record persistence ────────────────────────────────
+#
+# Every chat turn writes a row to the `turns` table. The row is created
+# at turn-start (status='running') and updated at turn-end (status=
+# 'complete' or 'failed'). This is the recovery anchor: even if the
+# SSE stream dies mid-turn, the prompt + session_id are durable in
+# Postgres, so the user (or a future cleanup job) can identify
+# orphaned work.
+#
+# All DB writes here SWALLOW exceptions — turn-record failures must
+# never break the user's actual turn.
+
+
+async def _create_turn_record(
+    *, session_id: str | None, prompt: str
+) -> int | None:
+    """Insert a 'running' turn row and return its id.
+
+    Returns None on any error (table missing, DB down, etc.) — the
+    runner continues fine without the record.
+    """
+    try:
+        from sqlalchemy import text  # type: ignore[import-not-found]
+        from astra.db.engine import async_session  # type: ignore[import-not-found]
+    except Exception:
+        return None
+    try:
+        async with async_session() as s:
+            r = await s.execute(
+                text(
+                    """
+                    INSERT INTO turns (session_id, prompt, status)
+                    VALUES (:sid, :p, 'running')
+                    RETURNING id
+                    """
+                ),
+                {"sid": (session_id or None), "p": prompt[:65000]},
+            )
+            row = r.one()
+            await s.commit()
+            return int(row[0])
+    except Exception:
+        logger.exception("[turns] failed to create running row")
+        return None
+
+
+async def _finalize_turn_record(
+    turn_id: int | None,
+    *,
+    session_id: str | None,
+    response: str,
+    status: str,
+    duration_ms: int,
+    cost_usd: float | None,
+    tool_count: int,
+    error_message: str | None = None,
+) -> None:
+    """Update a turn row with its final state. No-op when turn_id is None."""
+    if turn_id is None:
+        return
+    try:
+        from sqlalchemy import text  # type: ignore[import-not-found]
+        from astra.db.engine import async_session  # type: ignore[import-not-found]
+    except Exception:
+        return
+    try:
+        async with async_session() as s:
+            await s.execute(
+                text(
+                    """
+                    UPDATE turns
+                    SET response = :r,
+                        status = :st,
+                        duration_ms = :d,
+                        cost_usd = :c,
+                        tool_count = :tc,
+                        error_message = :em,
+                        ended_at = now(),
+                        session_id = COALESCE(session_id, :sid)
+                    WHERE id = :id
+                    """
+                ),
+                {
+                    "id": int(turn_id),
+                    "r": (response or "")[:262144],  # ~256KB cap
+                    "st": status[:15],
+                    "d": int(duration_ms),
+                    "c": cost_usd,
+                    "tc": int(tool_count),
+                    "em": (error_message or None) and error_message[:4000],
+                    "sid": session_id,
+                },
+            )
+            await s.commit()
+    except Exception:
+        logger.exception("[turns] failed to finalize id=%s", turn_id)
+
+
 async def run_query(
     prompt: str,
     *,
@@ -198,6 +296,18 @@ async def run_query(
     yield session(session_id)
 
     started = time.monotonic()
+
+    # Persist a 'running' turn row IMMEDIATELY so the prompt is durable
+    # in Postgres before any slow work begins. If the SSE stream dies
+    # mid-turn, the row stays — recoverable via /api/turns or the audit
+    # page. We finalize this row to 'complete' or 'failed' at the end.
+    turn_id = await _create_turn_record(
+        session_id=session_id,
+        prompt=prompt,
+    )
+    turn_status = "complete"
+    turn_error: str | None = None
+    tool_count = 0
 
     # Honor the UI-set autonomy override each turn. If no override is
     # on disk, keep whatever mode the manager already holds (likely
@@ -263,6 +373,7 @@ async def run_query(
                             tool_id = getattr(block, "id", "") or ""
                             tool_name = getattr(block, "name", "") or ""
                             agent = _agent_from_tool(tool_name)
+                            tool_count += 1
                             yield tool_call(id=tool_id, name=tool_name, agent=agent)
 
                 elif isinstance(message, UserMessage):
@@ -330,10 +441,32 @@ async def run_query(
                 await asyncio.sleep(0)
 
     except asyncio.CancelledError:
+        # Client disconnected (refresh / nav-away). Mark the turn so we
+        # can distinguish abandoned-by-user from server-side failures
+        # later when sweeping orphaned 'running' rows.
+        turn_status = "interrupted"
+        turn_error = "client cancelled"
         logger.info("stream cancelled by client")
+        # Don't await the finalize here — re-raise after best-effort
+        # bookkeeping; the cancellation must propagate.
+        try:
+            await _finalize_turn_record(
+                turn_id,
+                session_id=session_id,
+                response="".join(response_buffer),
+                status=turn_status,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                cost_usd=None,
+                tool_count=tool_count,
+                error_message=turn_error,
+            )
+        except Exception:
+            pass
         raise
     except Exception as e:
         logger.exception("astra run_query failed")
+        turn_status = "failed"
+        turn_error = f"{type(e).__name__}: {e}"
         yield error(f"astra error: {e}")
 
     meta: dict[str, object] = {}
@@ -366,4 +499,21 @@ async def run_query(
         except Exception as e:
             logger.warning("[runner] post-turn extract spawn failed: %s", e)
 
-    yield done(duration_ms=int((time.monotonic() - started) * 1000), meta=meta)
+    # Finalize the turn row with the full response, status, duration,
+    # and cost. We do this synchronously (not fire-and-forget) so the
+    # row is committed before the SSE connection closes — otherwise a
+    # quick browser disconnect after `done` could lose the write.
+    duration_ms = int((time.monotonic() - started) * 1000)
+    cost_usd_val = meta.get("cost_usd") if isinstance(meta, dict) else None
+    await _finalize_turn_record(
+        turn_id,
+        session_id=session_id,
+        response=full_response,
+        status=turn_status,
+        duration_ms=duration_ms,
+        cost_usd=float(cost_usd_val) if isinstance(cost_usd_val, (int, float)) else None,
+        tool_count=tool_count,
+        error_message=turn_error,
+    )
+
+    yield done(duration_ms=duration_ms, meta=meta)
