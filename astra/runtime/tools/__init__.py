@@ -24,6 +24,11 @@ from astra.runtime.sdk_adapter import import_sdk_tools
 # don't need the adapter.
 from astra.runtime.tools import memory  # noqa: F401
 
+# Phase 7: local-machine bridge tools — operate on Kunal's Mac via
+# the bridge daemon. Side-effect-registers local_read, local_write,
+# local_edit, local_bash, local_glob, local_grep, local_bridge_status.
+from astra.runtime.tools import local  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 

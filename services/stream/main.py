@@ -329,6 +329,81 @@ async def share_receive(request: Request) -> dict[str, object]:
     return {"ok": True, "id": result["id"]}
 
 
+@app.get("/bridge/poll")
+async def bridge_poll(request: Request) -> dict[str, object]:
+    """Long-poll endpoint the local bridge daemon hits.
+
+    The daemon presents its token via Authorization: Bearer <token>.
+    We auth, claim the next pending call for that token, and return
+    it. If no pending call exists we wait up to 25s before returning
+    an empty body so the daemon can reconnect (most network
+    middleboxes drop idle HTTP at 30s).
+    """
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    token = auth.split(None, 1)[1].strip()
+
+    from astra.runtime.bridge import (  # type: ignore[import-not-found]
+        validate_bridge_token,
+        claim_pending_call,
+    )
+
+    bt = await validate_bridge_token(token)
+    if bt is None:
+        raise HTTPException(401, "invalid or revoked bridge token")
+
+    # Try claiming immediately; if nothing's there, poll briefly.
+    deadline = asyncio.get_event_loop().time() + 25
+    while True:
+        call = await claim_pending_call(bt.id)
+        if call is not None:
+            return {
+                "call": {
+                    "id": call.id,
+                    "tool": call.tool_name,
+                    "args": call.args,
+                }
+            }
+        if asyncio.get_event_loop().time() >= deadline:
+            return {"call": None}
+        await asyncio.sleep(0.5)
+
+
+class BridgeResultBody(BaseModel):
+    call_id: int
+    ok: bool
+    result: str = ""
+    error_message: str | None = None
+
+
+@app.post("/bridge/result")
+async def bridge_result(body: BridgeResultBody, request: Request) -> dict[str, object]:
+    """Daemon posts a tool execution result here. Status flips to
+    'complete' or 'failed' and the waiting Astra tool unblocks."""
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    token = auth.split(None, 1)[1].strip()
+
+    from astra.runtime.bridge import (  # type: ignore[import-not-found]
+        validate_bridge_token,
+        finalize_call,
+    )
+
+    bt = await validate_bridge_token(token)
+    if bt is None:
+        raise HTTPException(401, "invalid or revoked bridge token")
+
+    await finalize_call(
+        body.call_id,
+        ok=body.ok,
+        result=body.result,
+        error_message=body.error_message,
+    )
+    return {"ok": True}
+
+
 @app.post("/api/push/test")
 async def push_test(request: Request) -> dict[str, object]:
     """Send a test notification to every active subscription.
