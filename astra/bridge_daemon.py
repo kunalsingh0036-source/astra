@@ -168,44 +168,149 @@ def _local_bash(
     return out
 
 
+_NOISE_DIRS: set[str] = {
+    # Source-control & language toolchains
+    ".git", ".hg", ".svn",
+    # Python
+    "__pycache__", ".venv", "venv", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".tox", "*.egg-info",
+    # Node / web
+    "node_modules", ".next", ".nuxt", ".cache", ".npm", "dist", "build",
+    "out", ".turbo", ".vercel", ".parcel-cache",
+    # macOS noise
+    "Library", "Caches", ".Trash", ".DS_Store", ".Spotlight-V100",
+    ".fseventsd", ".DocumentRevisions-V100", ".TemporaryItems",
+}
+
+
+def _resolve_glob_base(pattern: str, roots: list[str]) -> str | None:
+    """Find the longest prefix of `pattern` that is itself an allowed
+    root. Returns the root, or None if the pattern doesn't start under
+    any of them. Refusing globs that escape the allowlist is the
+    daemon's first line of defense — without this, a pattern like
+    `/Users/kunalsingh/**/secret` would walk every directory under
+    /Users/kunalsingh/ on the way to finding nothing.
+    """
+    if not pattern:
+        return None
+    for r in roots:
+        rn = r.rstrip("/")
+        if pattern == rn:
+            return rn
+        if pattern.startswith(rn + "/"):
+            return rn
+    return None
+
+
 def _local_glob(args: dict[str, Any], roots: list[str]) -> str:
+    """Find files matching a pattern. Walks manually so we can prune
+    noise directories (node_modules, .git, Library, etc.) and enforce
+    a wall-clock timeout — the naive `glob.glob(pattern, recursive=True)`
+    walks the entire FS on a Mac and never returns.
+    """
+    import fnmatch
+
     pattern = args.get("pattern", "")
     if not pattern:
         raise ValueError("pattern is empty")
-    matches = glob.glob(pattern, recursive=True)
-    # Filter to allowlisted paths
-    matches = [m for m in matches if _is_path_allowed(m, roots)]
-    matches = matches[:500]
-    return f"# {len(matches)} match(es) for {pattern}\n" + "\n".join(matches)
+
+    base = _resolve_glob_base(pattern, roots)
+    if base is None:
+        raise PermissionError(
+            f"glob pattern must start under an allowed root. "
+            f"allowed: {roots}"
+        )
+
+    matches: list[str] = []
+    deadline = time.time() + 10.0  # hard wall clock — daemon stays responsive
+    cap = 500
+
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        if time.time() > deadline or len(matches) >= cap:
+            break
+        # Prune in-place. os.walk respects in-place mutation of dirnames.
+        # Drop noise dirs and dot-dirs (except a few we care about).
+        keep_dot = {".astra", ".astra-state", ".env", ".github"}
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _NOISE_DIRS
+            and not (d.startswith(".") and d not in keep_dot)
+        ]
+
+        for name in filenames + list(dirnames):
+            full = os.path.join(dirpath, name)
+            # fnmatch's `*` matches across slashes, so `/**/` works the
+            # same as `/*/` for our purposes.
+            if fnmatch.fnmatch(full, pattern):
+                matches.append(full)
+                if len(matches) >= cap:
+                    break
+
+    truncated = f" (capped at {cap})" if len(matches) >= cap else ""
+    timed_out = " (walk timed out at 10s)" if time.time() > deadline else ""
+    return (
+        f"# {len(matches)} match(es) for {pattern}{truncated}{timed_out}\n"
+        + "\n".join(matches)
+    )
 
 
 def _local_grep(args: dict[str, Any], roots: list[str]) -> str:
+    """Search files for a regex. Manually walks with pruning so we
+    don't recurse into node_modules etc., and enforces a wall-clock
+    timeout to stay responsive on big trees."""
     pattern = args.get("pattern", "")
     path = args.get("path", "")
     include_glob = args.get("include")
     if not _is_path_allowed(path, roots):
         raise PermissionError(f"path not in allowlist: {path}")
+    if not pattern:
+        raise ValueError("pattern is empty")
+
     regex = re.compile(pattern)
     hits: list[str] = []
-    root = Path(path)
-    paths = list(root.rglob("*")) if root.is_dir() else [root]
-    for p in paths:
-        if not p.is_file():
-            continue
-        if include_glob and not fnmatch.fnmatch(p.name, include_glob):
-            continue
+    deadline = time.time() + 15.0  # hard wall clock
+    cap = 200
+
+    keep_dot = {".astra", ".astra-state", ".env", ".github"}
+
+    root_path = Path(path)
+    if root_path.is_file():
+        files = [root_path]
+    else:
+        files = []
+        for dirpath, dirnames, filenames in os.walk(root_path, followlinks=False):
+            if time.time() > deadline or len(files) > 50_000:
+                break
+            dirnames[:] = [
+                d for d in dirnames
+                if d not in _NOISE_DIRS
+                and not (d.startswith(".") and d not in keep_dot)
+            ]
+            for name in filenames:
+                if include_glob and not fnmatch.fnmatch(name, include_glob):
+                    continue
+                files.append(Path(dirpath) / name)
+
+    for p in files:
+        if time.time() > deadline or len(hits) >= cap:
+            break
         try:
             with p.open("r", encoding="utf-8", errors="replace") as f:
                 for i, line in enumerate(f, 1):
                     if regex.search(line):
                         hits.append(f"{p}:{i}: {line.rstrip()[:200]}")
-                        if len(hits) >= 200:
+                        if len(hits) >= cap:
                             break
         except Exception:
+            # Binary files, permission errors, etc. — silently skip
             continue
-        if len(hits) >= 200:
-            break
-    return f"# {len(hits)} match(es) for /{pattern}/ in {path}\n" + "\n".join(hits)
+
+    truncated = f" (capped at {cap})" if len(hits) >= cap else ""
+    timed_out = " (walk timed out at 15s)" if time.time() > deadline else ""
+    return (
+        f"# {len(hits)} match(es) for /{pattern}/ in {path}{truncated}{timed_out}\n"
+        + "\n".join(hits)
+    )
 
 
 # ── Dispatch table ────────────────────────────────────────

@@ -122,6 +122,30 @@ async def _dispatch(
             "is_error": True,
         }
 
+    # local_glob takes `pattern` not `path` — verify the pattern's
+    # static prefix lands inside an allowed root. Without this, the
+    # daemon would still reject (its own check matches), but pre-
+    # rejecting here saves a round-trip and prevents a stuck pending
+    # row from a malformed pattern.
+    if tool_name == "local_glob":
+        pattern = args.get("pattern", "")
+        if pattern and not any(
+            pattern == r.rstrip("/") or pattern.startswith(r.rstrip("/") + "/")
+            for r in allowed_paths
+        ):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"glob pattern must start under an allowed root. "
+                            f"pattern={pattern!r} allowed_roots={allowed_paths}"
+                        ),
+                    }
+                ],
+                "is_error": True,
+            }
+
     call_id = await queue_call(
         bridge_token_id=token_id,
         tool_name=tool_name,
