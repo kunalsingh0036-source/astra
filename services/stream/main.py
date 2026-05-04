@@ -118,6 +118,57 @@ async def _prewarm_embedding_model() -> None:
     t.start()
 
 
+# ── Stuck-turn sweeper at startup ──────────────────────────────
+#
+# Every previous deploy/restart that interrupted an in-flight turn
+# left a 'running' row in the turns table. Without cleanup these rows
+# accumulate forever — the user has seen turns stuck for 7+ hours.
+# This sweeper runs once at startup and marks any 'running' row
+# whose started_at is more than 15 minutes old as 'interrupted', so
+# the audit + listings stay clean.
+#
+# 15 min is the watermark because the runner now has a 4-min idle
+# timeout (see _SDK_IDLE_TIMEOUT_SEC in runner.py). Any 'running' row
+# older than that has been orphaned by something the runner couldn't
+# catch — almost always a deploy or container restart.
+
+@app.on_event("startup")
+async def _sweep_stuck_turns() -> None:
+    try:
+        from sqlalchemy import text  # type: ignore[import-not-found]
+        from astra.db.engine import async_session  # type: ignore[import-not-found]
+    except Exception:
+        return
+    try:
+        async with async_session() as s:
+            r = await s.execute(
+                text(
+                    """
+                    UPDATE turns
+                    SET status = 'interrupted',
+                        ended_at = now(),
+                        error_message = COALESCE(
+                          error_message,
+                          'swept at startup — orphaned by previous restart'
+                        )
+                    WHERE status = 'running'
+                      AND started_at < now() - INTERVAL '15 minutes'
+                    """
+                )
+            )
+            count = r.rowcount or 0
+            await s.commit()
+            if count > 0:
+                logger.info(
+                    "[startup-sweep] marked %d stuck 'running' turns as interrupted",
+                    count,
+                )
+    except Exception:
+        # Migration might not have run yet — table missing is expected
+        # the first time this code lands. Don't crash startup.
+        logger.exception("[startup-sweep] failed (table may not exist yet)")
+
+
 @app.get("/memory/search")
 async def memory_search(
     request: Request,

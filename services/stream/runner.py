@@ -31,6 +31,24 @@ from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 
+# Hard idle timeout on the SDK message stream. If we don't receive
+# *any* event from the Claude Agent SDK for this long, we declare the
+# turn dead, finalize the row, and emit an error to the user.
+#
+# Why this exists: the SDK's bundled CLI subprocess can crash
+# (`Error in hook callback hook_0 / Stream closed` in the wild) and
+# leave the runner forever-awaiting on `async for message in
+# client.receive_response()`. No exception is raised, no event comes
+# back. Without this watchdog the turn row sits at status='running'
+# indefinitely and the user sees "no activity for 1138s" with nothing
+# to do.
+#
+# 240s is generous: legitimate slow tools (analyze_reference_site
+# fetching + Haiku-deep-analysis) can take 90-120s, plus margin for
+# concurrent tool calls. If we hit this threshold the SDK has almost
+# certainly hung — fail loudly.
+_SDK_IDLE_TIMEOUT_SEC = 240
+
 # Must stay in sync with astra.tools.artifact_tools
 ARTIFACT_SENTINEL_OPEN = "⟦ASTRA_ARTIFACT⟧"
 ARTIFACT_SENTINEL_CLOSE = "⟦/ASTRA_ARTIFACT⟧"
@@ -342,7 +360,39 @@ async def run_query(
         async with ClaudeSDKClient(options=options) as client:
             await client.query(prompt)
 
-            async for message in client.receive_response():
+            # Manually drive the SDK's async iterator so we can put a
+            # per-message idle timeout around __anext__. The naive
+            # `async for` form has no timeout — if the CLI subprocess
+            # hangs (we've seen this in production with hook callback
+            # crashes), the runner waits forever. With this wrapper,
+            # we declare the turn failed after _SDK_IDLE_TIMEOUT_SEC
+            # of silence and propagate a real error to the user.
+            sdk_iter = client.receive_response().__aiter__()
+            while True:
+                try:
+                    message = await asyncio.wait_for(
+                        sdk_iter.__anext__(),
+                        timeout=_SDK_IDLE_TIMEOUT_SEC,
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "[runner] SDK idle for %ds — declaring turn failed",
+                        _SDK_IDLE_TIMEOUT_SEC,
+                    )
+                    turn_status = "failed"
+                    turn_error = (
+                        f"SDK silent for {_SDK_IDLE_TIMEOUT_SEC}s — "
+                        f"subprocess likely hung"
+                    )
+                    yield error(
+                        f"astra agent went silent for "
+                        f"{_SDK_IDLE_TIMEOUT_SEC // 60} minutes (cli subprocess "
+                        "hang). turn marked failed — please retry."
+                    )
+                    break
+
                 # When the SDK assigns its own session_id (first assistant
                 # or user echo message), forward it so the browser has the
                 # canonical id to send back for the next turn.
