@@ -39,6 +39,7 @@ from astra.runtime.event_emitter import (
     tool_call,
     tool_result,
 )
+from astra.runtime.turn_store import finalize_turn_record
 from astra.runtime.session_store import (
     load_session_messages,
     save_turn_messages,
@@ -144,6 +145,8 @@ async def run_lean_turn(
 
     final_response_text = ""
     tools_called = 0
+    turn_status = "complete"
+    turn_error: str | None = None
 
     try:
         for iteration in range(_MAX_TOOL_ITERATIONS):
@@ -291,6 +294,11 @@ async def run_lean_turn(
         else:
             # Loop exit via the for...else means we hit
             # _MAX_TOOL_ITERATIONS without reaching end_turn. Surface it.
+            turn_status = "failed"
+            turn_error = (
+                f"exceeded {_MAX_TOOL_ITERATIONS} tool iterations "
+                "without converging"
+            )
             yield thought(
                 f"reached max tool-iteration cap ({_MAX_TOOL_ITERATIONS}); "
                 "stopping loop. the model may want to ask the user something."
@@ -302,23 +310,63 @@ async def run_lean_turn(
 
     except asyncio.CancelledError:
         logger.info("[lean-runtime] cancelled by client")
+        turn_status = "interrupted"
+        turn_error = "client cancelled"
+        # Best-effort finalize before re-raising so the row reflects
+        # reality even on cancellation.
+        if turn_id is not None:
+            try:
+                await save_turn_messages(turn_id, messages)
+                await finalize_turn_record(
+                    turn_id,
+                    session_id=sid,
+                    response=final_response_text,
+                    status=turn_status,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    cost_usd=None,
+                    tool_count=tools_called,
+                    error_message=turn_error,
+                )
+            except Exception:
+                pass
         raise
     except Exception as e:
         logger.exception("[lean-runtime] run_lean_turn raised")
+        turn_status = "failed"
+        turn_error = f"{type(e).__name__}: {e}"
         yield error(f"lean runtime error ({type(e).__name__}): {e}")
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
-    # Persist the full message stack so the next turn in this session
-    # can rehydrate. We do this synchronously (not fire-and-forget) so
-    # the row is committed before the SSE connection closes — a quick
-    # browser disconnect after `done` could otherwise lose the write.
+    # Persist BOTH the full message stack (for next-turn rehydration)
+    # AND the row's status/response/duration/tool_count (so
+    # load_session_messages' WHERE status='complete' filter passes).
+    # The legacy SDK runner did this via _finalize_turn_record; the
+    # lean runtime forgot to wire it up — Phase 4 was incomplete and
+    # every turn stayed at status='running' forever, breaking session
+    # continuity. Both writes are synchronous so the row is committed
+    # before the SSE connection closes.
     if turn_id is not None:
         try:
             await save_turn_messages(turn_id, messages)
         except Exception:
             logger.exception(
                 "[lean-runtime] save_turn_messages failed for turn=%s", turn_id
+            )
+        try:
+            await finalize_turn_record(
+                turn_id,
+                session_id=sid,
+                response=final_response_text,
+                status=turn_status,
+                duration_ms=duration_ms,
+                cost_usd=None,
+                tool_count=tools_called,
+                error_message=turn_error,
+            )
+        except Exception:
+            logger.exception(
+                "[lean-runtime] finalize_turn_record failed for turn=%s", turn_id
             )
 
     yield done(
