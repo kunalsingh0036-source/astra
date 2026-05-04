@@ -388,11 +388,22 @@ async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse
             headers={"Cache-Control": "no-cache, no-transform"},
         )
 
+    # Create the durable turn row up-front so a mid-stream crash still
+    # leaves a record. Same pattern as the legacy /stream endpoint.
+    from stream.runner import _create_turn_record  # type: ignore[import-not-found]
+
+    turn_id = await _create_turn_record(
+        session_id=req.session_id,
+        prompt=req.prompt,
+    )
+
     async def generate():
         runner_iter = run_lean_turn(
             req.prompt,
             session_id=req.session_id,
             system_prompt=get_system_prompt(),
+            turn_id=turn_id,
+            load_history=True,
         ).__aiter__()
         while True:
             try:

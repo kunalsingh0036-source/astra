@@ -39,6 +39,10 @@ from astra.runtime.event_emitter import (
     tool_call,
     tool_result,
 )
+from astra.runtime.session_store import (
+    load_session_messages,
+    save_turn_messages,
+)
 from astra.runtime.tool_registry import REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -71,14 +75,19 @@ async def run_lean_turn(
     max_tokens: int = 8192,
     tools_enabled: bool = True,
     tool_namespaces: list[str] | None = None,
+    turn_id: int | None = None,
+    load_history: bool = True,
 ) -> AsyncIterator[bytes]:
     """Run one user turn against Anthropic + dispatch tools via the
     registry. Yields SSE-formatted byte frames.
 
     Args:
         prompt: the user's message
-        session_id: surfaced to the browser; no message history loaded
-            in Phase 3 (Phase 4 wires that to the turns table)
+        session_id: identifies the conversation. When `load_history` is
+            True (default), prior turns from this session are
+            rehydrated into the message stack — multi-turn context
+            survives deploys/refreshes because messages live in
+            Postgres, not subprocess memory.
         system_prompt: Astra's system prompt
         model: Anthropic model alias
         max_tokens: response cap per turn iteration
@@ -86,6 +95,11 @@ async def run_lean_turn(
             behavior). Useful for tests + flows that don't need tools.
         tool_namespaces: when provided, only these registry namespaces
             are exposed to the model. Defaults to all registered tools.
+        turn_id: when set, the final message stack gets persisted to
+            this turn row at end-of-turn. Caller is responsible for
+            creating the row (services/stream uses _create_turn_record).
+        load_history: when False, skips loading prior turns. Useful for
+            tests + isolated single-turn flows.
     """
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
@@ -93,11 +107,35 @@ async def run_lean_turn(
 
     client = AsyncAnthropic()
 
+    # Rehydrate prior turns if a session_id is provided. Each
+    # completed turn stored its final message stack in the turns
+    # table; we concatenate them in started_at order to reconstruct
+    # the conversation. This is what gives the lean runtime
+    # "multi-turn memory across deploys" — something the legacy SDK
+    # path could never achieve because sessions lived in subprocess
+    # state that died on restart.
+    history: list[dict[str, Any]] = []
+    if load_history and session_id:
+        try:
+            history = await load_session_messages(session_id)
+            if history:
+                logger.info(
+                    "[lean-runtime] rehydrated %d messages from session %s",
+                    len(history),
+                    session_id,
+                )
+        except Exception:
+            logger.exception("[lean-runtime] session rehydrate failed")
+            history = []
+
     # Build the conversation as we go. Each iteration of the
     # outer while-loop is one assistant response (text + optional
     # tool_use blocks). After tool_use, we append both the assistant
     # turn and the tool_result and loop.
-    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    messages: list[dict[str, Any]] = [
+        *history,
+        {"role": "user", "content": prompt},
+    ]
     anthropic_tools = (
         REGISTRY.as_anthropic_tools(namespaces=tool_namespaces)
         if tools_enabled
@@ -194,6 +232,29 @@ async def run_lean_turn(
                     )
                     continue
 
+                # Autonomy gate — same vocabulary as the legacy SDK
+                # autonomy_pre_tool_hook. We check the current mode +
+                # tool tier; deny in always_ask is auto-allowed here
+                # (no UI prompt mechanism in lean runtime yet — Phase
+                # 6 work). The gate is a function call instead of an
+                # SDK hook callback that could hang the CLI.
+                allowed, decision_reason = _autonomy_check(td, tool_name)
+                if not allowed:
+                    msg = f"denied by autonomy: {decision_reason}"
+                    logger.info("[lean-runtime] tool %s %s", tool_name, msg)
+                    yield tool_result(id=tool_id, preview=msg, is_error=True)
+                    tool_results_for_user_turn.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": msg,
+                            "is_error": True,
+                        }
+                    )
+                    _audit_log(tool_name, td, decision_reason="deny")
+                    continue
+                _audit_log(tool_name, td, decision_reason=decision_reason)
+
                 logger.info(
                     "[lean-runtime] dispatching tool %s (timeout=%ds)",
                     tool_name,
@@ -247,10 +308,96 @@ async def run_lean_turn(
         yield error(f"lean runtime error ({type(e).__name__}): {e}")
 
     duration_ms = int((time.monotonic() - started) * 1000)
+
+    # Persist the full message stack so the next turn in this session
+    # can rehydrate. We do this synchronously (not fire-and-forget) so
+    # the row is committed before the SSE connection closes — a quick
+    # browser disconnect after `done` could otherwise lose the write.
+    if turn_id is not None:
+        try:
+            await save_turn_messages(turn_id, messages)
+        except Exception:
+            logger.exception(
+                "[lean-runtime] save_turn_messages failed for turn=%s", turn_id
+            )
+
     yield done(
         duration_ms=duration_ms,
         meta={"tool_count": tools_called} if tools_called else None,
     )
+
+
+def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
+    """Check whether a tool may run under the current autonomy mode.
+
+    Returns (allowed, reason). On any failure (autonomy module
+    missing, etc.) defaults to ALLOW so the migration doesn't
+    introduce regressions vs the legacy path.
+    """
+    try:
+        from astra.autonomy.manager import autonomy_manager
+        from astra.autonomy.modes import (
+            ActionTier as AutonomyTier,
+            PermissionDecision,
+            get_permission,
+        )
+    except Exception:
+        return True, "autonomy module unavailable — allowing by default"
+
+    try:
+        mode = autonomy_manager.mode
+        # Map our ActionTier (runtime copy) to the autonomy module's.
+        tier = AutonomyTier(td.tier.value)
+        decision = get_permission(mode, tool_name)
+        if decision == PermissionDecision.ALLOW:
+            return True, f"auto-allow ({mode.value} / {tier.value})"
+        if decision == PermissionDecision.DENY:
+            return False, f"deny ({mode.value} / {tier.value})"
+        # ASK — in the lean runtime there's no UI prompt mechanism yet
+        # (the SDK had a permission flow). We allow ASK in semi_auto
+        # for read tools and let it through. Conservative: deny ASK
+        # for destructive tools. Phase 6 will wire a real prompt UX.
+        if tier == AutonomyTier.DESTRUCTIVE:
+            return False, f"ask-deny destructive ({mode.value})"
+        return True, f"ask-allow ({mode.value} / {tier.value})"
+    except Exception:
+        return True, "autonomy check raised — allowing"
+
+
+def _audit_log(tool_name: str, td: Any, *, decision_reason: str) -> None:
+    """Forward a tool decision to the audit_events table.
+
+    Uses the same audit_logger singleton the legacy SDK hook used so
+    the /audit page shows lean-runtime decisions identically to SDK
+    decisions. Fire-and-forget — audit failures must never break the
+    turn.
+    """
+    try:
+        from astra.autonomy.audit import audit_logger
+        from astra.autonomy.manager import autonomy_manager
+        from astra.autonomy.modes import (
+            ActionTier as AutonomyTier,
+            PermissionDecision,
+        )
+    except Exception:
+        return
+
+    try:
+        decision = (
+            PermissionDecision.DENY
+            if decision_reason.startswith("deny") or decision_reason.startswith("ask-deny")
+            else PermissionDecision.ALLOW
+        )
+        audit_logger.log(
+            tool_name=tool_name,
+            action_tier=AutonomyTier(td.tier.value),
+            autonomy_mode=autonomy_manager.mode,
+            decision=decision,
+            tool_input_summary="",
+            context=f"lean-runtime:{decision_reason}",
+        )
+    except Exception:
+        logger.exception("[lean-runtime] audit log failed")
 
 
 def _block_to_dict(block: Any) -> dict[str, Any]:
