@@ -554,7 +554,46 @@ async def run_query(
                 options = create_astra_options(resume_session_id=None)
                 async with ClaudeSDKClient(options=options) as client:
                     await client.query(prompt)
-                    async for message in client.receive_response():
+                    # SAME watchdog as the primary loop above — without
+                    # this, an SDK CLI subprocess crash AFTER the retry's
+                    # tools complete leaves the runner waiting forever
+                    # (the user-visible "running for 8m, no activity for
+                    # 509s" symptom). 240s idle timeout per message.
+                    retry_iter = client.receive_response().__aiter__()
+                    while True:
+                        try:
+                            message = await asyncio.wait_for(
+                                retry_iter.__anext__(),
+                                timeout=_SDK_IDLE_TIMEOUT_SEC,
+                            )
+                        except StopAsyncIteration:
+                            break
+                        except asyncio.TimeoutError:
+                            logger.error(
+                                "[runner] retry SDK idle for %ds — declaring turn failed",
+                                _SDK_IDLE_TIMEOUT_SEC,
+                            )
+                            turn_status = "failed"
+                            turn_error = (
+                                f"retry SDK silent for {_SDK_IDLE_TIMEOUT_SEC}s — "
+                                f"subprocess hung after {tool_count} tool(s)"
+                            )
+                            # If we got tool results back before the hang,
+                            # tell the user — their work isn't lost.
+                            if tool_count > 0:
+                                yield error(
+                                    f"the agent ran {tool_count} tool(s) successfully "
+                                    "but its runtime crashed before composing the "
+                                    "answer. tool outputs are saved as artifacts — "
+                                    "check /artifacts. retry to get the synthesis."
+                                )
+                            else:
+                                yield error(
+                                    f"agent runtime hung for {_SDK_IDLE_TIMEOUT_SEC // 60}min "
+                                    "after retrying with a fresh session. please retry."
+                                )
+                            break
+
                         if isinstance(message, AssistantMessage):
                             for block in getattr(message, "content", []) or []:
                                 if isinstance(block, ThinkingBlock):
@@ -574,15 +613,64 @@ async def run_query(
                                     yield tool_call(
                                         id=tool_id, name=tool_name, agent=agent
                                     )
+                        elif isinstance(message, UserMessage):
+                            # Retry path was missing this branch entirely —
+                            # tool RESULTS coming back as UserMessage frames
+                            # weren't being forwarded to the browser, so the
+                            # in-flight UI showed "0/N tools" forever even
+                            # when tools succeeded server-side. This is the
+                            # bug that caused the screenshot's hang: agent
+                            # called recall_recent_turns, the SDK delivered
+                            # the result, but the runner never emitted a
+                            # tool_result event so the browser thought the
+                            # tool was still running.
+                            for block in getattr(message, "content", []) or []:
+                                if isinstance(block, ToolResultBlock):
+                                    tool_id = getattr(block, "tool_use_id", "") or ""
+                                    content = getattr(block, "content", "") or ""
+                                    is_error = bool(getattr(block, "is_error", False))
+                                    if isinstance(content, list):
+                                        parts: list[str] = []
+                                        for b in content:
+                                            text_val = getattr(b, "text", None)
+                                            if text_val is None and isinstance(b, dict):
+                                                text_val = b.get("text")
+                                            if text_val:
+                                                parts.append(str(text_val))
+                                        content = " ".join(parts)
+                                    text = content if isinstance(content, str) else str(content)
+                                    artifacts_found = False
+                                    for match in _ARTIFACT_RE.finditer(text):
+                                        artifacts_found = True
+                                        try:
+                                            payload = json.loads(match.group(1))
+                                        except json.JSONDecodeError:
+                                            continue
+                                        yield artifact_event(
+                                            type=str(payload.get("type") or "unknown"),
+                                            title=payload.get("title"),
+                                            content=payload,
+                                        )
+                                    stripped = _ARTIFACT_RE.sub("", text).strip()
+                                    if artifacts_found and not stripped:
+                                        continue
+                                    yield tool_result(
+                                        id=tool_id,
+                                        preview=_preview(stripped or text),
+                                        is_error=is_error,
+                                    )
                         elif isinstance(message, ResultMessage):
                             final_result = message
                             asyncio.create_task(record_usage(message, source="chat"))
                             break
                         await asyncio.sleep(0)
-                # Recovery succeeded — clear the failed status so the
-                # finalize block treats this as a normal completion.
-                turn_status = "complete"
-                turn_error = None
+
+                # Recovery succeeded (or watchdog already set status above)
+                if turn_status == "failed":
+                    pass  # leave watchdog's status in place
+                else:
+                    turn_status = "complete"
+                    turn_error = None
             except Exception as e2:
                 logger.exception("[runner] retry after stale session failed")
                 turn_status = "failed"
