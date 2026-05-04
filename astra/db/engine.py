@@ -37,6 +37,24 @@ engine = create_async_engine(
     echo=False,
     pool_size=5,
     max_overflow=10,
+    # ── Connection health (CRITICAL on Railway) ──────────────
+    # Railway's internal load balancer silently drops idle TCP
+    # connections after a few minutes. Without these flags a
+    # dead pool connection looks alive to SQLAlchemy → next
+    # query hangs forever waiting for a server that's gone →
+    # tool calls stall → SDK CLI throws "Stream closed" inside
+    # its hook callback → the whole turn freezes with no
+    # exception, no event, nothing.
+    #
+    # pool_pre_ping issues `SELECT 1` before checking out a
+    # pooled connection. ~0.5ms cost per use; rebuilds dead
+    # connections instead of hanging on them.
+    #
+    # pool_recycle=300 proactively re-creates connections older
+    # than 5 min. Belt-and-braces with pre_ping: even if the
+    # ping somehow misses, recycle catches it on a timer.
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 
 async_session = async_sessionmaker(

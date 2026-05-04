@@ -64,6 +64,7 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "WebSearch": ActionTier.READ,
     "WebFetch": ActionTier.READ,
     "recall_memories": ActionTier.READ,
+    "recall_recent_turns": ActionTier.READ,
     "list_memories": ActionTier.READ,
     "memory_stats": ActionTier.READ,
     "get_mode": ActionTier.READ,

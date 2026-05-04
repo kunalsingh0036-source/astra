@@ -29,6 +29,12 @@ engine = create_async_engine(
     echo=False,
     pool_size=10,
     max_overflow=5,
+    # Railway's internal LB drops idle TCP connections silently.
+    # pool_pre_ping rebuilds dead connections on checkout instead
+    # of hanging on them; pool_recycle=300 rotates connections
+    # older than 5 min before they go stale.
+    pool_pre_ping=True,
+    pool_recycle=300,
 )
 
 async_session = async_sessionmaker(
