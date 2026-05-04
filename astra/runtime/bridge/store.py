@@ -117,6 +117,71 @@ async def issue_bridge_token(
     return plaintext, token_id
 
 
+async def expand_bridge_allowlist(
+    token_id: int, *, add_paths: list[str]
+) -> tuple[list[str], list[str]]:
+    """Append new paths to a token's allowed_paths array.
+
+    Returns (new_allowlist, paths_that_were_added).
+    Paths already in the allowlist are silently skipped.
+    Refuses to add paths that don't start with `/` (must be absolute).
+
+    This is the chat-command path that lets the user expand bridge
+    access mid-conversation without restarting the daemon. The
+    daemon picks up the new policy on its next poll because
+    validate_bridge_token re-reads allowed_paths from the row each
+    time.
+    """
+    cleaned = [p.strip() for p in add_paths if p and p.strip()]
+    cleaned = [p for p in cleaned if p.startswith("/")]
+    if not cleaned:
+        return [], []
+
+    async with async_session() as s:
+        r = await s.execute(
+            text(
+                "SELECT allowed_paths FROM bridge_tokens WHERE id = :id"
+            ),
+            {"id": int(token_id)},
+        )
+        row = r.first()
+        if not row:
+            return [], []
+        existing = row[0] or []
+        if isinstance(existing, str):
+            try:
+                existing = json.loads(existing)
+            except json.JSONDecodeError:
+                existing = []
+        existing_set = {os.path.normpath(p) for p in existing}
+        added: list[str] = []
+        for p in cleaned:
+            if os.path.normpath(p) in existing_set:
+                continue
+            existing.append(p)
+            existing_set.add(os.path.normpath(p))
+            added.append(p)
+        if added:
+            await s.execute(
+                text(
+                    """
+                    UPDATE bridge_tokens
+                    SET allowed_paths = CAST(:p AS JSONB)
+                    WHERE id = :id
+                    """
+                ),
+                {"id": int(token_id), "p": json.dumps(existing)},
+            )
+            await s.commit()
+            logger.info(
+                "[bridge] expanded token=%s with %d new path(s): %s",
+                token_id,
+                len(added),
+                added,
+            )
+    return list(existing), added
+
+
 async def revoke_bridge_token(token_id: int) -> bool:
     async with async_session() as s:
         r = await s.execute(
