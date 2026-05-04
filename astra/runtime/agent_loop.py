@@ -133,10 +133,23 @@ async def run_lean_turn(
     # outer while-loop is one assistant response (text + optional
     # tool_use blocks). After tool_use, we append both the assistant
     # turn and the tool_result and loop.
-    messages: list[dict[str, Any]] = [
+    raw_messages: list[dict[str, Any]] = [
         *history,
         {"role": "user", "content": prompt},
     ]
+    # Compact before sending to the API. Without this, sessions that
+    # have accumulated large tool_result content (file reads, glob
+    # dumps, web fetches) blow past the 200k context window. The
+    # compactor truncates oversized tool_results first, then drops
+    # oldest turns, all while preserving role-alternation.
+    messages, before_tokens, after_tokens = _compact_messages(raw_messages)
+    if after_tokens != before_tokens:
+        logger.info(
+            "[lean-runtime] compacted messages: %d → %d tokens (~%.0f%%)",
+            before_tokens,
+            after_tokens,
+            (1 - after_tokens / max(before_tokens, 1)) * 100,
+        )
     anthropic_tools = (
         REGISTRY.as_anthropic_tools(namespaces=tool_namespaces)
         if tools_enabled
@@ -373,6 +386,198 @@ async def run_lean_turn(
         duration_ms=duration_ms,
         meta={"tool_count": tools_called} if tools_called else None,
     )
+
+
+# ── Context-window management ──────────────────────────────
+#
+# Claude's hard limit is 200k tokens. Session histories that include
+# large tool_result content (file reads, web fetches, glob dumps)
+# routinely cross 200k after enough turns. Without compaction, the
+# next API call returns 400 BadRequestError("prompt is too long")
+# and the user is locked out of the session.
+#
+# The compactor runs every turn before we send to the API. It NEVER
+# touches stored messages — only the in-flight copy. Future turns
+# continue to load the full history; each turn re-runs compaction
+# against the latest state.
+
+# Soft target. Real cap is 200k; we leave 20k headroom for the new
+# user message + the assistant's response budget.
+_COMPACT_TARGET_TOKENS = 180_000
+
+# Per-tool-result content cap. Above this we replace with a head +
+# truncation marker. 4KB ≈ 1k tokens — small enough that you can
+# include 100 of them and still fit under the budget; large enough
+# to preserve enough context that the agent can re-fetch if needed.
+_TOOL_RESULT_CAP_CHARS = 4_000
+
+
+def _estimate_tokens_for_block(block: Any) -> int:
+    """Rough character→token ratio. ~4 chars per token is the standard
+    English approximation for tiktoken-style BPE; close enough for
+    budget triage. We don't need exactness — we just need to know
+    whether we're under the limit, and if not, what to drop first."""
+    if isinstance(block, str):
+        return len(block) // 4
+    if isinstance(block, dict):
+        # text blocks
+        if "text" in block and isinstance(block["text"], str):
+            return len(block["text"]) // 4
+        # tool_use blocks: name + serialized input
+        if block.get("type") == "tool_use":
+            n = len(block.get("name", "")) // 4
+            input_str = str(block.get("input", ""))
+            return n + len(input_str) // 4
+        # tool_result blocks: content can be string OR list of text blocks
+        if block.get("type") == "tool_result":
+            c = block.get("content")
+            if isinstance(c, str):
+                return len(c) // 4
+            if isinstance(c, list):
+                return sum(_estimate_tokens_for_block(b) for b in c)
+        # fallback — count the JSON-encoded length
+        try:
+            import json as _json
+            return len(_json.dumps(block)) // 4
+        except Exception:
+            return 100
+    if isinstance(block, list):
+        return sum(_estimate_tokens_for_block(b) for b in block)
+    return 0
+
+
+def _estimate_tokens_for_message(msg: dict[str, Any]) -> int:
+    return _estimate_tokens_for_block(msg.get("content")) + 4  # role overhead
+
+
+def _truncate_tool_result_content(content: Any) -> tuple[Any, bool]:
+    """Truncate large tool_result content. Returns (new_content, did_truncate)."""
+    if isinstance(content, str):
+        if len(content) > _TOOL_RESULT_CAP_CHARS:
+            head = content[:_TOOL_RESULT_CAP_CHARS]
+            return (
+                head + f"\n…[tool_result truncated; was {len(content)} chars]",
+                True,
+            )
+        return content, False
+    if isinstance(content, list):
+        new_blocks: list[Any] = []
+        any_changed = False
+        for b in content:
+            if isinstance(b, dict) and "text" in b:
+                t = b.get("text", "")
+                if isinstance(t, str) and len(t) > _TOOL_RESULT_CAP_CHARS:
+                    nb = dict(b)
+                    nb["text"] = (
+                        t[:_TOOL_RESULT_CAP_CHARS]
+                        + f"\n…[tool_result truncated; was {len(t)} chars]"
+                    )
+                    new_blocks.append(nb)
+                    any_changed = True
+                    continue
+            new_blocks.append(b)
+        return new_blocks, any_changed
+    return content, False
+
+
+def _compact_messages(
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int = _COMPACT_TARGET_TOKENS,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Compact a message stack to fit within max_tokens.
+
+    Two passes:
+      1. Truncate oversized tool_result content (most token-dense).
+      2. If still over budget, drop oldest user/assistant pairs while
+         preserving role alternation. Always keeps the LAST user
+         message (the in-flight prompt) and the FIRST user message
+         (anchors the session's intent).
+
+    Returns: (new_messages, before_tokens, after_tokens)
+    Both estimates are character-based approximations.
+    """
+    before = sum(_estimate_tokens_for_message(m) for m in messages)
+    if before <= max_tokens:
+        return messages, before, before
+
+    # ── Pass 1: truncate tool_result content ──
+    pass1: list[dict[str, Any]] = []
+    for msg in messages:
+        new_msg = dict(msg)
+        c = new_msg.get("content")
+        if isinstance(c, list):
+            new_blocks: list[Any] = []
+            for b in c:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    nb = dict(b)
+                    nb["content"], _ = _truncate_tool_result_content(
+                        nb.get("content")
+                    )
+                    new_blocks.append(nb)
+                else:
+                    new_blocks.append(b)
+            new_msg["content"] = new_blocks
+        pass1.append(new_msg)
+
+    pass1_tokens = sum(_estimate_tokens_for_message(m) for m in pass1)
+    if pass1_tokens <= max_tokens:
+        return pass1, before, pass1_tokens
+
+    # ── Pass 2: drop oldest messages, keep the bookends ──
+    # The conversation alternates user/assistant. We keep:
+    #   - The very first user message (sets up what the session is for)
+    #   - The last 8 messages (recent context — usually 4 user/assistant
+    #     turn pairs)
+    # And drop everything in between, replaced by a single synthetic
+    # user note explaining the gap so the model knows it happened.
+    if len(pass1) <= 10:
+        # Already short — can't drop more. Return what we have; the
+        # API call will fail loudly with the actual overrun, which is
+        # easier to debug than silent context loss.
+        return pass1, before, pass1_tokens
+
+    head = pass1[:1]  # first user message
+    tail = pass1[-8:]
+    elided = len(pass1) - len(head) - len(tail)
+    gap_marker: dict[str, Any] = {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                "text": (
+                    f"[context window: {elided} earlier messages were elided "
+                    f"to fit Claude's 200k token limit. The conversation "
+                    f"continued for several more turns between the message "
+                    f"above and the messages below. If you need details from "
+                    f"that gap, ask me to recall a specific topic or "
+                    f"call recall_recent_turns.]"
+                ),
+            }
+        ],
+    }
+    # Make sure the head ends with a user message and tail starts with
+    # an assistant message — i.e. the gap_marker bridges role
+    # alternation correctly. Head[-1] is user (we know — it's the
+    # first user message), so insert assistant ack first, then the
+    # gap as user, then the tail.
+    if tail and tail[0].get("role") == "user":
+        # Tail starts with user — insert just the gap marker
+        compacted = head + [gap_marker] + tail
+    else:
+        # Tail starts with assistant — needs an assistant ack between
+        # head[-1] (user) and gap_marker (user)... actually invert:
+        # head[-1] (user) + assistant_bridge + gap_marker (user) + tail
+        bridge: dict[str, Any] = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "[continuing earlier session]"}],
+        }
+        # gap_marker is user role; tail starts assistant. So:
+        # ... user (head[-1]) → assistant (bridge) → user (gap) → assistant (tail[0]) ...
+        compacted = head + [bridge, gap_marker] + tail
+
+    final_tokens = sum(_estimate_tokens_for_message(m) for m in compacted)
+    return compacted, before, final_tokens
 
 
 def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
