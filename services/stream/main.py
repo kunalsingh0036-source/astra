@@ -369,7 +369,10 @@ async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse
         raise HTTPException(status_code=400, detail="prompt is empty")
 
     # Lazy import so the service still boots if astra core fails to import.
+    # The astra.runtime.tools side-effect import registers every lean-runtime
+    # tool with REGISTRY before the agent loop reads it.
     try:
+        import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
         from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
         from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
     except Exception as e:

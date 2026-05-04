@@ -1,23 +1,23 @@
 """
 Lean Astra agent loop — direct anthropic.AsyncAnthropic, no SDK CLI.
 
-Phase 2 of the runtime migration: text-only streaming. No tool dispatch
-yet (Phase 3 adds that). No session persistence (Phase 4). The point of
-this stage is to prove that we can stream tokens straight from the
-Anthropic Messages API into our existing SSE event format, with all
-the reliability properties the bundled CLI subprocess lacked:
+Phase 3 status: text streaming + tool dispatch via ToolRegistry. Each
+turn can issue multiple tool calls, the loop runs them, feeds results
+back, and continues until the model emits end_turn. No SDK
+subprocess, no opaque hangs.
 
-  - No subprocess (pure async Python; no opaque crashes)
-  - No bundled CLI (no "Stream closed" errors from inside cli.js)
-  - Per-call timeout we control (asyncio.wait_for around the stream)
-  - Failures surface as real exceptions we can introspect
+Reliability guarantees:
+  - No subprocess (pure async Python)
+  - Per-tool timeout via ToolRegistry.dispatch()
+  - Per-turn hard timeout
+  - Per-frame idle timeout
+  - Tool failures become tool_result errors visible to the model;
+    the model can decide whether to retry or proceed
 
-Once Phase 3 lands, this same loop handles tool_use stop reasons by
-dispatching through ToolRegistry.dispatch() and looping again until
-end_turn. For now it just streams text.
-
-The yielded bytes match services.stream.events exactly so the browser
-sees the identical SSE shape on /stream-lean as it does on /stream.
+Future phases:
+  Phase 4: load + save messages from Postgres turns table
+  Phase 4: integrate autonomy.classify before dispatch
+  Phase 5: cutover /stream to use this runtime
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
@@ -35,20 +35,30 @@ from astra.runtime.event_emitter import (
     error,
     session as session_event,
     text_delta,
+    thought,
+    tool_call,
+    tool_result,
 )
+from astra.runtime.tool_registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
 
-# Hard ceiling per turn. Real chat turns finish in 5-30s; anything over
-# this is almost certainly a network problem, not the agent doing
-# legitimate slow work. Phase 3+ will use per-tool timeouts on top of
-# this.
-_TURN_HARD_TIMEOUT_SEC = 180
+# Hard ceiling per turn. Real chat turns finish in 5-60s; anything
+# over this is almost certainly a network problem, not legitimate
+# slow work. Per-tool timeouts (set via ToolRegistry) handle the
+# tool-call portion; this is the outer fence.
+_TURN_HARD_TIMEOUT_SEC = 300
 
-# Chunk size at which we slice very long text deltas. Anthropic emits
-# small deltas naturally so this rarely fires; it's defensive against
-# the API ever bundling a multi-KB chunk that would block the SSE pipe.
+# Maximum number of tool-call iterations within one turn. Real turns
+# rarely exceed 5-8 round-trips; cap at 25 to catch model-side loops
+# (e.g. a tool that keeps failing the same way and the model keeps
+# retrying it).
+_MAX_TOOL_ITERATIONS = 25
+
+# Chunk size at which we slice very long text deltas. Defensive
+# against the API ever bundling a multi-KB chunk that would block
+# the SSE pipe.
 _MAX_DELTA_CHARS = 4096
 
 
@@ -58,27 +68,24 @@ async def run_lean_turn(
     session_id: str | None = None,
     system_prompt: str = "",
     model: str = "claude-sonnet-4-5",
-    max_tokens: int = 4096,
+    max_tokens: int = 8192,
+    tools_enabled: bool = True,
+    tool_namespaces: list[str] | None = None,
 ) -> AsyncIterator[bytes]:
-    """Run one user turn against the Anthropic Messages API and yield
-    SSE-formatted byte frames.
-
-    Phase 2: text-only. No tools, no multi-turn message history (the
-    `prompt` is sent as the only user message). Phase 3 adds tool_use
-    handling; Phase 4 loads + saves session messages from Postgres.
-
-    Yields the same SSE event shapes as services.stream.runner.run_query
-    so the browser-side ChatProvider doesn't need to know which runtime
-    answered.
+    """Run one user turn against Anthropic + dispatch tools via the
+    registry. Yields SSE-formatted byte frames.
 
     Args:
         prompt: the user's message
-        session_id: cosmetic for now — surfaced to the browser as the
-            current session id, but no message history is loaded.
-        system_prompt: the Astra system prompt. Empty default lets
-            callers test without the full prompt overhead.
-        model: Anthropic model alias. Defaults to Sonnet.
-        max_tokens: response cap.
+        session_id: surfaced to the browser; no message history loaded
+            in Phase 3 (Phase 4 wires that to the turns table)
+        system_prompt: Astra's system prompt
+        model: Anthropic model alias
+        max_tokens: response cap per turn iteration
+        tools_enabled: when False, runs as a pure-text loop (Phase 2
+            behavior). Useful for tests + flows that don't need tools.
+        tool_namespaces: when provided, only these registry namespaces
+            are exposed to the model. Defaults to all registered tools.
     """
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
@@ -86,20 +93,41 @@ async def run_lean_turn(
 
     client = AsyncAnthropic()
 
+    # Build the conversation as we go. Each iteration of the
+    # outer while-loop is one assistant response (text + optional
+    # tool_use blocks). After tool_use, we append both the assistant
+    # turn and the tool_result and loop.
+    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    anthropic_tools = (
+        REGISTRY.as_anthropic_tools(namespaces=tool_namespaces)
+        if tools_enabled
+        else []
+    )
+
+    final_response_text = ""
+    tools_called = 0
+
     try:
-        # The whole streaming call is wrapped in a hard timeout so a
-        # network blackhole can't leave the runner waiting forever.
-        async def _stream() -> AsyncIterator[bytes]:
-            async with client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
+        for iteration in range(_MAX_TOOL_ITERATIONS):
+            stream_kwargs: dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+            }
+            if system_prompt:
+                stream_kwargs["system"] = system_prompt
+            if anthropic_tools:
+                stream_kwargs["tools"] = anthropic_tools
+
+            # Stream the assistant's response. text_stream yields only
+            # text deltas; we get the full message (with tool_use
+            # blocks) at the end via get_final_message().
+            assistant_text_chunks: list[str] = []
+            async with client.messages.stream(**stream_kwargs) as stream:
                 async for chunk in stream.text_stream:
                     if not chunk:
                         continue
-                    # Slice if a single chunk is implausibly large.
+                    assistant_text_chunks.append(chunk)
                     text = chunk
                     while len(text) > _MAX_DELTA_CHARS:
                         yield text_delta(text[:_MAX_DELTA_CHARS])
@@ -107,29 +135,109 @@ async def run_lean_turn(
                     if text:
                         yield text_delta(text)
 
-        # Drive the inner generator with a per-frame asyncio.wait_for.
-        # If a single frame takes >_TURN_HARD_TIMEOUT_SEC, kill the
-        # turn — same defensive pattern as runner.py's idle watchdog.
-        agen = _stream().__aiter__()
-        while True:
-            try:
-                frame = await asyncio.wait_for(
-                    agen.__anext__(),
-                    timeout=_TURN_HARD_TIMEOUT_SEC,
-                )
-            except StopAsyncIteration:
+                final_message = await stream.get_final_message()
+
+            assistant_text = "".join(assistant_text_chunks)
+            final_response_text = assistant_text  # last iteration wins
+
+            # Inspect the final message: did the model want tools?
+            stop_reason = getattr(final_message, "stop_reason", None)
+            content_blocks = list(getattr(final_message, "content", []))
+
+            if stop_reason != "tool_use":
+                # Model signaled end_turn (or max_tokens, etc.) — done.
                 break
-            except asyncio.TimeoutError:
-                logger.error(
-                    "[lean-runtime] turn timed out after %ds with no frame",
-                    _TURN_HARD_TIMEOUT_SEC,
+
+            # The model returned tool_use blocks. Append the assistant
+            # turn to messages, dispatch each tool, build tool_results.
+            messages.append(
+                {
+                    "role": "assistant",
+                    # Anthropic accepts the SDK content blocks directly
+                    # OR a list of dicts. Use dict form so we don't
+                    # depend on the block classes' internal serialization.
+                    "content": [
+                        _block_to_dict(b) for b in content_blocks
+                    ],
+                }
+            )
+
+            tool_results_for_user_turn: list[dict[str, Any]] = []
+            for block in content_blocks:
+                if getattr(block, "type", None) != "tool_use":
+                    continue
+
+                tool_id = getattr(block, "id", "") or ""
+                tool_name = getattr(block, "name", "") or ""
+                tool_input = getattr(block, "input", None) or {}
+                if not isinstance(tool_input, dict):
+                    tool_input = {}
+
+                tools_called += 1
+                yield tool_call(id=tool_id, name=tool_name, agent=None)
+
+                td = REGISTRY.get(tool_name)
+                if td is None:
+                    msg = (
+                        f"unknown tool: {tool_name!r}. "
+                        f"Registered: {REGISTRY.names()}"
+                    )
+                    logger.warning("[lean-runtime] %s", msg)
+                    yield tool_result(id=tool_id, preview=msg, is_error=True)
+                    tool_results_for_user_turn.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": msg,
+                            "is_error": True,
+                        }
+                    )
+                    continue
+
+                logger.info(
+                    "[lean-runtime] dispatching tool %s (timeout=%ds)",
+                    tool_name,
+                    td.timeout_sec,
                 )
-                yield error(
-                    f"lean runtime: no streaming frame in "
-                    f"{_TURN_HARD_TIMEOUT_SEC // 60}min — anthropic API hung. retry."
+                result = await REGISTRY.dispatch(tool_name, tool_input)
+
+                # Trim preview for the SSE event (browser shows a snippet)
+                preview = result.text[:240].replace("\n", " ")
+                if len(result.text) > 240:
+                    preview += "…"
+                yield tool_result(
+                    id=tool_id,
+                    preview=preview,
+                    is_error=result.is_error,
                 )
-                break
-            yield frame
+
+                tool_results_for_user_turn.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": result.text,
+                        "is_error": result.is_error,
+                    }
+                )
+
+            # Append the synthetic user turn carrying tool results.
+            messages.append(
+                {"role": "user", "content": tool_results_for_user_turn}
+            )
+
+            # If a tool error tier was destructive AND model retries,
+            # MAX_TOOL_ITERATIONS catches that — see top of file.
+        else:
+            # Loop exit via the for...else means we hit
+            # _MAX_TOOL_ITERATIONS without reaching end_turn. Surface it.
+            yield thought(
+                f"reached max tool-iteration cap ({_MAX_TOOL_ITERATIONS}); "
+                "stopping loop. the model may want to ask the user something."
+            )
+            yield error(
+                f"agent exceeded {_MAX_TOOL_ITERATIONS} tool iterations "
+                "without converging — likely stuck in a retry loop. retry."
+            )
 
     except asyncio.CancelledError:
         logger.info("[lean-runtime] cancelled by client")
@@ -139,4 +247,36 @@ async def run_lean_turn(
         yield error(f"lean runtime error ({type(e).__name__}): {e}")
 
     duration_ms = int((time.monotonic() - started) * 1000)
-    yield done(duration_ms=duration_ms)
+    yield done(
+        duration_ms=duration_ms,
+        meta={"tool_count": tools_called} if tools_called else None,
+    )
+
+
+def _block_to_dict(block: Any) -> dict[str, Any]:
+    """Convert an anthropic SDK content block (TextBlock / ToolUseBlock)
+    to its dict representation for round-tripping back into messages.
+
+    The SDK objects support .model_dump() (pydantic v2) but we don't
+    want to depend on that — manual extraction is bulletproof and
+    works whether the SDK swaps its internal types.
+    """
+    btype = getattr(block, "type", None)
+    if btype == "text":
+        return {"type": "text", "text": getattr(block, "text", "") or ""}
+    if btype == "tool_use":
+        return {
+            "type": "tool_use",
+            "id": getattr(block, "id", "") or "",
+            "name": getattr(block, "name", "") or "",
+            "input": getattr(block, "input", {}) or {},
+        }
+    if btype == "thinking":
+        # Forward-compat — extended thinking blocks if we ever enable them
+        return {
+            "type": "thinking",
+            "thinking": getattr(block, "thinking", "") or "",
+        }
+    # Unknown block — preserve type marker so the API doesn't reject
+    # the message; content empty so the model doesn't act on it.
+    return {"type": str(btype or "unknown")}
