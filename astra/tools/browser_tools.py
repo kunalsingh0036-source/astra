@@ -23,7 +23,7 @@ import ssl
 import urllib.parse
 import urllib.request
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
 

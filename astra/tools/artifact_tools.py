@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 # Sentinel used by astra-stream/stream/runner.py to split artifact
 # payloads out of the text stream. Kept short and unlikely to appear

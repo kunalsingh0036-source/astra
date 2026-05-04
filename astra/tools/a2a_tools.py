@@ -15,7 +15,7 @@ Tools:
 - a2a_health_check: Check if an agent is alive
 """
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.a2a.client import A2AClient
 from astra.a2a.discovery import agent_discovery

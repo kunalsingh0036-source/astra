@@ -8,8 +8,9 @@ version = "0.1.0"
 description = "Astra — Personal AI Agent Operating System"
 requires-python = ">=3.12"
 dependencies = [
-    # Agent runtime
-    "claude-agent-sdk>=0.1.0",
+    # Agent runtime — direct Anthropic Messages API; the bundled
+    # claude-agent-sdk was removed in the lean-runtime migration
+    # (Phase 6, 2026-05-04). See astra/runtime/ for the replacement.
     "anthropic>=0.50.0",
 
     # Database

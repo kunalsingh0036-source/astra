@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.creators.analyze_reference_site import analyze_reference_site
 from astra.creators.critique import critique_artifact

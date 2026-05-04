@@ -8,7 +8,7 @@ reminders) is a later expansion.
 
 from datetime import datetime
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.tasks.store import add_task, complete_task, list_tasks
 

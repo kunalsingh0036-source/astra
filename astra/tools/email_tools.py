@@ -7,7 +7,7 @@ approval-gated path; nothing here writes.
 
 from __future__ import annotations
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from astra.runtime.sdk_compat import create_sdk_mcp_server, tool
 
 from astra.email.client import list_messages, search_messages
 from astra.email.signals import (

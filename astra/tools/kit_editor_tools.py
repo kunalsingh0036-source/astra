@@ -20,7 +20,7 @@ git is the persistence layer).
 
 from __future__ import annotations
 
-from claude_agent_sdk import tool
+from astra.runtime.sdk_compat import tool
 
 from astra.creators.edit_kit import (
     add_audience_objection,

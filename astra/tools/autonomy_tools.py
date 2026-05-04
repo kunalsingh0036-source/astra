@@ -8,7 +8,7 @@ Allows Astra (and the user through Astra) to:
 - Get audit statistics
 """
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.autonomy.audit import audit_logger
 from astra.autonomy.manager import autonomy_manager

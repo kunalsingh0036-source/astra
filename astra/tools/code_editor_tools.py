@@ -32,7 +32,7 @@ The safety stack:
 
 from __future__ import annotations
 
-from claude_agent_sdk import tool
+from astra.runtime.sdk_compat import tool
 
 from astra.creators.edit_code import (
     commit_code_changes,

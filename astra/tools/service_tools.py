@@ -14,7 +14,7 @@ Tools:
 - service_logs: Get recent logs for a service
 """
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.services.manager import service_manager, SERVICES
 

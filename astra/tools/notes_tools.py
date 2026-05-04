@@ -12,7 +12,7 @@ Sync normally runs in the scheduler every 30 min. The tool is for
 "refresh now" moments mid-conversation.
 """
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.notes.harvester import sync_all
 from astra.notes.store import (

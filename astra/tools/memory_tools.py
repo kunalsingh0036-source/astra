@@ -17,7 +17,7 @@ Tool list:
 
 from sqlalchemy import text
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.db.engine import async_session
 from astra.memory.consolidation import get_memory_stats

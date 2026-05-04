@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from astra.runtime.sdk_compat import create_sdk_mcp_server, tool
 
 from astra.calendar.client import is_authorized
 from astra.calendar.store import (

@@ -10,7 +10,7 @@ Three tools:
 
 from __future__ import annotations
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from astra.runtime.sdk_compat import create_sdk_mcp_server, tool
 
 
 @tool(

@@ -23,7 +23,7 @@ through semantic memory search if the agent needs them in depth.
 
 from __future__ import annotations
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.shares import get_share, recent_shares_for_briefing, search_shares
 

@@ -1,13 +1,23 @@
 """
-Astra entry point.
+Astra CLI entry point.
 
-Boots the Astra agent via the Claude Agent SDK.
-Supports two modes:
-- Interactive: Chat with Astra in the terminal
-- Single query: Pass a prompt as a command-line argument
+Boots Astra via the LEAN RUNTIME (astra.runtime.agent_loop) — direct
+anthropic.AsyncAnthropic, no Claude Agent SDK, no bundled CLI subprocess.
+Phase 6 of the runtime migration removed the SDK-based entry that
+used to live here.
+
+Two modes:
+  - Interactive: chat with Astra in the terminal
+  - Single query: pass a prompt as a command-line argument
+
+This is for local development convenience; production traffic flows
+through services/stream's HTTP endpoint, not this entry.
 """
 
+from __future__ import annotations
+
 import asyncio
+import json
 import sys
 
 from dotenv import load_dotenv
@@ -15,56 +25,83 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def run_interactive():
-    """Run Astra in interactive chat mode."""
-    from claude_agent_sdk import query, ClaudeSDKClient
-    from astra.core.agent import create_astra_options
+async def _run_one_turn(prompt: str, *, session_id: str | None = None) -> str | None:
+    """Stream one Astra turn to stdout. Returns the canonical session_id
+    so an interactive loop can keep the conversation continuous."""
+    # Lazy imports — registers all 107 tools as a side effect.
+    import astra.runtime.tools  # noqa: F401
+    from astra.runtime.agent_loop import run_lean_turn
+    from astra.core.system_prompt import get_system_prompt
 
-    options = create_astra_options()
+    canonical_sid = session_id
 
-    print("Astra v0.1.0 — Foundation")
+    async for frame in run_lean_turn(
+        prompt,
+        session_id=session_id,
+        system_prompt=get_system_prompt(),
+        load_history=True,
+    ):
+        # Each frame is "event: <name>\ndata: <json>\n\n". Parse + render.
+        text = frame.decode("utf-8")
+        for line in text.split("\n"):
+            if line.startswith("event: "):
+                event_name = line[len("event: "):]
+            elif line.startswith("data: "):
+                try:
+                    data = json.loads(line[len("data: "):])
+                except json.JSONDecodeError:
+                    continue
+                if event_name == "session":
+                    canonical_sid = data.get("session_id") or canonical_sid
+                elif event_name == "text_delta":
+                    sys.stdout.write(data.get("content", ""))
+                    sys.stdout.flush()
+                elif event_name == "tool_call":
+                    sys.stderr.write(
+                        f"\n[tool] {data.get('name', '')}…\n"
+                    )
+                elif event_name == "tool_result":
+                    if data.get("is_error"):
+                        sys.stderr.write(
+                            f"[tool error] {data.get('preview', '')}\n"
+                        )
+                elif event_name == "error":
+                    sys.stderr.write(f"\n[error] {data.get('message', '')}\n")
+                elif event_name == "done":
+                    sys.stdout.write("\n")
+
+    return canonical_sid
+
+
+async def run_interactive() -> None:
+    """Run Astra in interactive chat mode in the terminal."""
+    print("Astra v0.2 — lean runtime")
     print("Type your message (or 'exit' to quit)")
     print("-" * 50)
 
-    async with ClaudeSDKClient(options=options) as client:
-        while True:
-            try:
-                user_input = input("\nYou: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nAstra shutting down.")
-                break
+    session_id: str | None = None
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAstra shutting down.")
+            break
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit", "q"):
+            print("Astra shutting down.")
+            break
 
-            if not user_input:
-                continue
-            if user_input.lower() in ("exit", "quit", "q"):
-                print("Astra shutting down.")
-                break
-
-            await client.query(user_input)
-            async for message in client.receive_response():
-                if hasattr(message, "content"):
-                    for block in message.content:
-                        if hasattr(block, "text"):
-                            print(f"\nAstra: {block.text}")
-                elif hasattr(message, "result"):
-                    pass  # ResultMessage — session complete
+        sys.stdout.write("\nAstra: ")
+        session_id = await _run_one_turn(user_input, session_id=session_id)
 
 
-async def run_single(prompt: str):
+async def run_single(prompt: str) -> None:
     """Run a single query and exit."""
-    from claude_agent_sdk import query
-    from astra.core.agent import create_astra_options
-
-    options = create_astra_options()
-
-    async for message in query(prompt=prompt, options=options):
-        if hasattr(message, "content"):
-            for block in message.content:
-                if hasattr(block, "text"):
-                    print(block.text)
+    await _run_one_turn(prompt)
 
 
-def main():
+def main() -> None:
     """Entry point for the `astra` CLI command."""
     if len(sys.argv) > 1:
         prompt = " ".join(sys.argv[1:])

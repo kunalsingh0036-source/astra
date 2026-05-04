@@ -48,7 +48,6 @@ from stream.events import (  # noqa: E402
     done as done_event,
     heartbeat,
 )
-from stream.runner import run_query  # noqa: E402
 
 _SHARED_SECRET = os.environ.get("STREAM_SHARED_SECRET", "").strip()
 
@@ -393,10 +392,10 @@ async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse
         )
 
     # Create the durable turn row up-front so a mid-stream crash still
-    # leaves a record. Same pattern as the legacy /stream endpoint.
-    from stream.runner import _create_turn_record  # type: ignore[import-not-found]
+    # leaves a record. Same store as /stream uses.
+    from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
 
-    turn_id = await _create_turn_record(
+    turn_id = await create_turn_record(
         session_id=req.session_id,
         prompt=req.prompt,
     )
@@ -443,38 +442,19 @@ async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse
 async def stream(req: StreamRequest, request: Request) -> StreamingResponse:
     """Run an Astra query and stream the result as SSE.
 
-    PHASE 5 CUTOVER: this endpoint now routes through the LEAN RUNTIME
-    by default (astra.runtime.agent_loop). The legacy SDK path remains
-    available behind the `USE_LEGACY_SDK=1` environment variable for
-    rollback if the lean path hits an unforeseen issue.
-
-    Why this is safe:
-      - Lean runtime has feature parity (Phase 4 ported all 107 tools)
-      - SSE event shapes are identical (event_emitter is shared)
-      - Sessions persist via Postgres turns table (better than SDK's
-        subprocess-memory sessions)
-      - Per-tool timeouts are set + tunable (SDK had opaque ones)
-
-    Why we keep the fallback (Phase 6 will remove it):
-      - Real-world traffic always finds bugs the test suite missed.
-        ONE env var flip rolls back without a deploy.
+    PHASE 6: this endpoint is now ONLY served by the lean runtime
+    (astra.runtime.agent_loop). The legacy SDK path was removed
+    after Phase 5 ran traffic without regressions. Rollback is no
+    longer a fallback toggle — it's a `git revert`.
     """
     _check_secret(request)
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="prompt is empty")
 
-    use_legacy = os.environ.get("USE_LEGACY_SDK", "").strip() == "1"
-
-    if use_legacy:
-        return await _stream_legacy_sdk(req)
-    return await _stream_lean(req)
-
-
-async def _stream_lean(req: StreamRequest) -> StreamingResponse:
-    """Lean runtime path — direct anthropic.AsyncAnthropic. Default."""
     try:
         import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
         from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
+        from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
         from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
     except Exception as e:
         async def _err_gen():
@@ -487,9 +467,7 @@ async def _stream_lean(req: StreamRequest) -> StreamingResponse:
             headers={"Cache-Control": "no-cache, no-transform"},
         )
 
-    from stream.runner import _create_turn_record  # type: ignore[import-not-found]
-
-    turn_id = await _create_turn_record(
+    turn_id = await create_turn_record(
         session_id=req.session_id,
         prompt=req.prompt,
     )
@@ -515,41 +493,6 @@ async def _stream_lean(req: StreamRequest) -> StreamingResponse:
             except Exception as e:
                 logger.exception("[lean-runtime] /stream raised")
                 yield sse_error(f"lean runtime crashed: {e}")
-                return
-            else:
-                yield frame
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-async def _stream_legacy_sdk(req: StreamRequest) -> StreamingResponse:
-    """Legacy SDK path. Behind USE_LEGACY_SDK=1 env var. Phase 6 deletes."""
-    async def generate():
-        runner_iter = run_query(
-            req.prompt, resume_session_id=req.session_id
-        ).__aiter__()
-
-        while True:
-            try:
-                frame = await asyncio.wait_for(
-                    runner_iter.__anext__(), timeout=15
-                )
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                yield heartbeat()
-                continue
-            except Exception as e:
-                logger.exception("[legacy-sdk] /stream raised")
-                yield sse_error(f"legacy sdk crashed: {e}")
                 return
             else:
                 yield frame

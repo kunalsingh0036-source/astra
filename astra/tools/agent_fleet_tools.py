@@ -8,7 +8,7 @@ Allows Astra to:
 - Get fleet summary statistics
 """
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.agents.recommender import get_recommendations
 from astra.agents.registry import AgentStatus, agent_registry

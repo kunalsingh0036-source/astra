@@ -234,33 +234,56 @@ class TestFleetE2E:
         assert summary["building"] == 1
 
 
-# ── Core Agent Configuration ───────────────────────────────────
+# ── Lean Runtime Configuration ──────────────────────────────────
+#
+# The legacy `create_astra_options` test was removed in Phase 6 of
+# the lean-runtime migration along with astra/core/agent.py. The
+# replacement validates that the runtime registry has the expected
+# tool surface — that's the equivalent assertion for the new path.
 
-class TestCoreAgentE2E:
-    """Core agent configuration and integration."""
+class TestLeanRuntimeE2E:
+    """Lean runtime tool surface and registry shape."""
 
-    def test_create_astra_options(self):
-        from astra.core.agent import create_astra_options
+    def test_registry_has_critical_tools(self):
+        # Side-effect-import every tool file
+        import astra.runtime.tools  # noqa: F401
+        from astra.runtime.tool_registry import REGISTRY
 
-        options = create_astra_options()
+        names = set(REGISTRY.names())
 
-        # Has system prompt
-        assert options.system_prompt is not None
-        assert "Astra" in options.system_prompt
+        # Memory tools present
+        assert "store_memory" in names
+        assert "recall_memories" in names
+        assert "recall_recent_turns" in names
 
-        # Has MCP servers
-        assert "astra-memory" in options.mcp_servers
-        assert "astra-autonomy" in options.mcp_servers
-        assert "astra-fleet" in options.mcp_servers
-        assert "astra-system" in options.mcp_servers
+        # Calendar / email / shares present
+        assert "calendar_today" in names
+        assert "email_unanswered" in names
+        assert "list_recent_shares" in names
 
-        # Has research-intel sub-agent
-        assert "research-intel" in options.agents
-        assert options.agents["research-intel"].model == "sonnet"
+        # Creator tools present
+        assert "list_business_kits" in names
+        assert "analyze_reference_site" in names
+        assert "draft_deck" in names
 
-        # Has hooks
-        assert "PreToolUse" in options.hooks
-        assert "PostToolUse" in options.hooks
+    def test_registry_namespaces(self):
+        import astra.runtime.tools  # noqa: F401
+        from astra.runtime.tool_registry import REGISTRY
+
+        namespaces = {t.namespace for t in REGISTRY.all()}
+        # Core namespaces all loaded
+        for required in ("memory", "shares", "calendar", "email", "creators"):
+            assert required in namespaces, (
+                f"missing namespace {required} — adapter import probably "
+                f"failed; check stream service startup logs"
+            )
+
+    def test_system_prompt_loadable(self):
+        from astra.core.system_prompt import get_system_prompt
+
+        prompt = get_system_prompt()
+        assert prompt
+        assert "Astra" in prompt
 
         # Has budget limits
         assert options.max_turns == 50

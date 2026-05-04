@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 
-from claude_agent_sdk import tool
+from astra.runtime.sdk_compat import tool
 
 from astra.creators.self_improve import (
     apply_fix,

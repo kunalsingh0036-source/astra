@@ -11,7 +11,7 @@ Provides Astra with self-awareness about its own system:
 import platform
 import sys
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra import __version__
 from astra.config import settings
