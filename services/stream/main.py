@@ -354,6 +354,73 @@ async def push_test(request: Request) -> dict[str, object]:
     }
 
 
+@app.post("/stream-lean")
+async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse:
+    """Run a turn against the LEAN runtime — direct anthropic.AsyncAnthropic,
+    no SDK, no bundled CLI subprocess.
+
+    Phase 2 of the runtime migration: text-only (no tools yet — Phase 3).
+    Lives alongside /stream so we can test the lean path against real
+    Anthropic API in production without affecting the SDK path. Once
+    Phase 5 lands, /stream itself will route here.
+    """
+    _check_secret(request)
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt is empty")
+
+    # Lazy import so the service still boots if astra core fails to import.
+    try:
+        from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
+        from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
+    except Exception as e:
+        from stream.events import error as sse_error, done
+
+        async def _err_gen():
+            yield sse_error(f"failed to load lean runtime: {e}")
+            yield done(duration_ms=0)
+
+        return StreamingResponse(
+            _err_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache, no-transform"},
+        )
+
+    async def generate():
+        runner_iter = run_lean_turn(
+            req.prompt,
+            session_id=req.session_id,
+            system_prompt=get_system_prompt(),
+        ).__aiter__()
+        while True:
+            try:
+                frame = await asyncio.wait_for(
+                    runner_iter.__anext__(),
+                    timeout=15,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                yield heartbeat()
+                continue
+            except Exception as e:
+                from stream.events import error as sse_error
+                logger.exception("lean stream raised")
+                yield sse_error(f"lean runtime crashed: {e}")
+                return
+            else:
+                yield frame
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/stream")
 async def stream(req: StreamRequest, request: Request) -> StreamingResponse:
     """Run an Astra query and stream the result as SSE."""
