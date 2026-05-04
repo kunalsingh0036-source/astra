@@ -527,13 +527,14 @@ async def render_doc_pdf_tool(args: dict) -> dict:
 
 @tool(
     "analyze_reference_site",
-    "Fetch a website URL and decompose it into structured analysis: page "
-    "intent, IA, sections, components observed, style system (colors, "
-    "fonts, density, motion), functionality, what works, what doesn't, "
-    "and borrowable patterns. Use BEFORE drafting a site brief when you "
-    "want to cite reference sites Kunal said to study. Note: HTML-only "
-    "fetch — JS-rendered SPA content may have limited visibility (the "
-    "tool flags this in warnings).",
+    "Fetch a website URL and return its structural data — title, "
+    "meta description, full heading hierarchy (h1/h2/h3), navigation "
+    "links, sections (semantic HTML5), detected color palette, fonts, "
+    "third-party scripts, image/form counts. Fast (~5-15s), deterministic, "
+    "NO nested LLM call — YOU produce the analysis (page kind, what "
+    "works, borrowable patterns, style breakdown) directly in your "
+    "response using the data this tool returns. The artifact id is "
+    "stored so downstream tools (draft_site_brief) can reference it.",
     {"url": str},
 )
 async def analyze_reference_site_tool(args: dict) -> dict:
@@ -543,43 +544,77 @@ async def analyze_reference_site_tool(args: dict) -> dict:
     try:
         artifact = await analyze_reference_site(url)
     except Exception as e:
-        return {"content": [{"type": "text", "text": f"Analysis failed: {type(e).__name__}: {e}"}]}
+        return {"content": [{"type": "text", "text": f"Fetch failed: {type(e).__name__}: {e}"}]}
 
     c = artifact["content"]
-    sections = c.get("sections", []) or []
-    patterns = c.get("borrowable_patterns", []) or []
-    works = c.get("what_works", []) or []
-    doesnt = c.get("what_doesnt", []) or []
-    summary = (
-        f"Analysis #{artifact['id']} of {c.get('url','')}\n"
-        f"  Page kind: {c.get('page_kind','?')}\n"
-        f"  Intent:    {c.get('page_intent','')}\n"
-        f"  Sections observed ({len(sections)}):\n"
+    s = c.get("structural_summary") or {}
+    fetch_meta = c.get("fetch_meta") or {}
+    headings = s.get("headings") or {}
+    sections = s.get("sections") or []
+    nav_links = s.get("nav_links") or []
+
+    # Build a compact, agent-readable text dump of the structural data.
+    # The agent reads this in the same turn it called the tool — it has
+    # everything it needs to produce an analysis without a second tool
+    # call or a nested LLM round-trip.
+    lines: list[str] = [
+        f"Site data #{artifact['id']} fetched from {c.get('url','')}",
+        f"Final URL: {fetch_meta.get('final_url','')}",
+        f"HTTP {fetch_meta.get('status_code','?')} · {fetch_meta.get('byte_size','?')} bytes",
+        "",
+        f"TITLE: {s.get('title','(none)')}",
+        f"META: {s.get('meta_description','(none)')}",
+        f"COUNTS: {s.get('image_count',0)} images · "
+        f"{s.get('form_count',0)} forms · "
+        f"{s.get('total_text_length',0)} chars of text",
+        "",
+    ]
+
+    if headings.get("h1"):
+        lines.append(f"H1 ({len(headings['h1'])}):")
+        for h in headings["h1"][:8]:
+            lines.append(f"  - {h}")
+        lines.append("")
+    if headings.get("h2"):
+        lines.append(f"H2 ({len(headings['h2'])}):")
+        for h in headings["h2"][:15]:
+            lines.append(f"  - {h}")
+        lines.append("")
+    if headings.get("h3"):
+        lines.append(f"H3 ({len(headings['h3'])}):")
+        for h in headings["h3"][:20]:
+            lines.append(f"  - {h}")
+        lines.append("")
+
+    if nav_links:
+        lines.append(f"NAV LINKS ({len(nav_links)}):")
+        for n in nav_links[:15]:
+            lines.append(f"  - {n.get('label','')} → {n.get('href','')}")
+        lines.append("")
+
+    if sections:
+        lines.append(f"SECTIONS ({len(sections)}):")
+        for i, sec in enumerate(sections[:15], 1):
+            heading = sec.get("heading") or "(no heading)"
+            preview = (sec.get("text_preview") or "").replace("\n", " ")
+            lines.append(f"  {i}. [{heading[:60]}] {preview[:200]}")
+        lines.append("")
+
+    palette = s.get("colors_seen") or []
+    fonts = s.get("fonts_seen") or []
+    third_party = s.get("third_party_hosts") or []
+    lines.append(f"COLOR HEXES SEEN ({len(palette)}): {palette[:20]}")
+    lines.append(f"FONTS DETECTED: {fonts[:15]}")
+    lines.append(f"THIRD-PARTY HOSTS: {third_party[:15]}")
+    lines.append("")
+    lines.append(
+        "Now produce the analysis directly: page kind, IA breakdown, "
+        "style system (tone/density/motion cues from what's loaded), "
+        "what works, what doesn't, and 3-6 borrowable patterns. "
+        "Cite this artifact id when drafting a site brief."
     )
-    for s in sections:
-        summary += f"    {s.get('position','?'):>2}. [{s.get('type','?'):14}] {(s.get('summary','') or '')[:80]}\n"
-    style = c.get("style_system") or {}
-    summary += (
-        f"  Style: tone={style.get('tone','?')}, density={style.get('density','?')}\n"
-        f"  Palette: {style.get('color_palette',[])}\n"
-        f"  Fonts:   {style.get('fonts',[])}\n"
-        f"  Borrowable patterns ({len(patterns)}):\n"
-    )
-    for p in patterns:
-        summary += f"    • {p.get('pattern','?')}: {p.get('context_for_use','')[:100]}\n"
-    if works:
-        summary += "  What works:\n"
-        for w in works[:3]:
-            summary += f"    + {w[:120]}\n"
-    if doesnt:
-        summary += "  What doesn't:\n"
-        for w in doesnt[:3]:
-            summary += f"    - {w[:120]}\n"
-    if c.get("warnings"):
-        summary += "  ⚠ Warnings:\n"
-        for w in c["warnings"]:
-            summary += f"    {w[:120]}\n"
-    return {"content": [{"type": "text", "text": summary}]}
+
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
 @tool(
