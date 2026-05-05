@@ -85,6 +85,116 @@ async def health() -> dict[str, object]:
     }
 
 
+@app.get("/health/deep")
+async def health_deep() -> dict[str, object]:
+    """Deep system health for the stream service. Probed by
+    astra-web's /api/health/deep (which doesn't have visibility
+    into Railway-side env vars or the migrations/ directory).
+
+    Each check is non-sensitive — keys are reported as set/missing,
+    not their values. The migration head is whatever's on disk
+    (the LATEST file in astra/db/migrations/versions/) — this is
+    the source of truth for "what should the DB be at" since the
+    stream container has the migration files copied in.
+    """
+    import glob
+
+    checks: list[dict[str, object]] = []
+
+    # ── Anthropic key ──
+    key_set = bool((os.environ.get("ANTHROPIC_API_KEY") or "").strip())
+    checks.append({
+        "name": "anthropic_key",
+        "status": "ok" if key_set else "down",
+        "detail": "env var set" if key_set else "ANTHROPIC_API_KEY missing",
+    })
+
+    # ── Database URL ──
+    db_url_set = bool((os.environ.get("DATABASE_URL") or "").strip())
+    checks.append({
+        "name": "database_url",
+        "status": "ok" if db_url_set else "down",
+        "detail": "set" if db_url_set else "DATABASE_URL missing",
+    })
+
+    # ── Latest migration on disk vs head in DB ──
+    # The stream container has migration files at this path. We
+    # compare what's on disk (the truth) against what the DB
+    # reports as its current head.
+    try:
+        files = sorted(
+            glob.glob("/app/astra/db/migrations/versions/*.py"),
+            reverse=False,
+        )
+        # Filenames look like: <revision>_<slug>.py
+        # Latest = highest sort order (revision strings are
+        # alphabetic in alembic's auto-generated form). Take the
+        # last one.
+        on_disk = ""
+        if files:
+            for f in reversed(files):
+                base = os.path.basename(f)
+                if base.startswith("__"):
+                    continue
+                # revision is everything before the first underscore
+                on_disk = base.split("_", 1)[0]
+                if on_disk:
+                    break
+
+        # DB head
+        db_head = ""
+        try:
+            from sqlalchemy import text  # type: ignore
+            from astra.db.engine import async_session  # type: ignore
+            async with async_session() as s:
+                r = await s.execute(text("SELECT version_num FROM alembic_version"))
+                row = r.first()
+                if row:
+                    db_head = str(row[0])
+        except Exception:
+            pass
+
+        if not on_disk or not db_head:
+            checks.append({
+                "name": "migration_head",
+                "status": "degraded",
+                "detail": (
+                    f"could not resolve heads (disk={on_disk or 'unknown'}, "
+                    f"db={db_head or 'unknown'})"
+                ),
+            })
+        elif on_disk == db_head:
+            checks.append({
+                "name": "migration_head",
+                "status": "ok",
+                "detail": db_head,
+            })
+        else:
+            checks.append({
+                "name": "migration_head",
+                "status": "degraded",
+                "detail": (
+                    f"db={db_head} disk={on_disk} — run alembic upgrade head"
+                ),
+            })
+    except Exception as e:
+        checks.append({
+            "name": "migration_head",
+            "status": "degraded",
+            "detail": f"check failed: {type(e).__name__}",
+        })
+
+    any_down = any(c["status"] == "down" for c in checks)
+    any_degraded = any(c["status"] == "degraded" for c in checks)
+    overall = "down" if any_down else ("degraded" if any_degraded else "ok")
+
+    return {
+        "status": overall,
+        "service": "astra-stream",
+        "checks": checks,
+    }
+
+
 # ── Embedding-model pre-warm ───────────────────────────────────
 #
 # The sentence-transformers model (all-MiniLM-L6-v2) lazy-loads on
