@@ -54,7 +54,11 @@ logger = logging.getLogger(__name__)
 # over this is almost certainly a network problem, not legitimate
 # slow work. Per-tool timeouts (set via ToolRegistry) handle the
 # tool-call portion; this is the outer fence.
-_TURN_HARD_TIMEOUT_SEC = 300
+#
+# Set to 240s — 60s under Vercel's 300s maxDuration so the runner
+# always has time to yield a clean `done`/`error` event before
+# Vercel cancels the connection. See docs/timeout_hierarchy.md.
+_TURN_HARD_TIMEOUT_SEC = 240
 
 
 # ── Event emission with durable log ────────────────────────
