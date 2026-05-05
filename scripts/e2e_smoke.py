@@ -68,10 +68,22 @@ class TestResult:
 class HarnessState:
     base_url: str
     cookie: str | None
+    # The middleware (astra-web/middleware.ts) bypasses auth for any
+    # request that carries x-astra-secret matching ASTRA_SHARED_SECRET.
+    # That's a documented server-to-server path (scheduler, webhooks).
+    # The harness uses it so CI can run agent-path tests without
+    # exfiltrating a NextAuth cookie. Either auth mode unlocks
+    # tests 03-07; cookie wins if both are set.
+    shared_secret: str | None = None
     results: list[TestResult] = field(default_factory=list)
     # Cross-test state: the session_id from test 03 is reused in 04, 05, 06
     session_id: str | None = None
     last_turn_text: str = ""
+
+    @property
+    def has_auth(self) -> bool:
+        """True if either auth path is wired up."""
+        return bool(self.cookie or self.shared_secret)
 
     def record(self, r: TestResult) -> None:
         self.results.append(r)
@@ -92,6 +104,11 @@ def _headers(state: HarnessState) -> dict[str, str]:
     if state.cookie:
         # Pass-through next-auth cookie if provided.
         h["cookie"] = state.cookie
+    if state.shared_secret:
+        # Server-to-server bypass header. Middleware accepts either
+        # this OR the cookie — we send both when both are set so the
+        # harness keeps working even if one is mis-configured.
+        h["x-astra-secret"] = state.shared_secret
     return h
 
 
@@ -327,12 +344,12 @@ async def test_00_health_deep(
 async def test_01_sessions_list(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    if not state.cookie:
+    if not state.has_auth:
         return TestResult(
             name="01 /api/sessions list",
             passed=True,
             duration_ms=0,
-            detail="SKIPPED — no auth cookie",
+            detail="SKIPPED — no auth (cookie or shared secret)",
         )
     started = time.monotonic()
     try:
@@ -374,12 +391,12 @@ async def test_01_sessions_list(
 async def test_02_recent_turns(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    if not state.cookie:
+    if not state.has_auth:
         return TestResult(
             name="02 /api/turns/recent",
             passed=True,
             duration_ms=0,
-            detail="SKIPPED — no auth cookie",
+            detail="SKIPPED — no auth (cookie or shared secret)",
         )
     started = time.monotonic()
     try:
@@ -421,12 +438,12 @@ async def test_02_recent_turns(
 async def test_03_simple_text_turn(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    if not state.cookie:
+    if not state.has_auth:
         return TestResult(
             name="03 text-only turn",
             passed=True,
             duration_ms=0,
-            detail="SKIPPED — no auth cookie",
+            detail="SKIPPED — no auth (cookie or shared secret)",
         )
     started = time.monotonic()
     out = await _post_chat_stream(
@@ -463,7 +480,7 @@ async def test_03_simple_text_turn(
 async def test_04_tool_using_turn(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    if not state.cookie or not state.session_id:
+    if not state.has_auth or not state.session_id:
         return TestResult(
             name="04 tool-using turn",
             passed=True,
@@ -518,7 +535,7 @@ async def test_04_tool_using_turn(
 async def test_05_session_continuity(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    if not state.cookie or not state.session_id:
+    if not state.has_auth or not state.session_id:
         return TestResult(
             name="05 session continuity",
             passed=True,
@@ -606,7 +623,7 @@ async def test_07_bridge_expand_handling(
     """Either the bridge is online (expand succeeds) or offline
     (returns 404 with a structured error). Both are valid; the test
     fails only if the endpoint crashes or shape is wrong."""
-    if not state.cookie:
+    if not state.has_auth:
         return TestResult(
             name="07 /api/bridge/expand",
             passed=True,
@@ -684,6 +701,16 @@ async def main() -> int:
         help="NextAuth session cookie. Without it, agent-path tests skip.",
     )
     parser.add_argument(
+        "--shared-secret",
+        default=os.environ.get("ASTRA_SHARED_SECRET", ""),
+        help=(
+            "Shared secret matching astra-web's ASTRA_SHARED_SECRET. "
+            "Lets the harness use the server-to-server middleware "
+            "bypass (x-astra-secret header) instead of needing a "
+            "NextAuth cookie. Either auth path unlocks tests 03-07."
+        ),
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="Print test names and exit",
@@ -698,11 +725,17 @@ async def main() -> int:
     state = HarnessState(
         base_url=args.base.rstrip("/"),
         cookie=args.cookie or None,
+        shared_secret=args.shared_secret or None,
     )
 
     print(f"astra e2e smoke against {state.base_url}")
-    if not state.cookie:
-        print("  (no ASTRA_E2E_COOKIE set — agent-path tests will skip)")
+    if not state.has_auth:
+        print(
+            "  (no ASTRA_E2E_COOKIE or ASTRA_SHARED_SECRET set — "
+            "agent-path tests will skip)"
+        )
+    elif state.shared_secret and not state.cookie:
+        print("  (using shared-secret bypass; no cookie)")
     print()
     started = time.monotonic()
 
