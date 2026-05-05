@@ -623,6 +623,136 @@ async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse
     )
 
 
+# ── In-flight task registry ───────────────────────────────
+#
+# When the browser cancels a turn (Esc, dismiss, navigate away),
+# we want to actually stop the agent run on the server — not let
+# it burn API tokens for 4 more minutes until the runner watchdog
+# fires. This dict maps turn_id → asyncio.Task so /turns/<id>/cancel
+# can call task.cancel().
+#
+# Sweeper runs every 5 minutes to drop done/cancelled tasks so the
+# dict doesn't grow unbounded across container lifetime.
+_running_turns: dict[int, asyncio.Task[Any]] = {}
+
+
+@app.on_event("startup")
+async def _sweep_running_turns_dict() -> None:
+    """Background loop that prunes finished tasks from _running_turns."""
+    async def _loop() -> None:
+        while True:
+            try:
+                await asyncio.sleep(300)
+                stale = [
+                    tid for tid, t in _running_turns.items()
+                    if t.done() or t.cancelled()
+                ]
+                for tid in stale:
+                    _running_turns.pop(tid, None)
+                if stale:
+                    logger.info(
+                        "[turns] sweeper pruned %d finished task(s)", len(stale)
+                    )
+            except Exception:
+                logger.exception("[turns] sweeper loop iteration failed")
+    asyncio.create_task(_loop())
+
+
+@app.post("/turns/start")
+async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]:
+    """Start an agent turn in the background. Returns immediately
+    with the turn_id; events flow into turn_events durably as the
+    agent runs.
+
+    Replaces the SSE-streaming model with poll: the browser hits
+    this endpoint to enqueue work + get an id, then polls
+    /api/turns/<id>/events for progress + completion. No
+    streaming-duration cap matters — the request returns in <100ms.
+
+    The agent run is an asyncio.create_task. It survives this
+    request returning, but is bound to the uvicorn worker's event
+    loop. If the worker dies (deploy, crash, OOM) the task dies
+    too — the turn row stays at status='running' until the
+    startup-sweeper marks it interrupted.
+    """
+    _check_secret(request)
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt is empty")
+
+    try:
+        import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
+        from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
+        from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
+        from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
+    except Exception as e:
+        raise HTTPException(500, f"runtime load failed: {e}")
+
+    turn_id = await create_turn_record(
+        session_id=req.session_id,
+        prompt=req.prompt,
+    )
+    if turn_id is None:
+        raise HTTPException(500, "failed to create turn row")
+
+    # Drive the agent loop to exhaustion. Each yielded frame is
+    # already written to turn_events by the loop's _emit helper —
+    # we just need to consume the generator so it runs. No SSE
+    # client; the browser polls turn_events.
+    async def _drive() -> None:
+        try:
+            agen = run_lean_turn(
+                req.prompt,
+                session_id=req.session_id,
+                system_prompt=get_system_prompt(),
+                turn_id=turn_id,
+                load_history=True,
+            ).__aiter__()
+            while True:
+                try:
+                    await agen.__anext__()
+                except StopAsyncIteration:
+                    break
+        except asyncio.CancelledError:
+            logger.info(
+                "[turns] task for turn=%s cancelled by client", turn_id
+            )
+            raise
+        except Exception:
+            logger.exception("[turns] task for turn=%s raised", turn_id)
+        finally:
+            _running_turns.pop(turn_id, None)
+
+    task = asyncio.create_task(_drive(), name=f"turn-{turn_id}")
+    _running_turns[turn_id] = task
+
+    logger.info(
+        "[turns] started turn=%s session=%s len(prompt)=%d",
+        turn_id,
+        req.session_id or "(new)",
+        len(req.prompt),
+    )
+
+    return {
+        "turn_id": turn_id,
+        "session_id": req.session_id,
+        "status": "running",
+    }
+
+
+@app.post("/turns/{turn_id}/cancel")
+async def turns_cancel(turn_id: int, request: Request) -> dict[str, object]:
+    """Cancel an in-flight turn. Returns whether a task was actually
+    cancelled (False if it had already completed)."""
+    _check_secret(request)
+    task = _running_turns.get(turn_id)
+    if task is None:
+        return {"cancelled": False, "reason": "not running"}
+    if task.done():
+        return {"cancelled": False, "reason": "already finished"}
+    task.cancel()
+    return {"cancelled": True}
+
+
 @app.post("/stream")
 async def stream(req: StreamRequest, request: Request) -> StreamingResponse:
     """Run an Astra query and stream the result as SSE.
