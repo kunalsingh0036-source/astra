@@ -188,7 +188,8 @@ async def run_lean_turn(
     # have accumulated large tool_result content (file reads, glob
     # dumps, web fetches) blow past the 200k context window. The
     # compactor truncates oversized tool_results first, then drops
-    # oldest turns, all while preserving role-alternation.
+    # oldest turns, all while preserving role-alternation AND
+    # tool_use/tool_result atomicity (see _compact_messages docstring).
     messages, before_tokens, after_tokens = _compact_messages(raw_messages)
     if after_tokens != before_tokens:
         logger.info(
@@ -197,6 +198,20 @@ async def run_lean_turn(
             after_tokens,
             (1 - after_tokens / max(before_tokens, 1)) * 100,
         )
+    # Defense in depth: drop any tool_result blocks whose tool_use is
+    # missing. Compaction is supposed to keep pairs intact, but if
+    # anything upstream (custom recall path, future refactor) produces
+    # orphans we'd rather lose a tool result than fail the entire turn.
+    messages = _validate_and_repair_messages(messages)
+    # The user's prompt for THIS turn is the LAST message after
+    # compaction (compactor preserves the tail; nothing has been
+    # appended yet). Track its index so save_turn_messages can store
+    # only THIS turn's contribution — not the loaded history. Without
+    # this, every turn stored its full history, producing quadratic
+    # duplication that forced compaction prematurely (turn #51 stored
+    # 104 messages including all of turns 44-50; turn #53 then loaded
+    # 234 messages from concatenating prior turns and crashed).
+    own_start_index = max(0, len(messages) - 1)
     anthropic_tools = (
         REGISTRY.as_anthropic_tools(namespaces=tool_namespaces)
         if tools_enabled
@@ -395,7 +410,7 @@ async def run_lean_turn(
         # reality even on cancellation.
         if turn_id is not None:
             try:
-                await save_turn_messages(turn_id, messages)
+                await save_turn_messages(turn_id, messages[own_start_index:])
                 await finalize_turn_record(
                     turn_id,
                     session_id=sid,
@@ -421,17 +436,24 @@ async def run_lean_turn(
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
-    # Persist BOTH the full message stack (for next-turn rehydration)
-    # AND the row's status/response/duration/tool_count (so
-    # load_session_messages' WHERE status='complete' filter passes).
+    # Persist this turn's OWN contribution (user prompt + assistant
+    # responses + tool results from THIS turn) — NOT the rehydrated
+    # history above. Otherwise each turn's stored messages would
+    # include all prior turns, and load_session_messages would
+    # concatenate the duplicated stacks producing quadratic blow-up
+    # (turn #51 stored 104 messages, turn #53 loaded 234, compaction
+    # split a tool_use/tool_result pair, Anthropic rejected the call).
+    #
+    # Plus the row's status/response/duration/tool_count so
+    # load_session_messages' WHERE status='complete' filter passes.
     # The legacy SDK runner did this via _finalize_turn_record; the
     # lean runtime forgot to wire it up — Phase 4 was incomplete and
     # every turn stayed at status='running' forever, breaking session
     # continuity. Both writes are synchronous so the row is committed
-    # before the SSE connection closes.
+    # before the response is finalized.
     if turn_id is not None:
         try:
-            await save_turn_messages(turn_id, messages)
+            await save_turn_messages(turn_id, messages[own_start_index:])
         except Exception:
             logger.exception(
                 "[lean-runtime] save_turn_messages failed for turn=%s", turn_id
@@ -557,6 +579,83 @@ def _truncate_tool_result_content(content: Any) -> tuple[Any, bool]:
     return content, False
 
 
+def _message_has_tool_result(msg: dict[str, Any]) -> bool:
+    """True if `msg`'s content contains any tool_result block."""
+    c = msg.get("content")
+    if not isinstance(c, list):
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in c
+    )
+
+
+def _validate_and_repair_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop any tool_result block whose matching tool_use is missing
+    from the immediately previous message.
+
+    Anthropic's API requires every tool_result.tool_use_id to have
+    a corresponding tool_use.id in the prior message — otherwise it
+    rejects with a 400 BadRequestError that aborts the entire turn.
+
+    This is the third layer of defense (after compaction tool-pair
+    atomicity and per-turn save-only-own-contribution). If anything
+    upstream produces orphans we'd rather drop the orphan than fail
+    the turn — losing one tool result is recoverable, a failed turn
+    isn't.
+
+    A user message that ends up with NO blocks after dropping is
+    replaced by a synthetic text-only user message so role
+    alternation stays valid.
+    """
+    repaired: list[dict[str, Any]] = []
+    available_tool_use_ids: set[str] = set()
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            repaired.append(msg)
+            available_tool_use_ids = set()
+            continue
+        new_blocks: list[Any] = []
+        dropped_any = False
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                tid = b.get("tool_use_id")
+                if tid not in available_tool_use_ids:
+                    logger.warning(
+                        "[lean-runtime] dropped orphaned tool_result "
+                        "tool_use_id=%s (no matching tool_use in prior "
+                        "message)",
+                        tid,
+                    )
+                    dropped_any = True
+                    continue
+            new_blocks.append(b)
+        new_msg = dict(msg)
+        if not new_blocks and dropped_any:
+            # Replace the empty user-with-only-orphans message with
+            # a synthetic text note so role alternation stays valid.
+            new_msg["content"] = [
+                {
+                    "type": "text",
+                    "text": (
+                        "[earlier tool result dropped during compaction; "
+                        "re-call the tool if the result is needed]"
+                    ),
+                }
+            ]
+        else:
+            new_msg["content"] = new_blocks if new_blocks else content
+        repaired.append(new_msg)
+        # Track tool_use IDs available to the NEXT message's tool_results
+        available_tool_use_ids = set()
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "tool_use":
+                available_tool_use_ids.add(b.get("id"))
+    return repaired
+
+
 def _compact_messages(
     messages: list[dict[str, Any]],
     *,
@@ -626,7 +725,27 @@ def _compact_messages(
         return pass1, before, pass1_tokens
 
     head = pass1[:1]  # first user message
-    tail = pass1[-8:]
+    # The naive tail of the last 8 messages can split a tool_use /
+    # tool_result pair: assistant(tool_use) lives at index N,
+    # user(tool_result) at N+1. If our slice starts at N+1 we keep
+    # the tool_result but drop the tool_use → Anthropic rejects with
+    # "unexpected tool_use_id found in tool_result blocks". This
+    # happened in production (turn #53 of session a859083e…) and was
+    # the entire bug class.
+    #
+    # Walk the start index backward through any user message whose
+    # content includes tool_result blocks — its matching tool_use is
+    # in the IMMEDIATELY PREVIOUS assistant message, which we then
+    # also include. Bounded by 1 doubling of tail size so a pathological
+    # all-tool-result run can't grow the slice unboundedly.
+    tail_start = len(pass1) - 8
+    max_tail_start = max(1, len(pass1) - 16)
+    while tail_start > max_tail_start:
+        msg = pass1[tail_start]
+        if not _message_has_tool_result(msg):
+            break
+        tail_start -= 1
+    tail = pass1[tail_start:]
     elided = len(pass1) - len(head) - len(tail)
     gap_marker: dict[str, Any] = {
         "role": "user",
