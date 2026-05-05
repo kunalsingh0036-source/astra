@@ -64,7 +64,19 @@ class Settings(BaseSettings):
 
     # Memory retrieval defaults
     memory_top_k: int = 10
-    memory_relevance_threshold: float = 0.5
+    # Calibrated for all-MiniLM-L6-v2 (the embedding model above).
+    # Empirically: legitimate semantic matches against memories of
+    # 100-2000 chars score in the 0.25-0.40 range, not 0.50+. The
+    # original 0.5 threshold rejected nearly every real match —
+    # users could ask "where were we on our Studio 375 analysis"
+    # and get "No relevant memories found" while a procedural
+    # memory titled "Top Studios website reference: 375.studio/en"
+    # sat in the DB at importance 0.9 with similarity 0.28.
+    # Down-stream importance re-ranking does the actual quality
+    # ordering; this threshold's only job is filtering pure noise
+    # (random text scores ~0.10 against this model). 0.2 keeps the
+    # noise floor while letting real matches through.
+    memory_relevance_threshold: float = 0.2
 
     # Scheduler
     briefing_hour: int = 7
