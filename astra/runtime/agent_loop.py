@@ -401,15 +401,22 @@ async def run_lean_turn(
 # continue to load the full history; each turn re-runs compaction
 # against the latest state.
 
-# Soft target. Real cap is 200k; we leave 20k headroom for the new
-# user message + the assistant's response budget.
-_COMPACT_TARGET_TOKENS = 180_000
+# Soft target for the MESSAGES portion of the API call. The full API
+# call also carries:
+#   - system prompt (~10k tokens for Astra's prompt)
+#   - tools list (input_schema + description × 100+ tools ≈ ~10-15k)
+#   - new prompt + response budget (~5-10k)
+# Plus the char-based estimator undercounts JSON-heavy tool-call
+# content by ~25-30%. So a 180k char-based estimate can be 213k
+# actual API tokens (real production hit). We target 130k chars-
+# estimated to leave room for everything else under the 200k cap.
+_COMPACT_TARGET_TOKENS = 130_000
 
 # Per-tool-result content cap. Above this we replace with a head +
-# truncation marker. 4KB ≈ 1k tokens — small enough that you can
-# include 100 of them and still fit under the budget; large enough
-# to preserve enough context that the agent can re-fetch if needed.
-_TOOL_RESULT_CAP_CHARS = 4_000
+# truncation marker. 2KB ≈ 500 tokens — large enough to preserve
+# what the model needs to reason about + understand it was clipped,
+# small enough that 50 of them stay well under budget.
+_TOOL_RESULT_CAP_CHARS = 2_000
 
 
 def _estimate_tokens_for_block(block: Any) -> int:
@@ -498,7 +505,12 @@ def _compact_messages(
     Both estimates are character-based approximations.
     """
     before = sum(_estimate_tokens_for_message(m) for m in messages)
-    if before <= max_tokens:
+    # Early exit only when BOTH the token estimate is comfortable AND
+    # the message count is reasonable. Long sessions with 2000+ tiny
+    # messages still need pass 2 because the actual API token count
+    # (after system prompt + tools list) routinely exceeds our
+    # char-based estimate by 25-30%.
+    if before <= max_tokens and len(messages) <= 200:
         return messages, before, before
 
     # ── Pass 1: truncate tool_result content ──
@@ -521,7 +533,13 @@ def _compact_messages(
         pass1.append(new_msg)
 
     pass1_tokens = sum(_estimate_tokens_for_message(m) for m in pass1)
-    if pass1_tokens <= max_tokens:
+    # Trigger pass 2 if either the token estimate is over budget OR
+    # the message count is high enough that it's likely going to be
+    # over once the system prompt + tools list are added on the
+    # server side. 200 messages is the empirical threshold — sessions
+    # with that many tool iterations pretty much always benefit from
+    # a hard tail-only window.
+    if pass1_tokens <= max_tokens and len(pass1) <= 200:
         return pass1, before, pass1_tokens
 
     # ── Pass 2: drop oldest messages, keep the bookends ──

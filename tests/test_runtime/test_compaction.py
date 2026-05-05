@@ -50,6 +50,27 @@ def test_estimate_tool_result_string_content() -> None:
     assert _estimate_tokens_for_block(block) == 1000  # 4000 / 4
 
 
+def test_compact_huge_message_count_triggers_pass2() -> None:
+    """Even when token estimate is nominally under target, message
+    counts >200 trigger pass 2. This is the prod regression: a
+    session with 2142 small messages estimated at 165k tokens but
+    Anthropic measured it at 213k once system+tools were added.
+    Heuristic ensures we drop hard when the count alone is alarming.
+    """
+    msgs = []
+    for i in range(250):
+        role = "user" if i % 2 == 0 else "assistant"
+        msgs.append({"role": role, "content": f"m{i}"})  # tiny content
+
+    # Token estimate will be ~tiny (<1k) but count alone (250) crosses
+    # the 200-msg threshold → pass 2 fires.
+    out, _, _ = _compact_messages(msgs, max_tokens=10_000)
+    assert len(out) < len(msgs)
+    # First and last messages preserved
+    assert out[0]["content"] == "m0"
+    assert out[-1]["content"] == "m249"
+
+
 def test_estimate_tool_result_list_content() -> None:
     block = {
         "type": "tool_result",
