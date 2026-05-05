@@ -39,6 +39,7 @@ from astra.runtime.event_emitter import (
     tool_call,
     tool_result,
 )
+from astra.runtime.event_log import record_event
 from astra.runtime.turn_store import finalize_turn_record
 from astra.runtime.session_store import (
     load_session_messages,
@@ -54,6 +55,48 @@ logger = logging.getLogger(__name__)
 # slow work. Per-tool timeouts (set via ToolRegistry) handle the
 # tool-call portion; this is the outer fence.
 _TURN_HARD_TIMEOUT_SEC = 300
+
+
+# ── Event emission with durable log ────────────────────────
+#
+# Every event the loop yields ALSO gets written to the turn_events
+# table (record_event). This is what makes the polling architecture
+# work: the browser can poll /api/turns/<id>/events for events even
+# when the SSE stream is closed (or never opened). The SSE yield is
+# kept for streaming consumers; the DB write is the durable record.
+#
+# Tradeoff: ~5ms per event for the DB write. Text-deltas fire 50-200
+# times per turn so this adds up to ~250ms-2s of DB time across a
+# turn. Acceptable; if it ever isn't, batch into a queued writer.
+
+# Map factory function → wire event name. We need the name to write
+# to turn_events; the factory produces the SSE bytes. Both stay in
+# sync because they're in the same dict.
+_EVENT_NAMES: dict[Any, str] = {
+    session_event: "session",
+    thought: "thought",
+    text_delta: "text_delta",
+    tool_call: "tool_call",
+    tool_result: "tool_result",
+    error: "error",
+    done: "done",
+}
+
+
+async def _emit(
+    turn_id: int | None,
+    factory: Any,
+    **payload: Any,
+) -> bytes:
+    """Record an event in the durable log + return the SSE bytes.
+
+    Use as `yield await _emit(turn_id, text_delta, content=...)` —
+    one source of truth for both the durable record AND the live
+    stream. Drift between the two is structurally impossible.
+    """
+    name = _EVENT_NAMES.get(factory, factory.__name__)
+    await record_event(turn_id, name, payload)
+    return factory(**payload)
 
 # Maximum number of tool-call iterations within one turn. Real turns
 # rarely exceed 5-8 round-trips; cap at 25 to catch model-side loops
@@ -104,7 +147,7 @@ async def run_lean_turn(
     """
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
-    yield session_event(sid)
+    yield await _emit(turn_id, session_event, session_id=sid)
 
     client = AsyncAnthropic()
 
@@ -184,10 +227,13 @@ async def run_lean_turn(
                     assistant_text_chunks.append(chunk)
                     text = chunk
                     while len(text) > _MAX_DELTA_CHARS:
-                        yield text_delta(text[:_MAX_DELTA_CHARS])
+                        chunk_to_emit = text[:_MAX_DELTA_CHARS]
+                        yield await _emit(
+                            turn_id, text_delta, content=chunk_to_emit
+                        )
                         text = text[_MAX_DELTA_CHARS:]
                     if text:
-                        yield text_delta(text)
+                        yield await _emit(turn_id, text_delta, content=text)
 
                 final_message = await stream.get_final_message()
 
@@ -228,7 +274,9 @@ async def run_lean_turn(
                     tool_input = {}
 
                 tools_called += 1
-                yield tool_call(id=tool_id, name=tool_name, agent=None)
+                yield await _emit(
+                    turn_id, tool_call, id=tool_id, name=tool_name, agent=None
+                )
 
                 td = REGISTRY.get(tool_name)
                 if td is None:
@@ -237,7 +285,9 @@ async def run_lean_turn(
                         f"Registered: {REGISTRY.names()}"
                     )
                     logger.warning("[lean-runtime] %s", msg)
-                    yield tool_result(id=tool_id, preview=msg, is_error=True)
+                    yield await _emit(
+                        turn_id, tool_result, id=tool_id, preview=msg, is_error=True
+                    )
                     tool_results_for_user_turn.append(
                         {
                             "type": "tool_result",
@@ -258,7 +308,9 @@ async def run_lean_turn(
                 if not allowed:
                     msg = f"denied by autonomy: {decision_reason}"
                     logger.info("[lean-runtime] tool %s %s", tool_name, msg)
-                    yield tool_result(id=tool_id, preview=msg, is_error=True)
+                    yield await _emit(
+                        turn_id, tool_result, id=tool_id, preview=msg, is_error=True
+                    )
                     tool_results_for_user_turn.append(
                         {
                             "type": "tool_result",
@@ -282,7 +334,9 @@ async def run_lean_turn(
                 preview = result.text[:240].replace("\n", " ")
                 if len(result.text) > 240:
                     preview += "…"
-                yield tool_result(
+                yield await _emit(
+                    turn_id,
+                    tool_result,
                     id=tool_id,
                     preview=preview,
                     is_error=result.is_error,
@@ -312,13 +366,21 @@ async def run_lean_turn(
                 f"exceeded {_MAX_TOOL_ITERATIONS} tool iterations "
                 "without converging"
             )
-            yield thought(
-                f"reached max tool-iteration cap ({_MAX_TOOL_ITERATIONS}); "
-                "stopping loop. the model may want to ask the user something."
+            yield await _emit(
+                turn_id,
+                thought,
+                text=(
+                    f"reached max tool-iteration cap ({_MAX_TOOL_ITERATIONS}); "
+                    "stopping loop. the model may want to ask the user something."
+                ),
             )
-            yield error(
-                f"agent exceeded {_MAX_TOOL_ITERATIONS} tool iterations "
-                "without converging — likely stuck in a retry loop. retry."
+            yield await _emit(
+                turn_id,
+                error,
+                message=(
+                    f"agent exceeded {_MAX_TOOL_ITERATIONS} tool iterations "
+                    "without converging — likely stuck in a retry loop. retry."
+                ),
             )
 
     except asyncio.CancelledError:
@@ -347,7 +409,11 @@ async def run_lean_turn(
         logger.exception("[lean-runtime] run_lean_turn raised")
         turn_status = "failed"
         turn_error = f"{type(e).__name__}: {e}"
-        yield error(f"lean runtime error ({type(e).__name__}): {e}")
+        yield await _emit(
+            turn_id,
+            error,
+            message=f"lean runtime error ({type(e).__name__}): {e}",
+        )
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
@@ -382,10 +448,10 @@ async def run_lean_turn(
                 "[lean-runtime] finalize_turn_record failed for turn=%s", turn_id
             )
 
-    yield done(
-        duration_ms=duration_ms,
-        meta={"tool_count": tools_called} if tools_called else None,
-    )
+    done_payload: dict[str, Any] = {"duration_ms": duration_ms}
+    if tools_called:
+        done_payload["meta"] = {"tool_count": tools_called}
+    yield await _emit(turn_id, done, **done_payload)
 
 
 # ── Context-window management ──────────────────────────────
