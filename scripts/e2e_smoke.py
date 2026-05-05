@@ -103,8 +103,19 @@ async def _post_chat_stream(
     session_id: str | None = None,
     timeout: float = 120.0,
 ) -> dict[str, Any]:
-    """Send a prompt via /api/chat and parse the SSE stream. Returns
-    a dict with the events seen + final state."""
+    """Send a prompt and aggregate events the way the browser does.
+
+    Phase 2b changed the wire protocol: /api/chat now returns JSON
+    {turn_id, session_id, status} instead of streaming SSE. The
+    browser polls /api/turns/<id>/events?after=<lastOrd> until the
+    response carries terminal=true. This helper does the same so
+    the harness measures the same path real users hit.
+
+    Function name kept for backward compat — the return shape
+    matches the prior SSE version (events list, text, session_id,
+    saw_terminal, final/error payloads, ok). Downstream tests
+    don't change.
+    """
     body: dict[str, Any] = {"prompt": prompt}
     if session_id:
         body["session_id"] = session_id
@@ -117,43 +128,14 @@ async def _post_chat_stream(
     final_payload: dict[str, Any] = {}
     error_payload: dict[str, Any] = {}
 
+    # ── Step 1: POST /api/chat — enqueue turn, get turn_id ──
     try:
-        async with client.stream(
-            "POST",
+        start_resp = await client.post(
             f"{state.base_url}/api/chat",
             headers=_headers(state),
             json=body,
-            timeout=timeout,
-        ) as r:
-            if r.status_code != 200:
-                body_text = (await r.aread()).decode("utf-8", errors="replace")
-                return {
-                    "ok": False,
-                    "status": r.status_code,
-                    "body": body_text[:500],
-                    "duration_ms": int((time.monotonic() - started) * 1000),
-                }
-            buffer = ""
-            async for chunk in r.aiter_bytes():
-                buffer += chunk.decode("utf-8", errors="replace")
-                while "\n\n" in buffer:
-                    frame, buffer = buffer.split("\n\n", 1)
-                    parsed = _parse_sse_frame(frame)
-                    if not parsed:
-                        continue
-                    seen.append(parsed)
-                    name = parsed.get("event")
-                    data = parsed.get("data") or {}
-                    if name == "session":
-                        canonical_session_id = data.get("session_id")
-                    elif name == "text_delta":
-                        text_deltas.append(data.get("content", ""))
-                    elif name == "done":
-                        saw_terminal = True
-                        final_payload = data
-                    elif name == "error":
-                        saw_terminal = True
-                        error_payload = data
+            timeout=15.0,
+        )
     except Exception as e:
         return {
             "ok": False,
@@ -161,6 +143,102 @@ async def _post_chat_stream(
             "exception": f"{type(e).__name__}: {e}",
             "duration_ms": int((time.monotonic() - started) * 1000),
         }
+    if start_resp.status_code != 200:
+        return {
+            "ok": False,
+            "status": start_resp.status_code,
+            "body": start_resp.text[:500],
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+    try:
+        start_json = start_resp.json()
+    except Exception:
+        return {
+            "ok": False,
+            "status": start_resp.status_code,
+            "body": "non-json /api/chat response",
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+    turn_id = start_json.get("turn_id")
+    canonical_session_id = start_json.get("session_id") or session_id
+    if not turn_id:
+        return {
+            "ok": False,
+            "status": start_resp.status_code,
+            "body": f"missing turn_id: {start_json}",
+            "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+
+    # ── Step 2: poll /api/turns/<id>/events ──
+    last_ord = 0
+    poll_url = f"{state.base_url}/api/turns/{turn_id}/events"
+    deadline = started + timeout
+    while True:
+        if time.monotonic() > deadline:
+            return {
+                "ok": False,
+                "status": 0,
+                "exception": f"poll timeout after {timeout:.0f}s (turn={turn_id})",
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+        try:
+            poll_resp = await client.get(
+                f"{poll_url}?after={last_ord}",
+                headers=_headers(state),
+                timeout=10.0,
+            )
+        except Exception as e:
+            # transient — retry on the next tick
+            await asyncio.sleep(0.5)
+            continue
+        if poll_resp.status_code != 200:
+            return {
+                "ok": False,
+                "status": poll_resp.status_code,
+                "body": poll_resp.text[:500],
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+        try:
+            poll_json = poll_resp.json()
+        except Exception:
+            return {
+                "ok": False,
+                "status": poll_resp.status_code,
+                "body": "non-json poll response",
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+        for ev in poll_json.get("events", []):
+            ord_ = ev.get("ord", 0)
+            if ord_ > last_ord:
+                last_ord = ord_
+            name = ev.get("event")
+            data = ev.get("payload") or {}
+            seen.append({"event": name, "data": data})
+            if name == "session":
+                canonical_session_id = data.get("session_id") or canonical_session_id
+            elif name == "text_delta":
+                text_deltas.append(data.get("content", ""))
+            elif name == "done":
+                saw_terminal = True
+                final_payload = data
+            elif name == "error":
+                saw_terminal = True
+                error_payload = data
+        if poll_json.get("terminal"):
+            # Synthesize a done if the agent ended without one
+            # (failed/interrupted/timeout terminals skip the done
+            # event by design — match chatPoller.ts behaviour).
+            if not saw_terminal:
+                saw_terminal = True
+                final_payload = {
+                    "duration_ms": poll_json.get("duration_ms")
+                    or int((time.monotonic() - started) * 1000),
+                }
+                err_msg = poll_json.get("error_message")
+                if err_msg:
+                    error_payload = {"message": err_msg}
+            break
+        await asyncio.sleep(0.4)
 
     return {
         "ok": saw_terminal and not error_payload,
@@ -172,6 +250,7 @@ async def _post_chat_stream(
         "final": final_payload,
         "error": error_payload,
         "duration_ms": int((time.monotonic() - started) * 1000),
+        "turn_id": turn_id,
     }
 
 
