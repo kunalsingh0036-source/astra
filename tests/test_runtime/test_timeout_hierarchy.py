@@ -8,6 +8,12 @@ hierarchy, this test fails before deploy.
 Source of truth for what each value SHOULD be is
 docs/timeout_hierarchy.md. If a number changes, both this test and
 the doc must be updated together.
+
+Phase 2b note: the chat path is polling, not SSE. The relevant
+outer for the runner is no longer Vercel maxDuration (just an
+enqueue call now, 10s) but chatPoller's maxPollDurationMs (10min) —
+the browser-side ceiling that sits *outside* the runner. Vercel
+maxDuration on /api/chat doesn't compete with runner anymore.
 """
 
 from __future__ import annotations
@@ -35,7 +41,9 @@ def _read_constant(module_path: str, constant: str) -> int:
 
 
 def _vercel_chat_max_duration() -> int:
-    # In TS — read by string match for the export const
+    # In TS — read by string match for the export const. With
+    # Phase 2b, this is the enqueue-only timeout (10s). It no
+    # longer governs the runner's lifetime.
     text = open(
         "/Users/kunalsingh/Claude Code/astra-web/app/api/chat/route.ts"
     ).read()
@@ -61,36 +69,70 @@ def _browser_watchdog_ms() -> int:
     return int(m.group(1).replace("_", ""))
 
 
+def _chat_poller_max_duration_ms() -> int:
+    """chatPoller's hard cap on total polling duration. The browser
+    stops polling after this; nothing observes terminal events
+    after that. This is the actual outer bound on a turn from
+    the user's POV."""
+    text = open(
+        "/Users/kunalsingh/Claude Code/astra-web/lib/chatPoller.ts"
+    ).read()
+    import re
+    # const DEFAULT_MAX_DURATION_MS = 10 * 60 * 1000;
+    m = re.search(
+        r"DEFAULT_MAX_DURATION_MS\s*=\s*([\d_]+)\s*\*\s*([\d_]+)\s*\*\s*([\d_]+)",
+        text,
+    )
+    if m:
+        return (
+            int(m.group(1).replace("_", ""))
+            * int(m.group(2).replace("_", ""))
+            * int(m.group(3).replace("_", ""))
+        )
+    # Fallback: literal millis
+    m = re.search(r"DEFAULT_MAX_DURATION_MS\s*=\s*([\d_]+)", text)
+    assert m, "DEFAULT_MAX_DURATION_MS not found in chatPoller.ts"
+    return int(m.group(1).replace("_", ""))
+
+
 # ── Tests ─────────────────────────────────────────────────
 
 
-def test_runner_under_vercel_with_margin() -> None:
-    """Runner must finish + emit terminal event before Vercel kills
-    the connection. 60s margin minimum."""
-    runner = _runner_per_turn_hard()
-    vercel = _vercel_chat_max_duration()
-    margin = vercel - runner
+def test_runner_under_poll_cap_with_margin() -> None:
+    """Runner must finish + write terminal status BEFORE the
+    browser's poll cap fires. Otherwise the user sees 'polling
+    exceeded' while the runner is still legitimately working.
+
+    With polling, the runner is a server-side asyncio.Task and the
+    only browser-side cap on observation is chatPoller's
+    DEFAULT_MAX_DURATION_MS. 60s margin holds the standard
+    invariant.
+    """
+    runner_sec = _runner_per_turn_hard()
+    poll_cap_sec = _chat_poller_max_duration_ms() // 1000
+    margin = poll_cap_sec - runner_sec
     assert margin >= 60, (
-        f"runner per-turn ({runner}s) too close to Vercel maxDuration "
-        f"({vercel}s) — margin {margin}s, need ≥60s. Reduce runner "
-        f"or raise Vercel."
+        f"runner per-turn ({runner_sec}s) too close to chatPoller "
+        f"maxPollDurationMs ({poll_cap_sec}s) — margin {margin}s, "
+        f"need ≥60s. Either reduce runner or raise the poll cap."
     )
 
 
-def test_browser_watchdog_above_vercel_with_margin() -> None:
-    """Browser watchdog must NOT fire before Vercel — otherwise we
-    declare 'stream dead' while the request is still legitimately
-    in flight upstream."""
-    browser_sec = _browser_watchdog_ms() // 1000
-    vercel = _vercel_chat_max_duration()
-    # Tight margin tolerated here (30s) since browser watchdog is
-    # only a safety net; the synthetic terminal-event in
-    # chatStream.ts handles clean cancellations within seconds.
-    # When polling lands (Phase 2b), this whole layer disappears.
-    margin = browser_sec - vercel
+def test_browser_watchdog_above_runner() -> None:
+    """The browser's stall watchdog (no events for N seconds)
+    must NOT fire before the runner's hard cap. Otherwise a slow
+    but legitimate turn (long tool call running quietly) looks
+    dead from the browser's POV.
+    """
+    runner_sec = _runner_per_turn_hard()
+    watchdog_sec = _browser_watchdog_ms() // 1000
+    margin = watchdog_sec - runner_sec
+    # 30s here — the watchdog is a safety net, not the primary
+    # cap. Adaptive backoff means most idle stretches don't hit
+    # the watchdog at all.
     assert margin >= 30, (
-        f"browser watchdog ({browser_sec}s) needs ≥30s margin over "
-        f"Vercel maxDuration ({vercel}s); current margin {margin}s. "
+        f"browser watchdog ({watchdog_sec}s) needs ≥30s margin over "
+        f"runner per-turn ({runner_sec}s); current margin {margin}s. "
         f"Raise WATCHDOG_MS in ChatProvider.tsx."
     )
 
@@ -98,12 +140,27 @@ def test_browser_watchdog_above_vercel_with_margin() -> None:
 def test_runner_smaller_than_browser_watchdog() -> None:
     """Runner must finish before browser gives up. Otherwise a slow-
     but-valid turn looks dead from the browser's POV."""
-    runner = _runner_per_turn_hard()
-    browser_sec = _browser_watchdog_ms() // 1000
-    assert runner < browser_sec, (
-        f"runner ({runner}s) should be less than browser watchdog "
-        f"({browser_sec}s) — otherwise legitimate slow turns get "
+    runner_sec = _runner_per_turn_hard()
+    watchdog_sec = _browser_watchdog_ms() // 1000
+    assert runner_sec < watchdog_sec, (
+        f"runner ({runner_sec}s) should be less than browser watchdog "
+        f"({watchdog_sec}s) — otherwise legitimate slow turns get "
         f"declared dead before the runner finishes."
+    )
+
+
+def test_chat_post_under_runner() -> None:
+    """The /api/chat enqueue call must return way faster than a
+    full turn. With Phase 2b, /api/chat just spawns the asyncio
+    task and returns turn_id — anything more than ~10s means
+    the upstream /turns/start is hung.
+    """
+    chat_sec = _vercel_chat_max_duration()
+    runner_sec = _runner_per_turn_hard()
+    assert chat_sec < runner_sec, (
+        f"/api/chat maxDuration ({chat_sec}s) should be far below "
+        f"runner per-turn ({runner_sec}s) — /api/chat is supposed to "
+        f"return immediately after enqueueing the turn."
     )
 
 
@@ -113,19 +170,25 @@ def test_documented_values_match_code() -> None:
     doc_text = open(
         "/Users/kunalsingh/Claude Code/astra/docs/timeout_hierarchy.md"
     ).read()
-    runner = _runner_per_turn_hard()
-    vercel = _vercel_chat_max_duration()
-    browser_sec = _browser_watchdog_ms() // 1000
-    # Spot-check that the documented numbers appear somewhere in the
-    # doc. Not a full parse — that's overkill — but enough to catch
-    # mass drift.
-    assert f"{runner}s" in doc_text or f"**{runner}s**" in doc_text, (
-        f"runner per-turn ({runner}s) not mentioned in "
+    runner_sec = _runner_per_turn_hard()
+    chat_sec = _vercel_chat_max_duration()
+    watchdog_sec = _browser_watchdog_ms() // 1000
+    poll_cap_sec = _chat_poller_max_duration_ms() // 1000
+    # Spot-check that the documented numbers appear somewhere in
+    # the doc. Not a full parse — that's overkill — but enough to
+    # catch mass drift.
+    assert f"{runner_sec}s" in doc_text or f"**{runner_sec}s**" in doc_text, (
+        f"runner per-turn ({runner_sec}s) not mentioned in "
         f"docs/timeout_hierarchy.md — update the doc"
     )
-    assert f"{vercel}s" in doc_text or f"**{vercel}s**" in doc_text, (
-        f"Vercel maxDuration ({vercel}s) not mentioned in doc"
+    assert f"{chat_sec}s" in doc_text or f"**{chat_sec}s**" in doc_text, (
+        f"/api/chat maxDuration ({chat_sec}s) not mentioned in doc"
     )
     assert (
-        f"{browser_sec}s" in doc_text or f"**{browser_sec}s**" in doc_text
-    ), f"browser watchdog ({browser_sec}s) not mentioned in doc"
+        f"{watchdog_sec}s" in doc_text or f"**{watchdog_sec}s**" in doc_text
+    ), f"browser watchdog ({watchdog_sec}s) not mentioned in doc"
+    assert (
+        f"{poll_cap_sec}s" in doc_text or f"**{poll_cap_sec}s**" in doc_text
+        or f"{poll_cap_sec // 60} min" in doc_text
+        or f"({poll_cap_sec // 60} min)" in doc_text
+    ), f"chatPoller maxPollDurationMs ({poll_cap_sec}s) not mentioned in doc"
