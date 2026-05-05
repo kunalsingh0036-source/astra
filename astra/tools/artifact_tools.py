@@ -6,8 +6,8 @@ response. The web UI renders them with dedicated React components —
 tables you can sort, drafts you can edit, metric cards you can scan.
 
 The tool does not return user-visible text. Instead it emits a
-machine-readable sentinel that the astra-stream runner picks up and
-forwards as an SSE `artifact` event.
+machine-readable sentinel that the lean runtime's agent loop picks
+up and emits as an `artifact` event into the turn_events log.
 
 Astra should call these tools whenever a structured response would
 be more useful than prose: lists of emails/invoices/contacts,
@@ -22,7 +22,7 @@ from typing import Any
 
 from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
-# Sentinel used by astra-stream/stream/runner.py to split artifact
+# Sentinel used by astra/runtime/agent_loop.py to split artifact
 # payloads out of the text stream. Kept short and unlikely to appear
 # in natural prose.
 ARTIFACT_SENTINEL_OPEN = "⟦ASTRA_ARTIFACT⟧"

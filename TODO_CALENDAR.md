@@ -42,10 +42,6 @@ In `astra/services/stream/`:
   specific helpers (per-frame heartbeat, frame builders) that no
   longer have callers.
 
-In `astra-stream/stream/main.py`:
-- Mirror the deletion (or drop the directory entirely if #3 is
-  done).
-
 In `astra-web/components/ChatProvider.tsx`:
 - Remove the comment about "Phase 2b will remove this entirely
   (polling has no watchdog needed)" — the watchdog stays as a

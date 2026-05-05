@@ -1,7 +1,8 @@
 """Shares — payloads dropped into Astra from iOS Share Sheet.
 
 The iOS extension POSTs text / URL / image / audio to /api/share on
-astra-stream. This module owns:
+astra-web (which proxies to the stream service when needed). This
+module owns:
 
   * token issue + validation (paired phones only)
   * payload ingestion with file-on-disk storage
