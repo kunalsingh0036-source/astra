@@ -763,25 +763,48 @@ def _compact_messages(
             }
         ],
     }
-    # Make sure the head ends with a user message and tail starts with
-    # an assistant message — i.e. the gap_marker bridges role
-    # alternation correctly. Head[-1] is user (we know — it's the
-    # first user message), so insert assistant ack first, then the
-    # gap as user, then the tail.
+    # Assemble head + bridges + gap_marker + tail with valid
+    # user/assistant alternation throughout. Anthropic rejects
+    # consecutive same-role messages (and rejects user→user or
+    # assistant→assistant transitions). Bridges are minimal text-
+    # only stubs that carry no semantic content beyond filling the
+    # alternation slot.
+    #
+    # The previous logic produced u/u/u sequences in the case where
+    # tail started with user — it inserted gap_marker between
+    # head[-1] (user) and tail[0] (user) without considering
+    # alternation. That's now fixed by the helper below.
+    bridge_assistant: dict[str, Any] = {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "[continuing earlier session]"}],
+    }
+    bridge_user: dict[str, Any] = {
+        "role": "user",
+        "content": [{"type": "text", "text": "[continuing]"}],
+    }
+    compacted = list(head)
+    # Bridge head[-1] → gap_marker (user): need assistant between if
+    # head[-1] is user.
+    if compacted and compacted[-1].get("role") == "user":
+        compacted.append(bridge_assistant)
+    compacted.append(gap_marker)  # user role
+    # Bridge gap_marker (user) → tail[0]: need assistant between if
+    # tail[0] is user.
     if tail and tail[0].get("role") == "user":
-        # Tail starts with user — insert just the gap marker
-        compacted = head + [gap_marker] + tail
-    else:
-        # Tail starts with assistant — needs an assistant ack between
-        # head[-1] (user) and gap_marker (user)... actually invert:
-        # head[-1] (user) + assistant_bridge + gap_marker (user) + tail
-        bridge: dict[str, Any] = {
-            "role": "assistant",
-            "content": [{"type": "text", "text": "[continuing earlier session]"}],
-        }
-        # gap_marker is user role; tail starts assistant. So:
-        # ... user (head[-1]) → assistant (bridge) → user (gap) → assistant (tail[0]) ...
-        compacted = head + [bridge, gap_marker] + tail
+        compacted.append(bridge_assistant)
+    compacted.extend(tail)
+    # Final pass: defensively ensure no same-role adjacent messages
+    # remain (e.g. tail itself contains u/u). Insert minimal bridges
+    # to fix. This handles the edge case where the historical message
+    # stack itself has alternation gaps from older bugs.
+    fixed: list[dict[str, Any]] = []
+    for msg in compacted:
+        if fixed and fixed[-1].get("role") == msg.get("role"):
+            fixed.append(
+                bridge_assistant if msg.get("role") == "user" else bridge_user
+            )
+        fixed.append(msg)
+    compacted = fixed
 
     final_tokens = sum(_estimate_tokens_for_message(m) for m in compacted)
     return compacted, before, final_tokens

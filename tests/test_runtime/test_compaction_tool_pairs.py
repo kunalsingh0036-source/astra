@@ -193,6 +193,29 @@ def test_validate_and_repair_preserves_valid_pair() -> None:
     ), f"valid tool_result was modified: {repaired[2]['content']}"
 
 
+def test_compactor_preserves_role_alternation() -> None:
+    """Anthropic requires strict user/assistant alternation. The
+    naive head + gap_marker + tail recipe produces user/user/user
+    when head[-1] (the first user message) and gap_marker (user)
+    sit next to a tail that also starts with user. The compactor
+    must insert assistant bridges to keep alternation valid.
+    """
+    msgs = _build_long_session_with_tools(n_turns=30)
+    compacted, _, _ = _compact_messages(msgs, max_tokens=1_000)
+    # Walk the compacted stack — no two consecutive messages should
+    # share a role.
+    bad_pairs: list[tuple[int, str, str]] = []
+    for i in range(1, len(compacted)):
+        prev_role = compacted[i - 1].get("role")
+        curr_role = compacted[i].get("role")
+        if prev_role == curr_role:
+            bad_pairs.append((i, prev_role, curr_role))
+    assert bad_pairs == [], (
+        f"Compaction produced {len(bad_pairs)} same-role adjacent pairs: "
+        f"{bad_pairs[:3]}. Roles: {[m.get('role') for m in compacted]}"
+    )
+
+
 def test_validate_and_repair_replaces_empty_user_message() -> None:
     """If a user message contained ONLY orphaned tool_results,
     after dropping them it'd be empty — replace with synthetic text
