@@ -414,3 +414,140 @@ async def local_bridge_status_impl(args: dict) -> dict:
             }
         ]
     }
+
+
+@register_tool(
+    name="screenshot_url",
+    description=(
+        "Capture a remote URL as a PNG screenshot via the local bridge "
+        "daemon (headless Chrome on Kunal's Mac), then emit an image "
+        "artifact the user can see inline + open full-size in a tab. "
+        "Use when prose can't carry the visual: 'show me what 375.studio "
+        "looks like', 'compare the homepages of these three sites'. "
+        "Returns shrugs if the bridge isn't online — no fallback to a "
+        "remote service. Viewport defaults to 1440×900; can be widened "
+        "for desktop or narrowed for mobile."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "https:// or http:// URL to capture",
+            },
+            "viewport_width": {
+                "type": "integer",
+                "description": "px, default 1440 (desktop), 390 for iPhone-sized",
+            },
+            "viewport_height": {
+                "type": "integer",
+                "description": "px, default 900",
+            },
+            "title": {
+                "type": "string",
+                "description": "human label for the artifact (e.g. '375.studio homepage')",
+            },
+            "notes": {
+                "type": "string",
+                "description": "optional one-line caption shown below the image",
+            },
+        },
+        "required": ["url"],
+    },
+    tier=ActionTier.READ,
+    # Outer cap. Inner: chrome subprocess timeout (30s) + bridge
+    # network + dispatch overhead. 60s leaves margin without hanging
+    # the runner per-turn budget.
+    timeout_sec=60,
+    namespace="local",
+)
+async def screenshot_url_impl(args: dict) -> dict:
+    """Bridge-side capture → wrap as an image artifact via the sentinel.
+
+    The daemon returns a JSON blob with {url, width, height, byte_count,
+    png_base64}. We turn that into a `data:image/png;base64,…` URI
+    embedded in an `image` artifact. Same wire format as the other
+    artifact-emitting tools (table/draft/metric/palette/preview).
+    """
+    import json as _json
+
+    # Reuse the existing bridge dispatch — same auth, timeout
+    # plumbing, error reporting.
+    bridge_args = {
+        "url": (args.get("url") or "").strip(),
+        "viewport_width": args.get("viewport_width") or 1440,
+        "viewport_height": args.get("viewport_height") or 900,
+    }
+    raw = await _dispatch(
+        "local_screenshot", bridge_args, timeout_sec=55.0
+    )
+    if raw.get("is_error"):
+        # Pass the bridge's error through unchanged so the agent
+        # gets a real reason it can react to.
+        return raw
+    text_content = ""
+    for b in raw.get("content", []):
+        if isinstance(b, dict) and b.get("type") == "text":
+            text_content += str(b.get("text") or "")
+    if not text_content:
+        return {
+            "content": [
+                {"type": "text", "text": "screenshot_url: empty bridge response"}
+            ],
+            "is_error": True,
+        }
+    try:
+        payload = _json.loads(text_content)
+    except _json.JSONDecodeError:
+        # The bridge sometimes returns a plain error string when
+        # something pre-screenshot fails (no chrome installed, bad
+        # URL). Surface it.
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"screenshot_url failed: {text_content[:500]}",
+                }
+            ],
+            "is_error": True,
+        }
+    encoded = payload.get("png_base64") or ""
+    if not encoded:
+        return {
+            "content": [
+                {"type": "text", "text": "screenshot_url: bridge returned no PNG bytes"}
+            ],
+            "is_error": True,
+        }
+    data_url = f"data:image/png;base64,{encoded}"
+    artifact_payload = {
+        "type": "image",
+        "title": (args.get("title") or "").strip()
+        or _default_image_title(payload.get("url") or ""),
+        "url": data_url,
+        "alt": (args.get("title") or "").strip() or payload.get("url") or "",
+        "notes": (args.get("notes") or "").strip(),
+        "source_url": payload.get("url") or "",
+        "width": payload.get("width"),
+        "height": payload.get("height"),
+        "byte_count": payload.get("byte_count"),
+    }
+    sentinel = (
+        f"⟦ASTRA_ARTIFACT⟧"
+        f"{_json.dumps(artifact_payload, ensure_ascii=False, separators=(',', ':'))}"
+        f"⟦/ASTRA_ARTIFACT⟧"
+    )
+    return {"content": [{"type": "text", "text": sentinel}]}
+
+
+def _default_image_title(url: str) -> str:
+    """Compact title from a URL when the agent didn't provide one."""
+    if not url:
+        return "screenshot"
+    from urllib.parse import urlparse
+
+    try:
+        host = urlparse(url).netloc or url
+    except Exception:
+        host = url
+    return f"screenshot · {host}"

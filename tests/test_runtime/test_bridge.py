@@ -107,6 +107,7 @@ def test_daemon_dispatch_covers_all_tools() -> None:
         "local_bash",
         "local_glob",
         "local_grep",
+        "local_screenshot",
     }
     assert set(_DISPATCH.keys()) == expected
 

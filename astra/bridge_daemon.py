@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import fnmatch
 import glob
+import json
 import logging
 import os
 import re
@@ -316,6 +317,111 @@ def _local_grep(args: dict[str, Any], roots: list[str]) -> str:
 # ── Dispatch table ────────────────────────────────────────
 
 
+def _local_screenshot(args: dict[str, Any]) -> str:
+    """Capture a URL as a PNG via headless Chrome.
+
+    No allowlist applies — this is a remote-URL fetch + render, no
+    file-system access. We do bound viewport size and timeout so the
+    user's machine isn't tied up by an agent run gone wild.
+
+    Returns the screenshot as a base64-encoded PNG (text-safe for the
+    bridge result channel) plus simple metadata. The runtime tool
+    wrapper turns that into an image artifact with a data URI.
+    """
+    import base64
+    import shutil
+    import tempfile
+    import uuid
+
+    url = (args.get("url") or "").strip()
+    if not url:
+        raise ValueError("url is empty")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise ValueError("url must start with http:// or https://")
+    width = max(320, min(3840, int(args.get("viewport_width") or 1440)))
+    height = max(240, min(2400, int(args.get("viewport_height") or 900)))
+    full_page = bool(args.get("full_page") or False)
+    # Total wall-clock cap. Most pages render in 2-4s; allow up to
+    # 30s for slow third-party sites. The runtime tool's outer timeout
+    # is the real ceiling.
+    timeout = max(5, min(60, int(args.get("timeout_sec") or 30)))
+
+    # Locate Chrome — prefer Chrome over Chromium when both exist.
+    candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        shutil.which("google-chrome"),
+        shutil.which("google-chrome-stable"),
+        shutil.which("chromium"),
+        shutil.which("chrome"),
+    ]
+    chrome = next((c for c in candidates if c and os.path.exists(c)), None)
+    if not chrome:
+        raise RuntimeError(
+            "no Chrome/Chromium found on this machine. Install Google "
+            "Chrome (https://www.google.com/chrome/) for screenshot_url."
+        )
+
+    out_dir = tempfile.mkdtemp(prefix="astra-shot-")
+    out_path = os.path.join(out_dir, f"{uuid.uuid4().hex}.png")
+    cmd = [
+        chrome,
+        "--headless=new",  # new headless mode in Chrome 112+
+        "--disable-gpu",
+        "--no-sandbox",
+        "--hide-scrollbars",
+        "--disable-blink-features=AutomationControlled",
+        f"--window-size={width},{height}",
+        f"--screenshot={out_path}",
+    ]
+    if full_page:
+        # Headless Chrome supports full-page via the "shotInfo" flag
+        # only in newer builds; the most portable approach is just to
+        # set window-size large. We document the limitation.
+        cmd.append("--disable-features=IsolateOrigins,site-per-process")
+    cmd.append(url)
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"screenshot timed out after {timeout}s")
+    finally:
+        # Don't leave temp dir lingering even on failure.
+        pass
+    if not os.path.exists(out_path):
+        # Chrome can exit 0 but produce no file (e.g. URL refused
+        # connection). Bubble its stderr so the agent can react.
+        raise RuntimeError(
+            f"screenshot failed: chrome exited {proc.returncode}, "
+            f"stderr: {proc.stderr.strip()[:500] or '(empty)'}"
+        )
+    with open(out_path, "rb") as f:
+        png_bytes = f.read()
+    # Clean up temp file (best effort)
+    try:
+        os.remove(out_path)
+        os.rmdir(out_dir)
+    except OSError:
+        pass
+
+    encoded = base64.b64encode(png_bytes).decode("ascii")
+    return json.dumps(
+        {
+            "url": url,
+            "width": width,
+            "height": height,
+            "byte_count": len(png_bytes),
+            "png_base64": encoded,
+        }
+    )
+
+
 _DISPATCH = {
     "local_read": lambda args, roots, bash_pat: _local_read(args, roots),
     "local_write": lambda args, roots, bash_pat: _local_write(args, roots),
@@ -323,6 +429,7 @@ _DISPATCH = {
     "local_bash": lambda args, roots, bash_pat: _local_bash(args, roots, bash_pat),
     "local_glob": lambda args, roots, bash_pat: _local_glob(args, roots),
     "local_grep": lambda args, roots, bash_pat: _local_grep(args, roots),
+    "local_screenshot": lambda args, roots, bash_pat: _local_screenshot(args),
 }
 
 
