@@ -474,6 +474,20 @@ async def run_lean_turn(
                 "[lean-runtime] finalize_turn_record failed for turn=%s", turn_id
             )
 
+        # Fire-and-forget topic title generation. The function is
+        # idempotent (skips if a title already exists) and runs
+        # asyncio.create_task so it doesn't add latency to the
+        # response. First-turn-of-session check happens inside the
+        # generator; bridging here keeps the agent_loop simple.
+        if sid and turn_status == "complete":
+            try:
+                from astra.runtime.session_title import fire_and_forget as fire_title
+                fire_title(sid)
+            except Exception:
+                logger.exception(
+                    "[lean-runtime] session-title fire-and-forget failed"
+                )
+
     done_payload: dict[str, Any] = {"duration_ms": duration_ms}
     if tools_called:
         done_payload["meta"] = {"tool_count": tools_called}
