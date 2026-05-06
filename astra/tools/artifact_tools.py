@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from astra.runtime.preview_store import create_preview
 from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 # Sentinel used by astra/runtime/agent_loop.py to split artifact
@@ -144,6 +145,82 @@ async def emit_metric_tool(args: dict) -> dict:
     })
 
 
+@tool(
+    "prepare_preview",
+    "Save renderable content (HTML, markdown, JSON, plain text) and "
+    "emit a preview artifact the user can view inline OR open in a "
+    "new tab. Use when prose can't convey the result — design "
+    "mockups, rendered HTML, generated SVGs, formatted reports. "
+    "Stored same-origin so the iframe sandbox can render it without "
+    "cross-origin issues. Default TTL is 7 days.\n\n"
+    "Two modes:\n"
+    "  - inline content: pass `content` (the HTML/text/etc body)\n"
+    "  - remote URL: pass `url` (no DB write; preview opens the "
+    "URL directly in a new tab — no inline iframe due to most sites' "
+    "X-Frame-Options).",
+    {
+        "title": str,  # human label
+        "content": str,  # body for inline mode (mutually exclusive with url)
+        "content_type": str,  # MIME type (defaults to text/html; charset=utf-8)
+        "url": str,  # for remote-URL mode (mutually exclusive with content)
+        "notes": str,  # optional one-line caption
+    },
+)
+async def prepare_preview_tool(args: dict) -> dict:
+    title = (args.get("title") or "").strip()
+    content = args.get("content") or ""
+    content_type = (args.get("content_type") or "").strip()
+    url = (args.get("url") or "").strip()
+    notes = (args.get("notes") or "").strip()
+    if url and content:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "prepare_preview: pass either `content` OR `url`, not both",
+                }
+            ]
+        }
+    if not url and not content:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "prepare_preview: need either `content` or `url`",
+                }
+            ]
+        }
+    payload: dict[str, Any] = {
+        "type": "preview",
+        "title": title,
+        "notes": notes,
+    }
+    if url:
+        # External URL — just emit the artifact pointing at it. No
+        # DB write. The iframe can't reliably render external URLs
+        # (X-Frame-Options) so the UI shows only the open-in-tab
+        # button for url-mode previews.
+        payload["url"] = url
+        payload["mode"] = "url"
+    else:
+        try:
+            preview_id = await create_preview(
+                title=title or "Preview",
+                body=content,
+                content_type=content_type or "text/html; charset=utf-8",
+            )
+        except ValueError as e:
+            return {
+                "content": [
+                    {"type": "text", "text": f"prepare_preview: {e}"}
+                ]
+            }
+        payload["preview_id"] = preview_id
+        payload["content_type"] = content_type or "text/html; charset=utf-8"
+        payload["mode"] = "inline"
+    return _emit(payload)
+
+
 def create_artifact_mcp_server():
     """Expose the artifact tools as an MCP server."""
     return create_sdk_mcp_server(
@@ -154,5 +231,6 @@ def create_artifact_mcp_server():
             emit_draft_tool,
             emit_metric_tool,
             emit_palette_tool,
+            prepare_preview_tool,
         ],
     )

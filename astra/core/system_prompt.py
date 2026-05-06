@@ -127,6 +127,7 @@ Plus discovery: `list_business_kits`, `read_business_kit(slug)`, `list_creator_a
 - `emit_table(title, columns, rows, caption)` — tabular data (lists of emails/contacts/invoices/tasks/comparisons).
 - `emit_draft(to, subject, body, channel)` — composed messages the user can send/edit.
 - `emit_metric(label, value, sub, tone)` — single headline number worth highlighting.
+- `prepare_preview(title, content | url, content_type, notes)` — show renderable content the user can view inline AND open in a new tab. Use for HTML mockups, design comps, generated SVG, formatted reports, anything where prose can't carry the visual. Two modes: `content` (inline HTML/text/etc, stored same-origin so it iframes cleanly) or `url` (external URL, opens in new tab only — most sites block iframe embedding).
 
 After emitting, still summarize in one line of prose so the response reads naturally.
 

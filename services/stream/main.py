@@ -22,6 +22,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -540,6 +541,54 @@ async def push_test(request: Request) -> dict[str, object]:
         "pruned": r.pruned,
         "failed": r.failed,
     }
+
+
+@app.get("/previews/{preview_id}")
+async def previews_get(preview_id: str) -> Response:
+    """Serve a stored preview by id. Returns the body with the
+    preview's stored Content-Type so an iframe (or new tab) can
+    render it natively. 404 if missing or expired.
+
+    Headers:
+      - X-Frame-Options: SAMEORIGIN — allows iframe embed from our
+        own origin (the chat pane), blocks third-party embedding.
+      - Content-Security-Policy: tightly scoped — the stored body
+        can run inline scripts/styles (the agent generated the
+        content; preventing inline would break most useful HTML)
+        but can't load resources from arbitrary origins.
+      - Cache-Control: short TTL because the body is immutable for
+        the row's lifetime; once expired the route 404s anyway.
+
+    Public — no shared-secret check. The preview_id is a UUID; the
+    only way to know it is to have received the artifact in a turn
+    (which itself is auth-gated upstream). This is the same
+    pattern as our other artifact endpoints.
+    """
+    try:
+        from astra.runtime.preview_store import get_preview  # type: ignore[import-not-found]
+    except Exception as e:
+        raise HTTPException(500, f"preview module load failed: {e}")
+    row = await get_preview(preview_id)
+    if not row:
+        raise HTTPException(404, "preview not found or expired")
+    headers = {
+        "x-frame-options": "SAMEORIGIN",
+        "content-security-policy": (
+            "default-src 'self' data: blob:; "
+            "img-src 'self' data: blob: https:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "font-src 'self' data: https:; "
+            "frame-ancestors 'self';"
+        ),
+        "cache-control": "private, max-age=300",
+        "x-content-type-options": "nosniff",
+    }
+    return Response(
+        content=row["body"],
+        media_type=row["content_type"],
+        headers=headers,
+    )
 
 
 @app.post("/stream-lean")
