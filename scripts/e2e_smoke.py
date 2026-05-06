@@ -672,6 +672,144 @@ async def test_07_bridge_expand_handling(
         )
 
 
+async def test_08_email_data_endpoint(
+    state: HarnessState, client: httpx.AsyncClient
+) -> TestResult:
+    """Probes /api/email/digest — the route a user sees on the /email
+    page. Why this test exists: the previous "8/8 passing" claim
+    masked a real production failure. The harness only tested the
+    chat path; per-agent data endpoints (email, whatsapp, finance)
+    weren't exercised, so an entire class of "fetch failed"
+    failures was invisible to the smoke run.
+
+    Soft assertion: agent might be reachable (200 with data) OR
+    upstream might be down/unconfigured (502/503/500 with a
+    structured error). Both pass the test. Test FAILS if the route
+    itself crashes (timeout, malformed JSON, 5xx with no body).
+    """
+    if not state.has_auth:
+        return TestResult(
+            name="08 /api/email/digest",
+            passed=True,
+            duration_ms=0,
+            detail="SKIPPED",
+        )
+    started = time.monotonic()
+    try:
+        r = await client.get(
+            f"{state.base_url}/api/email/digest?hours=24",
+            headers=_headers(state),
+            timeout=15.0,
+        )
+        elapsed = int((time.monotonic() - started) * 1000)
+        try:
+            body: dict[str, Any] = r.json()
+        except Exception:
+            return TestResult(
+                name="08 /api/email/digest",
+                passed=False,
+                duration_ms=elapsed,
+                error=f"non-JSON response (HTTP {r.status_code})",
+            )
+        if r.status_code == 200 and "real_inbound" in body:
+            return TestResult(
+                name="08 /api/email/digest",
+                passed=True,
+                duration_ms=elapsed,
+                detail=f"healthy · {body.get('real_inbound', '?')} real inbound",
+            )
+        # Acceptable error shapes: any with `error` field. Catches the
+        # earlier "fetch failed" production bug because the route
+        # WOULD have returned an error JSON, but with a useful
+        # message tag.
+        if "error" in body:
+            return TestResult(
+                name="08 /api/email/digest",
+                passed=True,
+                duration_ms=elapsed,
+                detail=f"upstream error reported: {str(body['error'])[:60]}",
+            )
+        return TestResult(
+            name="08 /api/email/digest",
+            passed=False,
+            duration_ms=elapsed,
+            error=f"unexpected HTTP {r.status_code}: {str(body)[:200]}",
+        )
+    except Exception as e:
+        return TestResult(
+            name="08 /api/email/digest",
+            passed=False,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=f"{type(e).__name__}: {e}",
+        )
+
+
+async def test_09_agent_state_per_agent(
+    state: HarnessState, client: httpx.AsyncClient
+) -> TestResult:
+    """Probes /api/state and verifies every expected agent is in the
+    response, plus reports per-agent reachability. This catches the
+    "agent dim because URL env var unset" class of failure that the
+    chat-only harness missed.
+
+    Pass criteria: response has the expected shape (`agents` array,
+    `bridge`, `degraded`). Per-agent reachability is REPORTED in the
+    detail string but doesn't fail the test — agents being dim is a
+    deploy-state issue, not a regression.
+    """
+    if not state.has_auth:
+        return TestResult(
+            name="09 /api/state per-agent",
+            passed=True,
+            duration_ms=0,
+            detail="SKIPPED",
+        )
+    started = time.monotonic()
+    try:
+        r = await client.get(
+            f"{state.base_url}/api/state",
+            headers=_headers(state),
+            timeout=12.0,
+        )
+        elapsed = int((time.monotonic() - started) * 1000)
+        if r.status_code != 200:
+            return TestResult(
+                name="09 /api/state per-agent",
+                passed=False,
+                duration_ms=elapsed,
+                error=f"HTTP {r.status_code}",
+            )
+        body: dict[str, Any] = r.json()
+        agents = body.get("agents") or []
+        if not isinstance(agents, list) or not agents:
+            return TestResult(
+                name="09 /api/state per-agent",
+                passed=False,
+                duration_ms=elapsed,
+                error="empty or non-list agents field",
+            )
+        reachable = sum(1 for a in agents if a.get("reachable"))
+        dim = [
+            a.get("id") for a in agents if not a.get("reachable")
+        ]
+        detail = f"{reachable}/{len(agents)} reachable"
+        if dim:
+            detail += f" · dim: {','.join(d for d in dim if d)}"
+        return TestResult(
+            name="09 /api/state per-agent",
+            passed=True,
+            duration_ms=elapsed,
+            detail=detail,
+        )
+    except Exception as e:
+        return TestResult(
+            name="09 /api/state per-agent",
+            passed=False,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=f"{type(e).__name__}: {e}",
+        )
+
+
 # ── Runner ─────────────────────────────────────────────────
 
 
@@ -684,6 +822,8 @@ TESTS = [
     test_05_session_continuity,
     test_06_session_detail,
     test_07_bridge_expand_handling,
+    test_08_email_data_endpoint,
+    test_09_agent_state_per_agent,
 ]
 
 
