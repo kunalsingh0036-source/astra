@@ -85,6 +85,43 @@ async def emit_draft_tool(args: dict) -> dict:
 
 
 @tool(
+    "emit_palette",
+    "Show a color palette as visual swatches in the UI. Use when "
+    "presenting a color scheme — brand colors, design references, "
+    "mood-board hex codes, accent palettes. Each color renders as a "
+    "tappable swatch with hex + label; the user can copy a hex with "
+    "one click. Strongly preferred over dumping hex codes as prose "
+    "(`#0A0A0A #1A1A1A`) — that's unreadable and loses the visual.",
+    {
+        "name": str,  # palette name (e.g. "Film Noir", "Brand Primary")
+        "colors": list,  # list[{hex: "#RRGGBB", label: "deep black"}]
+        "notes": str,  # optional one-line vibe/usage note
+    },
+)
+async def emit_palette_tool(args: dict) -> dict:
+    # Defensive normalization: model sometimes returns nested dicts as
+    # JSON strings, occasionally omits hex prefixes. We sanitize here
+    # so the UI gets a predictable shape.
+    raw_colors = args.get("colors") or []
+    colors: list[dict[str, str]] = []
+    for c in raw_colors:
+        if not isinstance(c, dict):
+            continue
+        hex_value = str(c.get("hex") or c.get("color") or "").strip()
+        if hex_value and not hex_value.startswith("#"):
+            hex_value = f"#{hex_value}"
+        label = str(c.get("label") or c.get("name") or "").strip()
+        if hex_value:
+            colors.append({"hex": hex_value, "label": label})
+    return _emit({
+        "type": "palette",
+        "name": args.get("name") or "",
+        "colors": colors,
+        "notes": args.get("notes") or "",
+    })
+
+
+@tool(
     "emit_metric",
     "Show a single headline metric with label, value, and optional "
     "sub-text. Use for standalone numbers worth highlighting: cash "
@@ -112,5 +149,10 @@ def create_artifact_mcp_server():
     return create_sdk_mcp_server(
         name="astra-artifacts",
         version="0.1.0",
-        tools=[emit_table_tool, emit_draft_tool, emit_metric_tool],
+        tools=[
+            emit_table_tool,
+            emit_draft_tool,
+            emit_metric_tool,
+            emit_palette_tool,
+        ],
     )
