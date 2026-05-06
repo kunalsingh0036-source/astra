@@ -33,6 +33,16 @@ from sqlalchemy import text
 
 # Make the astra package importable when run from the repo root.
 sys.path.insert(0, ".")
+
+# Load .env BEFORE importing anything that needs ANTHROPIC_API_KEY or
+# DATABASE_URL. Agent processes get this for free (the stream service
+# loads dotenv on startup), but a one-shot CLI runs in a bare shell.
+# override=True so a parent-shell empty value (common when the user
+# has the env var inherited but not set) doesn't shadow the .env value.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(".env", override=True)
+
 from astra.db.engine import async_session  # noqa: E402
 from astra.runtime.session_title import (  # noqa: E402
     generate_and_store_title,
@@ -46,13 +56,19 @@ logger = logging.getLogger("backfill")
 
 
 async def _untitled_sessions(limit: int | None) -> list[str]:
-    """Return session_ids that are in turns but not in session_titles."""
+    """Return session_ids that are in turns but not in session_titles.
+
+    No status filter — we title sessions even when their only turn
+    was interrupted or failed (a partial run still has a prompt the
+    user wants to find later in the list).
+    """
     sql = """
         SELECT DISTINCT t.session_id
         FROM turns t
         LEFT JOIN session_titles st ON st.session_id = t.session_id
         WHERE t.session_id IS NOT NULL
-          AND t.status = 'complete'
+          AND t.prompt IS NOT NULL
+          AND t.prompt <> ''
           AND st.session_id IS NULL
         ORDER BY t.session_id
     """

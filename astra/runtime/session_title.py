@@ -55,18 +55,69 @@ _TITLE_SYSTEM = (
     "Read the user's first prompt and the assistant's first response. "
     "Output ONE line: 4 to 8 words describing what the conversation is about. "
     "No quotes, no periods, no leading/trailing whitespace. "
-    "Use lowercase except proper nouns and acronyms. "
-    "Examples:\n"
+    "Use lowercase except proper nouns and acronyms.\n"
+    "\n"
+    "ABSOLUTE RULES:\n"
+    "  1. ALWAYS output a title. Never refuse. Never explain.\n"
+    "  2. NEVER write meta-commentary like 'I don't have enough context' or 'I need more information' — just generate the best title possible from whatever's there.\n"
+    "  3. If the prompt is vague (a single yes/ok/'try it now'), title it generically: 'short confirmation', 'follow-up reply', 'continuation request', 'quick check-in'.\n"
+    "  4. NEVER exceed 8 words.\n"
+    "  5. NEVER include the word 'title' in the output.\n"
+    "\n"
+    "Good examples:\n"
     "  '375 Studio website analysis'\n"
     "  'film noir color palette'\n"
     "  'apex sales agent debugging'\n"
-    "  'tonight\\'s dinner ideas'\n"
+    "  \"tonight's dinner ideas\"\n"
+    "  'short confirmation reply'\n"
+    "  'continuation of earlier task'\n"
     "Bad examples (do NOT do these):\n"
     "  'The user asked about colors' — meta, not topical\n"
     "  'Color palette selection for a film noir aesthetic style' — too long\n"
     "  'Studio 375.' — has period\n"
-    "  '\"film noir\"' — has quotes"
+    "  'I need more context to generate a title' — REFUSAL, never do this\n"
+    "  'I don't have enough information' — REFUSAL, never do this"
 )
+
+
+def _title_looks_bad(title: str) -> bool:
+    """Reject titles that are model refusals or otherwise unusable.
+    Caller should fall back to the truncated first prompt when this
+    returns True."""
+    if not title:
+        return True
+    # Length cap — well above 8 short words. If it's longer, the model
+    # almost certainly wrote prose instead of a title.
+    if len(title) > 80:
+        return True
+    low = title.lower()
+    refusal_markers = (
+        "i don't have",
+        "i don't ",
+        "i do not have",
+        "i need more",
+        "i cannot",
+        "i can't",
+        "without knowing",
+        "more context",
+        "not enough context",
+        "without additional",
+        "based on the",
+        "the user asked",
+        "the user wants",
+        "this conversation",
+        "as an ai",
+    )
+    if any(m in low for m in refusal_markers):
+        return True
+    # If Haiku ignored "no quotes/periods" rules so badly that the
+    # output is mostly punctuation, drop it.
+    alpha_ratio = sum(c.isalpha() or c.isspace() for c in title) / max(
+        len(title), 1
+    )
+    if alpha_ratio < 0.5:
+        return True
+    return False
 
 
 async def _existing_title(session_id: str) -> str | None:
@@ -81,18 +132,33 @@ async def _existing_title(session_id: str) -> str | None:
 
 
 async def _first_turn_for_session(session_id: str) -> dict[str, Any] | None:
-    """Pull the prompt + response of the session's first complete turn.
-    Returns None if no completed turns yet (in-flight race) or if the
-    session has only a placeholder."""
+    """Pull the prompt + response of the session's first turn.
+
+    Originally filtered to status='complete' only, but that excluded
+    sessions whose only turn was interrupted/failed — leaving them
+    untitled in the UI ("(none)"). Worse UX than a title generated
+    from prompt-only.
+
+    Now accepts any status. Prefers turns with a non-empty response
+    (more context for Haiku → better title) but falls back to
+    prompt-only if necessary. The Haiku call handles the empty-
+    response case gracefully — the prompt alone is usually enough.
+    """
     async with async_session() as s:
         r = await s.execute(
             text(
                 """
-                SELECT prompt, response
+                SELECT prompt, response, status
                 FROM turns
                 WHERE session_id = :sid
-                  AND status = 'complete'
-                ORDER BY started_at ASC
+                  AND prompt IS NOT NULL
+                  AND prompt <> ''
+                ORDER BY
+                  -- prefer turns with a non-empty response (more
+                  -- signal for the title), then by chronology
+                  CASE WHEN response IS NOT NULL AND response <> ''
+                       THEN 0 ELSE 1 END,
+                  started_at ASC
                 LIMIT 1
                 """
             ),
@@ -195,7 +261,21 @@ async def generate_and_store_title(session_id: str) -> str | None:
         if getattr(block, "type", None) == "text":
             raw += getattr(block, "text", "")
     title = _normalize_title(raw)
-    if not title:
+    # Validate: Haiku sometimes refuses for thin-context prompts and
+    # writes "I don't have enough context to generate a title…"
+    # That's worse than a truncated first prompt — at least the
+    # prompt is real signal. Reject + fall back.
+    if not title or _title_looks_bad(title):
+        if title:
+            logger.info(
+                "[session-title] rejected bad output for session=%s: %r",
+                session_id,
+                title[:80],
+            )
+        fallback = _normalize_title(prompt[:60].split("\n")[0])
+        if fallback:
+            await _store_title(session_id, fallback, "fallback")
+            return fallback
         return None
     await _store_title(session_id, title, "haiku")
     logger.info(
