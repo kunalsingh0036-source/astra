@@ -141,15 +141,20 @@ except Exception:
     logger.exception("[runtime/tools] failed to import browser tools")
 
 try:
-    from astra.tools.artifact_tools import (
-        emit_draft_tool,
-        emit_metric_tool,
-        emit_table_tool,
-    )
+    from astra.tools.artifact_tools import create_artifact_mcp_server
 
+    # Pull the tool list from the MCP server constructor instead of
+    # naming each tool individually. Adding a new emit_* tool there
+    # (e.g. emit_palette, prepare_preview, future ones) automatically
+    # gets bridged here — eliminates the "tool registered with the
+    # SDK decorator but missing from the lean dispatch registry"
+    # bug class. Previous failure: emit_palette + prepare_preview
+    # shipped in artifact_tools.py but were missed in this list →
+    # agent saw them in its tool list (good) but dispatch crashed
+    # with `unknown tool: 'emit_palette'` (bad).
     _import_sdk_namespace(
         "artifacts",
-        [emit_draft_tool, emit_metric_tool, emit_table_tool],
+        list(create_artifact_mcp_server().tools),
     )
 except Exception:
     logger.exception("[runtime/tools] failed to import artifact tools")
