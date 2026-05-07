@@ -16,6 +16,26 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://astra:astra_dev@localhost:5433/email_db"
 
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        """Railway sets DATABASE_URL=`postgresql://...` (bare, sync
+        driver). create_async_engine needs `postgresql+asyncpg://...`
+        — without that prefix every query 500s. Same pattern
+        documented in learnings_railway_migration.md.
+        """
+        if not v:
+            return v
+        if v.startswith("postgresql://"):
+            v = "postgresql+asyncpg://" + v[len("postgresql://"):]
+        elif v.startswith("postgres://"):
+            v = "postgresql+asyncpg://" + v[len("postgres://"):]
+        if "?sslmode=" in v:
+            head, _, tail = v.partition("?sslmode=")
+            other = tail.split("&", 1)[1] if "&" in tail else ""
+            v = head + (("?" + other) if other else "")
+        return v
+
     # Redis
     redis_url: str = "redis://localhost:6380/3"
 
