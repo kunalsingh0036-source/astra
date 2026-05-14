@@ -515,3 +515,82 @@ async def test_tools_disabled_skips_tool_dispatch(monkeypatch) -> None:
     # No tool_call events should ever fire
     assert all(n != "tool_call" for n, _ in frames)
     assert frames[-1][0] == "done"
+
+
+# ── Artifact sentinel parsing ──────────────────────────────
+
+
+def test_extract_artifacts_no_sentinel() -> None:
+    """Plain tool-result text is returned untouched."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    found, scrubbed = _extract_artifacts("ordinary tool output, no markers")
+    assert found == []
+    assert scrubbed == "ordinary tool output, no markers"
+
+
+def test_extract_artifacts_single_palette() -> None:
+    """A single sentinel becomes one parsed payload + a placeholder."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    body = (
+        '{"type":"palette","name":"Film Noir",'
+        '"colors":[{"hex":"#0A0A0A","label":"deep"}],'
+        '"notes":"cinematic"}'
+    )
+    text = f"⟦ASTRA_ARTIFACT⟧{body}⟦/ASTRA_ARTIFACT⟧"
+    found, scrubbed = _extract_artifacts(text)
+    assert len(found) == 1
+    assert found[0]["type"] == "palette"
+    assert found[0]["name"] == "Film Noir"
+    assert found[0]["colors"][0]["hex"] == "#0A0A0A"
+    assert scrubbed == "[artifact emitted]"
+
+
+def test_extract_artifacts_multiple_in_one_result() -> None:
+    """A tool that emitted N artifacts gives N payloads, prose stays."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    text = (
+        "before "
+        '⟦ASTRA_ARTIFACT⟧{"type":"palette","name":"A"}⟦/ASTRA_ARTIFACT⟧'
+        " middle "
+        '⟦ASTRA_ARTIFACT⟧{"type":"palette","name":"B"}⟦/ASTRA_ARTIFACT⟧'
+        " after"
+    )
+    found, scrubbed = _extract_artifacts(text)
+    assert [a["name"] for a in found] == ["A", "B"]
+    assert scrubbed == "before [artifact emitted] middle [artifact emitted] after"
+
+
+def test_extract_artifacts_malformed_json_passes_through() -> None:
+    """A sentinel wrapping invalid JSON stays raw — better to leak the
+    marker than to silently drop content the model meant to send."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    text = "⟦ASTRA_ARTIFACT⟧{not, valid, json}⟦/ASTRA_ARTIFACT⟧"
+    found, scrubbed = _extract_artifacts(text)
+    assert found == []
+    assert "ASTRA_ARTIFACT" in scrubbed
+
+
+def test_extract_artifacts_unclosed_sentinel_passes_through() -> None:
+    """An open marker with no close marker (the model never wrote one)
+    is treated as raw text. We don't try to guess where it ended."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    text = '⟦ASTRA_ARTIFACT⟧{"type":"palette"} but no close marker'
+    found, scrubbed = _extract_artifacts(text)
+    assert found == []
+    assert "ASTRA_ARTIFACT" in scrubbed
+
+
+def test_extract_artifacts_non_dict_json_passes_through() -> None:
+    """Valid JSON but not a dict (e.g. a bare string or list) isn't a
+    valid artifact payload — leave it raw."""
+    from astra.runtime.agent_loop import _extract_artifacts
+
+    text = '⟦ASTRA_ARTIFACT⟧"just a string"⟦/ASTRA_ARTIFACT⟧'
+    found, scrubbed = _extract_artifacts(text)
+    assert found == []
+    assert "ASTRA_ARTIFACT" in scrubbed
