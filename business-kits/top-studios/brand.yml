@@ -18,13 +18,17 @@ about: |
 
 brand:
   colors:
-    primary: "<TBD>"
-    secondary: "<TBD>"
-    surface: "#FFFFFF"
-    ink: "#0F0F0F"
-    muted: "#6B6B6B"
+    primary: "#FF6B35"    # burnt orange — energy, warmth
+    secondary: "#1C1410"  # warm black — primary ink
+    surface: "#2B2520"    # warm dark surface
+    ink: "#1C1410"        # warm black
+    muted: "#938A84"      # warm gray
+    background: "#FBF8F6" # warm off-white
     chart:
-      - "<TBD>"
+      - "#FF6B35"
+      - "#1C1410"
+      - "#938A84"
+      - "#2B2520"
 
   typography:
     display:
