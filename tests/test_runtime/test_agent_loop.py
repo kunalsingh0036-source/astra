@@ -594,3 +594,101 @@ def test_extract_artifacts_non_dict_json_passes_through() -> None:
     found, scrubbed = _extract_artifacts(text)
     assert found == []
     assert "ASTRA_ARTIFACT" in scrubbed
+
+
+# ── Empty-output guard ─────────────────────────────────────
+
+
+class _EmptyStream(_FakeStream):
+    """Stream that yields zero text chunks and ends with stop_reason
+    and content the caller can configure. Used to simulate the
+    "model finished without saying anything" failure mode."""
+
+    def __init__(self, stop_reason: str = "end_turn") -> None:
+        super().__init__([])
+        self._stop_reason = stop_reason
+
+    async def get_final_message(self) -> "_FakeFinalMessage":
+        return _FakeFinalMessage(stop_reason=self._stop_reason, content=[])
+
+
+class _EmptyClient:
+    def __init__(self, stop_reason: str = "end_turn") -> None:
+        self.messages = self
+        self._stop_reason = stop_reason
+
+    def stream(self, **_kwargs):
+        return _EmptyStream(self._stop_reason)
+
+
+@pytest.mark.asyncio
+async def test_empty_turn_surfaces_error() -> None:
+    """If the model finishes a turn with no text and no artifacts,
+    the user must see an error explaining what happened — not a
+    blank pane with `answered in Xs`. Real failure mode: model
+    recurses through read-only tools without producing output."""
+    fake = _EmptyClient(stop_reason="end_turn")
+    with patch("astra.runtime.agent_loop.AsyncAnthropic", return_value=fake):
+        frames = []
+        async for f in run_lean_turn("hi", session_id="s", tools_enabled=False):
+            frames.append(_parse_sse_frame(f))
+
+    error_frames = [f for f in frames if f[0] == "error"]
+    assert len(error_frames) >= 1, "expected an error event for empty turn"
+    msg = error_frames[0][1]["message"]
+    assert "without producing a response" in msg.lower() or "stuck" in msg.lower()
+    # And we still get a done frame so the client transitions out of
+    # the streaming state cleanly.
+    assert frames[-1][0] == "done"
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_surfaces_truncation_error() -> None:
+    """stop_reason='max_tokens' isn't a clean exit — surface it as a
+    truncation error so the user knows the response was cut off."""
+    fake = _EmptyClient(stop_reason="max_tokens")
+    with patch("astra.runtime.agent_loop.AsyncAnthropic", return_value=fake):
+        frames = []
+        async for f in run_lean_turn("hi", session_id="s", tools_enabled=False):
+            frames.append(_parse_sse_frame(f))
+
+    error_frames = [f for f in frames if f[0] == "error"]
+    # At least one error should mention truncation
+    assert any(
+        "truncat" in f[1]["message"].lower()
+        or "max_tokens" in f[1]["message"].lower()
+        for f in error_frames
+    ), f"expected a truncation error, got: {error_frames}"
+
+
+@pytest.mark.asyncio
+async def test_refusal_surfaces_refusal_error() -> None:
+    """stop_reason='refusal' must produce a visible message; silent
+    refusal feels like the agent is broken."""
+    fake = _EmptyClient(stop_reason="refusal")
+    with patch("astra.runtime.agent_loop.AsyncAnthropic", return_value=fake):
+        frames = []
+        async for f in run_lean_turn("hi", session_id="s", tools_enabled=False):
+            frames.append(_parse_sse_frame(f))
+
+    error_frames = [f for f in frames if f[0] == "error"]
+    assert any(
+        "refus" in f[1]["message"].lower() for f in error_frames
+    ), f"expected a refusal-mentioning error, got: {error_frames}"
+
+
+@pytest.mark.asyncio
+async def test_text_only_turn_does_not_trigger_empty_guard() -> None:
+    """When the model actually produces text, the empty-output guard
+    must not fire. Defense against the guard becoming over-eager and
+    spamming errors on normal turns."""
+    fake = _FakeClient(["here is your answer"])
+    with patch("astra.runtime.agent_loop.AsyncAnthropic", return_value=fake):
+        frames = []
+        async for f in run_lean_turn("hi", session_id="s", tools_enabled=False):
+            frames.append(_parse_sse_frame(f))
+
+    error_frames = [f for f in frames if f[0] == "error"]
+    assert error_frames == [], (
+        f"empty-output guard misfired on a non-empty turn: {error_frames}"
+    )

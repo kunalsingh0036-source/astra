@@ -323,6 +323,13 @@ async def run_lean_turn(
 
     final_response_text = ""
     tools_called = 0
+    # Cumulative across all iterations — final_response_text gets
+    # overwritten each iteration ("last iteration wins" for the DB
+    # row), but for the "did the user actually see anything?" check
+    # below we need the totals across the whole turn.
+    total_text_chars = 0
+    artifacts_emitted = 0
+    last_stop_reason: str | None = None
     turn_status = "complete"
     turn_error: str | None = None
 
@@ -347,6 +354,7 @@ async def run_lean_turn(
                     if not chunk:
                         continue
                     assistant_text_chunks.append(chunk)
+                    total_text_chars += len(chunk)
                     text = chunk
                     while len(text) > _MAX_DELTA_CHARS:
                         chunk_to_emit = text[:_MAX_DELTA_CHARS]
@@ -364,10 +372,50 @@ async def run_lean_turn(
 
             # Inspect the final message: did the model want tools?
             stop_reason = getattr(final_message, "stop_reason", None)
+            last_stop_reason = stop_reason
             content_blocks = list(getattr(final_message, "content", []))
 
             if stop_reason != "tool_use":
-                # Model signaled end_turn (or max_tokens, etc.) — done.
+                # Model signaled end_turn, max_tokens, refusal, etc.
+                # — done. Surface the unusual exits so the user knows
+                # the turn ended for a reason other than "model
+                # finished its answer".
+                if stop_reason == "max_tokens":
+                    # Truncation. The text/tool stream got cut off
+                    # mid-output. The model wanted to say more but
+                    # ran out of token budget for this iteration.
+                    yield await _emit(
+                        turn_id,
+                        error,
+                        message=(
+                            "response was truncated (hit max_tokens). "
+                            "ask me to continue or break the request "
+                            "into smaller parts."
+                        ),
+                    )
+                elif stop_reason == "refusal":
+                    # Anthropic refused to complete (safety, policy).
+                    # The user gets nothing useful by default — say so.
+                    yield await _emit(
+                        turn_id,
+                        error,
+                        message=(
+                            "the model refused to answer this turn "
+                            "(safety filter). rephrase or split into "
+                            "smaller asks."
+                        ),
+                    )
+                elif stop_reason and stop_reason not in {
+                    "end_turn",
+                    "stop_sequence",
+                }:
+                    # Anything we didn't explicitly handle — log so the
+                    # user has a clue why output might be incomplete.
+                    logger.warning(
+                        "[lean-runtime] unusual stop_reason=%r — "
+                        "treating as end of turn",
+                        stop_reason,
+                    )
                 break
 
             # The model returned tool_use blocks. Append the assistant
@@ -471,6 +519,7 @@ async def run_lean_turn(
                         or art_payload.get("name"),
                         content=art_payload,
                     )
+                    artifacts_emitted += 1
 
                 # Trim preview for the SSE event (browser shows a snippet)
                 preview = scrubbed_text[:240].replace("\n", " ")
@@ -524,6 +573,35 @@ async def run_lean_turn(
                     "without converging — likely stuck in a retry loop. retry."
                 ),
             )
+
+        # Empty-output guard. The loop above can exit cleanly
+        # (status="complete") with nothing the user can see: the
+        # model recursed through read-only tools like recall_memories
+        # without ever emitting text or an artifact, then end_turn'd.
+        # From the user's POV the UI shows "answered in 26s" with a
+        # blank pane and a "wat?" feeling. Surface a real message
+        # instead so they know to rephrase, not retry blindly.
+        if (
+            turn_status == "complete"
+            and total_text_chars == 0
+            and artifacts_emitted == 0
+        ):
+            msg = (
+                "i finished without producing a response — likely got "
+                "stuck looking up context. try rephrasing or giving me "
+                "more specifics about what you want."
+            )
+            if last_stop_reason and last_stop_reason not in {
+                "end_turn",
+                "stop_sequence",
+            }:
+                msg += f" (stop_reason: {last_stop_reason})"
+            logger.warning(
+                "[lean-runtime] empty turn — tools=%d, stop_reason=%r",
+                tools_called,
+                last_stop_reason,
+            )
+            yield await _emit(turn_id, error, message=msg)
 
     except asyncio.CancelledError:
         logger.info("[lean-runtime] cancelled by client")
