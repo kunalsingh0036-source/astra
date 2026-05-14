@@ -18,17 +18,17 @@ about: |
 
 brand:
   colors:
-    primary: "#FF6B35"    # burnt orange — energy, warmth
-    secondary: "#1C1410"  # warm black — primary ink
-    surface: "#2B2520"    # warm dark surface
-    ink: "#1C1410"        # warm black
-    muted: "#938A84"      # warm gray
-    background: "#FBF8F6" # warm off-white
+    primary: "#A855F7"    # iridescent purple — AI energy, start of gradient
+    secondary: "#06B6D4"  # cyan — tech signal, end of gradient
+    surface: "#0F1419"    # dark slate surface
+    ink: "#0F1419"        # dark slate ink
+    muted: "#94A3B8"      # slate gray
+    background: "#F8FAFC" # off-white
     chart:
-      - "#FF6B35"
-      - "#1C1410"
-      - "#938A84"
-      - "#2B2520"
+      - "#A855F7"
+      - "#06B6D4"
+      - "#0F1419"
+      - "#94A3B8"
 
   typography:
     display:
