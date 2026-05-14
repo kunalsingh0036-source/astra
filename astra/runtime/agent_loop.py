@@ -23,6 +23,7 @@ Future phases:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -31,6 +32,7 @@ from typing import Any, AsyncIterator
 from anthropic import AsyncAnthropic
 
 from astra.runtime.event_emitter import (
+    artifact,
     done,
     error,
     session as session_event,
@@ -82,9 +84,81 @@ _EVENT_NAMES: dict[Any, str] = {
     text_delta: "text_delta",
     tool_call: "tool_call",
     tool_result: "tool_result",
+    artifact: "artifact",
     error: "error",
     done: "done",
 }
+
+
+# ── Artifact sentinel parsing ──────────────────────────────
+#
+# Artifact-emitting tools (emit_palette, emit_table, emit_draft,
+# emit_metric, prepare_preview, screenshot_url) wrap their structured
+# payload in a `⟦ASTRA_ARTIFACT⟧...⟦/ASTRA_ARTIFACT⟧` text sentinel
+# embedded in their tool-result content. They have to do it this way
+# because tool dispatch is synchronous — tools return a ToolResult,
+# they can't yield extra events themselves.
+#
+# So the agent loop unwraps it: scan every tool result text for these
+# sentinels, emit a real `artifact` event for each payload found,
+# and replace the sentinel with a tiny placeholder before feeding
+# the text back to the model. Without this step, palette swatches /
+# tables / drafts / screenshots never reach the UI — the sentinel
+# just sits in the tool_result preview and the model later claims to
+# have rendered something that the user never saw.
+_SENTINEL_OPEN = "⟦ASTRA_ARTIFACT⟧"
+_SENTINEL_CLOSE = "⟦/ASTRA_ARTIFACT⟧"
+
+
+def _extract_artifacts(text: str) -> tuple[list[dict[str, Any]], str]:
+    """Find every `⟦ASTRA_ARTIFACT⟧{...json...}⟦/ASTRA_ARTIFACT⟧`
+    block in `text`. Return:
+      - list of parsed payloads (dicts with at least a "type" key)
+      - text with each sentinel replaced by a short placeholder so
+        the model-facing tool_result content stays small and isn't
+        spammed with raw JSON the model already produced
+
+    Defensive against malformed payloads — a JSON parse failure
+    logs a warning but leaves the sentinel in place so the model
+    sees something rather than nothing. Unclosed sentinels (no
+    matching close marker) are similarly left intact.
+    """
+    if _SENTINEL_OPEN not in text:
+        return [], text
+    found: list[dict[str, Any]] = []
+    pieces: list[str] = []
+    i = 0
+    while True:
+        s = text.find(_SENTINEL_OPEN, i)
+        if s < 0:
+            pieces.append(text[i:])
+            break
+        # Keep anything before the open marker as-is.
+        pieces.append(text[i:s])
+        e = text.find(_SENTINEL_CLOSE, s)
+        if e < 0:
+            # Unclosed — defensive: keep the rest of the text raw
+            # so a partial response doesn't get silently truncated.
+            pieces.append(text[s:])
+            break
+        body = text[s + len(_SENTINEL_OPEN) : e]
+        try:
+            payload = json.loads(body)
+            if isinstance(payload, dict):
+                found.append(payload)
+                pieces.append("[artifact emitted]")
+            else:
+                # JSON parsed but isn't a dict — leave verbatim.
+                pieces.append(text[s : e + len(_SENTINEL_CLOSE)])
+        except json.JSONDecodeError:
+            logger.warning(
+                "[lean-runtime] artifact sentinel found but body is "
+                "not valid JSON (first 80 chars: %r) — passing through",
+                body[:80],
+            )
+            pieces.append(text[s : e + len(_SENTINEL_CLOSE)])
+        i = e + len(_SENTINEL_CLOSE)
+    return found, "".join(pieces)
 
 
 async def _emit(
@@ -365,9 +439,29 @@ async def run_lean_turn(
                 )
                 result = await REGISTRY.dispatch(tool_name, tool_input)
 
+                # Unwrap artifact sentinels — tools like emit_palette,
+                # emit_table, screenshot_url stuff a structured payload
+                # into their text result wrapped in ⟦ASTRA_ARTIFACT⟧...
+                # markers. We turn each one into a real `artifact`
+                # event the UI can render (swatches, tables, image
+                # tiles) and scrub the marker out of the text before
+                # it reaches the model again.
+                artifacts_found, scrubbed_text = _extract_artifacts(
+                    result.text
+                )
+                for art_payload in artifacts_found:
+                    yield await _emit(
+                        turn_id,
+                        artifact,
+                        type=str(art_payload.get("type") or "unknown"),
+                        title=art_payload.get("title")
+                        or art_payload.get("name"),
+                        content=art_payload,
+                    )
+
                 # Trim preview for the SSE event (browser shows a snippet)
-                preview = result.text[:240].replace("\n", " ")
-                if len(result.text) > 240:
+                preview = scrubbed_text[:240].replace("\n", " ")
+                if len(scrubbed_text) > 240:
                     preview += "…"
                 yield await _emit(
                     turn_id,
@@ -381,7 +475,7 @@ async def run_lean_turn(
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_id,
-                        "content": result.text,
+                        "content": scrubbed_text,
                         "is_error": result.is_error,
                     }
                 )
