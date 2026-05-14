@@ -32,11 +32,13 @@ brand:
 
   typography:
     display:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Playfair Display"  # high-contrast serif, editorial craft
+      fallback: "Georgia, serif"
+      weight: "700"  # Bold for display
     body:
-      family: "<TBD>"
-      fallback: "Helvetica Neue, system-ui, sans-serif"
+      family: "Inter"  # clean contemporary sans
+      fallback: "system-ui, -apple-system, sans-serif"
+      weight: "400"  # Regular for body
     mono:
       family: "JetBrains Mono"
       fallback: "monospace"
