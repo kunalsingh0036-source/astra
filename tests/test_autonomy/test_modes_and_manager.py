@@ -1,6 +1,9 @@
 """Tests for the autonomy mode system."""
 
 import time
+from unittest.mock import patch
+
+import pytest
 
 from astra.autonomy.audit import AuditLogger
 from astra.autonomy.manager import AutonomyManager
@@ -130,3 +133,98 @@ class TestAuditLogger:
         for i in range(10):
             logger.log(f"Tool{i}", ActionTier.READ, AutonomyMode.FULL_AUTO, PermissionDecision.ALLOW)
         assert len(logger.get_entries(limit=100)) == 5
+
+
+class TestDBPersistence:
+    """Cross-service mode sync via the app_settings table.
+
+    These cover the bug where the web /settings toggle wrote to
+    app_settings but the stream service kept its in-memory mode —
+    so users saw "semi_auto" in the UI while the agent enforced
+    "always_ask".
+    """
+
+    @pytest.mark.asyncio
+    async def test_refresh_from_db_updates_mode_when_changed(self):
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.ALWAYS_ASK)
+        # Simulate the web UI having written "semi_auto" to app_settings.
+        with patch(
+            "astra.autonomy.manager._read_mode_from_db",
+            return_value="semi_auto",
+        ):
+            changed = await mgr.refresh_from_db()
+        assert changed is True
+        assert mgr.mode == AutonomyMode.SEMI_AUTO
+
+    @pytest.mark.asyncio
+    async def test_refresh_from_db_noop_when_unchanged(self):
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.SEMI_AUTO)
+        with patch(
+            "astra.autonomy.manager._read_mode_from_db",
+            return_value="semi_auto",
+        ):
+            changed = await mgr.refresh_from_db()
+        assert changed is False
+        assert mgr.mode == AutonomyMode.SEMI_AUTO
+
+    @pytest.mark.asyncio
+    async def test_refresh_from_db_tolerates_db_failure(self):
+        """DB unreachable returns None — the manager keeps its current
+        mode rather than dropping to a default. Turns must never fail
+        because the config table is having a bad day."""
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.FULL_AUTO)
+        with patch(
+            "astra.autonomy.manager._read_mode_from_db", return_value=None
+        ):
+            changed = await mgr.refresh_from_db()
+        assert changed is False
+        assert mgr.mode == AutonomyMode.FULL_AUTO
+
+    @pytest.mark.asyncio
+    async def test_refresh_from_db_rejects_unknown_value(self):
+        """A garbled value in the DB doesn't crash and doesn't promote
+        the agent to a more permissive mode."""
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.ALWAYS_ASK)
+        with patch(
+            "astra.autonomy.manager._read_mode_from_db",
+            return_value="god_mode",
+        ):
+            changed = await mgr.refresh_from_db()
+        assert changed is False
+        assert mgr.mode == AutonomyMode.ALWAYS_ASK
+
+    @pytest.mark.asyncio
+    async def test_set_mode_persisted_writes_to_db(self):
+        """Agent-driven set_mode (via the set_mode tool) must persist
+        to app_settings so the web UI reflects the change."""
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.ALWAYS_ASK)
+        with patch(
+            "astra.autonomy.manager._write_mode_to_db", return_value=True
+        ) as write_mock:
+            result = await mgr.set_mode_persisted(
+                AutonomyMode.SEMI_AUTO, reason="test"
+            )
+        assert mgr.mode == AutonomyMode.SEMI_AUTO
+        assert result["from"] == "always_ask"
+        assert result["to"] == "semi_auto"
+        write_mock.assert_called_once()
+        # Verify the write got the right enum value
+        assert write_mock.call_args[0][0] == AutonomyMode.SEMI_AUTO
+
+    @pytest.mark.asyncio
+    async def test_set_mode_persisted_still_succeeds_if_db_write_fails(self):
+        """A failed DB write doesn't undo the in-memory change. The
+        turn-level refresh on the next request will eventually resync
+        — better to honour the explicit request locally."""
+        mgr = AutonomyManager()
+        mgr.set_mode(AutonomyMode.ALWAYS_ASK)
+        with patch(
+            "astra.autonomy.manager._write_mode_to_db", return_value=False
+        ):
+            await mgr.set_mode_persisted(AutonomyMode.FULL_AUTO)
+        assert mgr.mode == AutonomyMode.FULL_AUTO

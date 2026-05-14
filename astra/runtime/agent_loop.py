@@ -232,6 +232,19 @@ async def run_lean_turn(
     sid = session_id or str(uuid.uuid4())
     yield await _emit(turn_id, session_event, session_id=sid)
 
+    # Cross-service mode sync. The web UI's /settings toggle writes
+    # to app_settings; this is where the stream service picks it up.
+    # Without this refresh, an in-memory mode set when the container
+    # booted ("always_ask" by default) silently overrides whatever
+    # the user chose in the UI — the exact symptom of "I switched
+    # to semi-auto but the agent keeps asking permission." Best-
+    # effort; a DB blip leaves the previous mode in place.
+    try:
+        from astra.autonomy.manager import autonomy_manager
+        await autonomy_manager.refresh_from_db()
+    except Exception:
+        logger.exception("[lean-runtime] autonomy refresh_from_db failed")
+
     client = AsyncAnthropic()
 
     # Rehydrate prior turns if a session_id is provided. Each

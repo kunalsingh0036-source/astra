@@ -6,15 +6,96 @@ Handles mode transitions with three toggle mechanisms:
 2. Time-based: Mode reverts after a duration ("semi-auto for 2 hours")
 3. Task-based: Mode applies for a specific task scope, then reverts
 
+Cross-service persistence: the web service (astra-web) and the
+stream service (astra/services/stream) run in separate Railway
+containers with their own process memory. The web UI's autonomy
+toggle writes to the `app_settings` table; this manager reads from
+that table at the start of every turn so a UI switch propagates to
+the agent runtime within ~1 turn. Without this, the stream
+service's in-memory _mode silently diverges from what the user
+sees in /settings — exactly the bug Kunal reported when "semi_auto"
+in the UI didn't stop the agent from saying "I need your approval."
+
 Thread-safe via a simple lock (single-user system, but future-proofing).
 """
 
+import logging
 import threading
 import time
 from datetime import datetime, timezone
 
 from astra.autonomy.modes import AutonomyMode
 from astra.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Key inside the app_settings table that holds the autonomy mode.
+# Matches /api/autonomy in astra-web — they read/write the same row.
+_DB_KEY = "autonomy_mode"
+
+
+async def _read_mode_from_db() -> str | None:
+    """Read the autonomy_mode value from app_settings.
+
+    Returns None if the row is missing, the DB is unreachable, or
+    the value isn't a recognised mode. Callers fall back to the
+    in-memory mode in any of these cases — we never crash a turn
+    over a config-table problem.
+    """
+    try:
+        from sqlalchemy import text
+
+        from astra.db.engine import async_session
+    except Exception as e:
+        logger.warning("[autonomy] DB engine unavailable: %s", e)
+        return None
+    try:
+        async with async_session() as s:
+            r = await s.execute(
+                text("SELECT value FROM app_settings WHERE key = :k"),
+                {"k": _DB_KEY},
+            )
+            row = r.first()
+        if not row:
+            return None
+        value = str(row.value or "").strip()
+        if value not in {m.value for m in AutonomyMode}:
+            logger.warning("[autonomy] unknown mode in DB: %r", value)
+            return None
+        return value
+    except Exception as e:
+        logger.warning("[autonomy] DB read failed: %s", e)
+        return None
+
+
+async def _write_mode_to_db(mode: AutonomyMode) -> bool:
+    """Upsert the autonomy_mode row. Best effort — returns False on
+    failure but never raises (config-table writes can't fail a turn)."""
+    try:
+        from sqlalchemy import text
+
+        from astra.db.engine import async_session
+    except Exception as e:
+        logger.warning("[autonomy] DB engine unavailable for write: %s", e)
+        return False
+    try:
+        async with async_session() as s:
+            await s.execute(
+                text(
+                    """
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (:k, :v, now())
+                    ON CONFLICT (key)
+                    DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                    """
+                ),
+                {"k": _DB_KEY, "v": mode.value},
+            )
+            await s.commit()
+        return True
+    except Exception as e:
+        logger.warning("[autonomy] DB write failed: %s", e)
+        return False
 
 
 class AutonomyManager:
@@ -133,6 +214,67 @@ class AutonomyManager:
     def get_history(self, limit: int = 20) -> list[dict]:
         """Get recent mode transition history."""
         return self._history[-limit:]
+
+    # ── DB-backed cross-service persistence ────────────────────
+
+    async def refresh_from_db(self) -> bool:
+        """Pull the latest mode from app_settings.
+
+        Call at the start of every turn so a /settings UI toggle in
+        astra-web propagates here before the autonomy gate runs.
+        Returns True if the local mode was updated, False otherwise
+        (DB unreachable, value unchanged, or value invalid).
+        """
+        value = await _read_mode_from_db()
+        if value is None:
+            return False
+        try:
+            new_mode = AutonomyMode(value)
+        except ValueError:
+            return False
+        with self._lock:
+            if new_mode == self._mode:
+                return False
+            old = self._mode
+            self._mode = new_mode
+            self._history.append(
+                {
+                    "from": old.value,
+                    "to": new_mode.value,
+                    "reason": "Refreshed from app_settings (cross-service sync)",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            logger.info(
+                "[autonomy] mode synced from DB: %s -> %s",
+                old.value,
+                new_mode.value,
+            )
+            return True
+
+    async def set_mode_persisted(
+        self,
+        mode: AutonomyMode,
+        duration_minutes: int | None = None,
+        task_id: str | None = None,
+        reason: str = "",
+    ) -> dict:
+        """Like set_mode(), but also writes through to app_settings
+        so the web UI / other services see the change.
+
+        Use this from agent tools (set_mode_tool) and any code path
+        where a mode change should be cross-service visible. The
+        plain set_mode() is kept for tests and time/task-revert
+        bookkeeping where DB writes aren't desired.
+        """
+        result = self.set_mode(
+            mode=mode,
+            duration_minutes=duration_minutes,
+            task_id=task_id,
+            reason=reason,
+        )
+        await _write_mode_to_db(mode)
+        return result
 
 
 # Global singleton

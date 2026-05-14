@@ -67,7 +67,10 @@ async def set_mode_tool(args: dict) -> dict:
             "is_error": True,
         }
 
-    result = autonomy_manager.set_mode(
+    # Persist to app_settings as well so the web UI / other services
+    # see the change. Without this, an agent-driven mode switch was
+    # invisible to the /settings page and to any subsequent web read.
+    result = await autonomy_manager.set_mode_persisted(
         mode=mode,
         duration_minutes=duration,
         task_id=task_id,
