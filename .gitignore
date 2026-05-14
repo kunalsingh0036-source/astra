@@ -36,3 +36,9 @@ Thumbs.db
 
 # Sentence transformers model cache
 .model_cache/
+
+# Local agent run logs — astra and sibling agents both write here.
+# Tracking these in git means every "noisy" agent run ends up as a
+# git-status diff that hides real changes (and they're never useful
+# in PRs). Keep them on disk; just don't commit.
+.logs/

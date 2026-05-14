@@ -338,6 +338,11 @@ class StreamRequest(BaseModel):
         description="Resume a prior SDK session for multi-turn context. "
         "Omit to start fresh.",
     )
+    attachments: list[str] | None = Field(
+        default=None,
+        description="UUIDs returned by POST /uploads. Each gets fetched "
+        "and embedded as an image content block on the user message.",
+    )
 
 
 def _check_secret(request: Request) -> None:
@@ -584,11 +589,111 @@ async def previews_get(preview_id: str) -> Response:
         "cache-control": "private, max-age=300",
         "x-content-type-options": "nosniff",
     }
+    # Binary types (images, PDFs) are stored base64-encoded in the
+    # TEXT body column. Decode here so the browser receives raw
+    # bytes with the right mimetype. Text types (HTML, plain text,
+    # JSON) are stored verbatim and served as-is.
+    body = row["body"]
+    media_type = row["content_type"]
+    if _is_binary_media(media_type):
+        import base64
+        try:
+            body_bytes = base64.b64decode(body)
+        except Exception:
+            raise HTTPException(500, "preview body is not valid base64")
+        return Response(
+            content=body_bytes,
+            media_type=media_type,
+            headers=headers,
+        )
     return Response(
-        content=row["body"],
-        media_type=row["content_type"],
+        content=body,
+        media_type=media_type,
         headers=headers,
     )
+
+
+def _is_binary_media(content_type: str) -> bool:
+    """Whether this content-type was stored base64-encoded in the
+    TEXT body and needs decoding on serve. Images and PDFs hit this;
+    HTML/plain-text/JSON do not."""
+    ct = (content_type or "").lower().split(";", 1)[0].strip()
+    return (
+        ct.startswith("image/")
+        or ct == "application/pdf"
+        or ct == "application/octet-stream"
+    )
+
+
+# Accept user-uploaded files (screenshots, photos, attachments).
+# Same storage as previews but the workflow is inverted: user
+# uploads → returns id → id flows into a chat turn's attachments
+# → agent_loop fetches the bytes when building the Anthropic
+# user-message content blocks.
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+_ALLOWED_UPLOAD_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+}
+
+
+@app.post("/uploads")
+async def uploads_create(request: Request) -> dict[str, object]:
+    """Accept a multipart-uploaded image, persist it, return its id.
+
+    The browser POSTs via /api/uploads in astra-web which proxies
+    here (so the public DNS still goes through Vercel's edge for
+    consistency). Body is base64-encoded in the previews row so
+    the existing storage layer + TTL apply unchanged.
+
+    Auth: same shared-secret check as the agent endpoints —
+    uploads are a foot-gun if exposed unauthed (storage cost,
+    moderation surface).
+    """
+    _check_secret(request)
+    form = await request.form()
+    file = form.get("file")
+    if file is None or not hasattr(file, "filename"):
+        raise HTTPException(400, "missing 'file' field")
+    media_type = (getattr(file, "content_type", None) or "").lower()
+    if media_type not in _ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(
+            415,
+            f"unsupported media type {media_type!r}; allowed: "
+            f"{sorted(_ALLOWED_UPLOAD_TYPES)}",
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "empty file")
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413,
+            f"file exceeds {_MAX_UPLOAD_BYTES} bytes ({len(raw)} given)",
+        )
+
+    import base64
+    encoded = base64.b64encode(raw).decode("ascii")
+    title = getattr(file, "filename", None) or "upload"
+
+    try:
+        from astra.runtime.preview_store import create_preview  # type: ignore[import-not-found]
+    except Exception as e:
+        raise HTTPException(500, f"preview module load failed: {e}")
+    try:
+        preview_id = await create_preview(
+            title=str(title),
+            body=encoded,
+            content_type=media_type,
+        )
+    except ValueError as e:
+        raise HTTPException(413, f"upload rejected: {e}")
+    return {
+        "id": preview_id,
+        "content_type": media_type,
+        "byte_count": len(raw),
+    }
 
 
 @app.post("/stream-lean")
@@ -755,6 +860,7 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
                 system_prompt=get_system_prompt(),
                 turn_id=turn_id,
                 load_history=True,
+                attachments=req.attachments,
             ).__aiter__()
             while True:
                 try:

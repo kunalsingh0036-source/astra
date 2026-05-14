@@ -125,6 +125,7 @@ async def run_lean_turn(
     tool_namespaces: list[str] | None = None,
     turn_id: int | None = None,
     load_history: bool = True,
+    attachments: list[str] | None = None,
 ) -> AsyncIterator[bytes]:
     """Run one user turn against Anthropic + dispatch tools via the
     registry. Yields SSE-formatted byte frames.
@@ -148,6 +149,10 @@ async def run_lean_turn(
             creating the row (services/stream uses _create_turn_record).
         load_history: when False, skips loading prior turns. Useful for
             tests + isolated single-turn flows.
+        attachments: list of upload IDs (UUIDs into the previews table)
+            that should be fetched + included as image content blocks
+            on the user message. Used by the drag-and-drop screenshot
+            feature in InputLine. Empty/None = pure text turn.
     """
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
@@ -180,9 +185,20 @@ async def run_lean_turn(
     # outer while-loop is one assistant response (text + optional
     # tool_use blocks). After tool_use, we append both the assistant
     # turn and the tool_result and loop.
+    #
+    # User-message content shape depends on attachments:
+    #   - text-only: a plain string (matches the historical default)
+    #   - with images: a list of content blocks per Anthropic vision
+    #     spec, prompt-text last so the model sees the images first
+    #     then reads what to do with them
+    user_content: Any = prompt
+    if attachments:
+        user_content = await _build_user_content_with_attachments(
+            prompt, attachments
+        )
     raw_messages: list[dict[str, Any]] = [
         *history,
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": user_content},
     ]
     # Compact before sending to the API. Without this, sessions that
     # have accumulated large tool_result content (file reads, glob
@@ -492,6 +508,70 @@ async def run_lean_turn(
     if tools_called:
         done_payload["meta"] = {"tool_count": tools_called}
     yield await _emit(turn_id, done, **done_payload)
+
+
+# ── Attachments → content blocks ───────────────────────────
+
+
+# Mirrors the stream-service _ALLOWED_UPLOAD_TYPES set. Anthropic
+# Sonnet 4.5 accepts these as image source media_types per their
+# vision spec. WebP works; HEIC/AVIF don't. Server-side guards
+# against everything else at upload time, so reaching this fn with
+# a non-image content type is a bug — log and skip.
+_VISION_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
+async def _build_user_content_with_attachments(
+    prompt: str, attachment_ids: list[str]
+) -> list[dict[str, Any]]:
+    """Fetch each upload by id, return Anthropic-shaped content
+    blocks. Order is image-first, prompt-text last — Anthropic's
+    vision guide recommends putting images BEFORE text so the model
+    sees them before reading the question.
+
+    Failures are degraded: if an upload row is missing or expired,
+    we skip it (don't fail the whole turn) and log a warning so
+    debugging is possible. The prompt itself is always sent.
+    """
+    from astra.runtime.preview_store import get_preview
+
+    blocks: list[dict[str, Any]] = []
+    for upload_id in attachment_ids:
+        row = await get_preview(upload_id)
+        if not row:
+            logger.warning(
+                "[lean-runtime] attachment %s missing/expired — skipping",
+                upload_id,
+            )
+            continue
+        media_type = row.get("content_type", "")
+        if media_type not in _VISION_MEDIA_TYPES:
+            logger.warning(
+                "[lean-runtime] attachment %s unsupported media_type %r — skipping",
+                upload_id,
+                media_type,
+            )
+            continue
+        # Body is base64-encoded text (stored as-is in the previews
+        # table TEXT column). Anthropic's API accepts base64 directly
+        # in source.data so we can pass it through without round-
+        # tripping to bytes and back.
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": row["body"],
+                },
+            }
+        )
+    # Prompt text comes last so the model sees images first and the
+    # instruction immediately after — better than the inverse per
+    # Anthropic's vision examples.
+    if prompt:
+        blocks.append({"type": "text", "text": prompt})
+    return blocks
 
 
 # ── Context-window management ──────────────────────────────
