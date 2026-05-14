@@ -44,13 +44,19 @@ brand:
       fallback: "monospace"
 
   logo:
-    full_light: "content/logos/full-light.svg"
-    full_dark: "content/logos/full-dark.svg"
-    mark_light: "content/logos/mark-light.svg"
+    style: "Wordmark-primary with optional geometric mark. Playfair Display bold for 'Top Studios', warm black (#1C1410) on light backgrounds, burnt orange (#FF6B35) accent on the mark. Mark: abstract T+S monogram or film-frame geometry. Avoid cliché film-reel / clapperboard / camera icons."
+    full_light: "content/logos/full-light.svg"  # wordmark for light bg
+    full_dark: "content/logos/full-dark.svg"    # wordmark for dark bg
+    mark_light: "content/logos/mark-light.svg"  # icon/favicon
     mark_dark: "content/logos/mark-dark.svg"
 
   imagery:
-    style: "<TBD — film-still aesthetic. Top Studios should imply 'we make the visual reference', so its own visual identity has to be high-craft.>"
+    style: "Film-still aesthetic with warm grain. High-craft composition, shallow DOF, cinematic aspect ratios (2.39:1 preferred). Avoid stock photography — every image should look intentionally shot. Color grade leans warm (matches palette). Behind-the-scenes production shots over polished lifestyle imagery."
+    avoid:
+      - "Generic stock photos"
+      - "Cold/clinical lighting"
+      - "Tech product photography aesthetic"
+      - "Over-saturated colors"
 
 # ── References ─────────────────────────────────────────────────────
 
