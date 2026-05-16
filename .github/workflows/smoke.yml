@@ -1,0 +1,80 @@
+# Astra production smoke — runs the user-journey harness against the
+# live deployed stack after Railway/Vercel pick up a new commit.
+#
+# Why a separate workflow from check.yml:
+#   check.yml runs against ephemeral CI containers — catches build
+#   breakage. This one talks to PROD over HTTPS — catches integration
+#   regressions that only surface when web + stream + DB are all live
+#   together. Different altitudes, different blast radius.
+#
+# Why a sleep instead of webhooks:
+#   Railway deploys in 60-120s after push; Vercel in 30-60s. Polling
+#   each platform's deploy API is doable but adds a brittle dependency.
+#   A flat 150s sleep is dumb but reliable, and the workflow's runtime
+#   budget can absorb it (~5min total).
+#
+# Required repo secret:
+#   ASTRA_SHARED_SECRET — same value as the env var on Railway. Used
+#   for the x-astra-secret server-to-server bypass so the harness can
+#   hit /api/chat and /api/autonomy without a NextAuth cookie.
+
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_wait:
+        description: "Skip the 150s post-deploy wait"
+        type: boolean
+        default: false
+
+# Cancel an in-flight smoke if a newer commit lands — we only care
+# about the latest deployed state.
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: user journey smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install harness deps
+        # The harness only needs httpx; we avoid `pip install -e .`
+        # here because that drags in the full astra package and adds
+        # 1-2 min to CI for no benefit (smoke talks to prod over HTTP,
+        # not via local imports).
+        run: pip install httpx
+
+      - name: wait for deploys
+        # Railway picks up the push and rebuilds; Vercel does the
+        # same. Without this wait, smoke would hit the OLD version
+        # of /api/uploads etc. and false-pass regressions.
+        if: ${{ !inputs.skip_wait }}
+        run: |
+          echo "sleeping 150s for Railway + Vercel deploys to land…"
+          sleep 150
+
+      - name: run smoke
+        env:
+          ASTRA_E2E_BASE: https://astra.thearrogantclub.com
+          ASTRA_SHARED_SECRET: ${{ secrets.ASTRA_SHARED_SECRET }}
+        run: |
+          if [ -z "$ASTRA_SHARED_SECRET" ]; then
+            echo "::error::ASTRA_SHARED_SECRET repo secret is not set"
+            echo "Set it under Settings → Secrets and variables →"
+            echo "Actions → New repository secret. Value must match"
+            echo "the env var on the Railway stream service."
+            exit 1
+          fi
+          python scripts/e2e_smoke.py --base "$ASTRA_E2E_BASE"
