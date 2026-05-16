@@ -40,6 +40,13 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "websockets>=13.0",
+    # FastAPI lists python-multipart as an OPTIONAL dep (only
+    # `fastapi[all]` pulls it). Without it, `await request.form()`
+    # raises at runtime → 500 with no useful logs. Required for the
+    # /uploads endpoint (multipart image uploads from the drag-and-
+    # drop input). Caught by user_journey smoke test 12 after going
+    # to prod undetected.
+    "python-multipart>=0.0.9",
 
     # HTTP client
     "httpx>=0.27.0",
