@@ -1042,14 +1042,16 @@ async def test_12_image_attachment_vision(
             detail="SKIPPED — no auth",
         )
     started = time.monotonic()
-    # 1x1 magenta PNG, ~70 bytes — smallest valid PNG with a colored
-    # pixel so the model has something concrete to comment on.
-    one_pixel_png = bytes.fromhex(
-        "89504e470d0a1a0a0000000d49484452"
-        "0000000100000001080600000001f15c"
-        "4889000000017352474200aece1ce900"
-        "00000d49444154789c63f8ff9fc101"
-        "000600025a00130d490000000049454e44ae426082"
+    # Well-known 1x1 transparent PNG (67 bytes). Originally tried a
+    # hand-crafted hex blob but the IDAT chunk was malformed and
+    # Anthropic rejected it with "Could not process image" — that's
+    # how the smoke harness caught its first real bug, in itself.
+    # Base64'd here so the bytes are reproducible regardless of
+    # editor quirks.
+    import base64
+    one_pixel_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42m"
+        "NkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
     )
     # ── upload ──
     try:
