@@ -28,8 +28,17 @@ class Settings(BaseSettings):
     model_sonnet: str = "claude-sonnet-4-6"
     model_haiku: str = "claude-haiku-4-5-20251001"
 
-    # Autonomy
-    default_autonomy_mode: str = "always_ask"
+    # Autonomy. Three places used to disagree about what the default
+    # should be on a fresh install: this constant (was "always_ask"),
+    # the app_settings DB seed (`semi_auto`, per migration
+    # m1f47g3e8f0b), and astra-web's /api/autonomy fallback
+    # (`semi_auto`, when the DB row is missing). The misalignment
+    # meant a cold-start UI showed "semi_auto" while the agent
+    # enforced "always_ask" until the first DB read. Resolved by
+    # picking `semi_auto` — the balanced behaviour that matches
+    # both the seed and the UI's expectation. This value is now only
+    # used as the cold-start fallback before refresh_from_db runs.
+    default_autonomy_mode: str = "semi_auto"
 
     # Notes writeback — applies only to the Kunal training-counter note.
     #   "approval" — stage a pending row; require Kunal's Apply click
