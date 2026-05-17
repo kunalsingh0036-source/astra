@@ -33,8 +33,13 @@ jobs:
       - name: import smoke
         # If anything in astra/ raises ImportError at module load
         # (missing dep, syntax error, circular import) this catches it.
+        # `astra.core.agent` was removed in the lean-runtime migration
+        # (Phase 6, 2026-05-04) — replaced with `astra.runtime.agent_loop`.
+        # The workflow wasn't updated at the time, so every push to main
+        # since has silently failed this step. Caught while the new
+        # smoke workflow was being landed.
         run: |
-          python -c "import astra.config, astra.scheduler.app, astra.core.agent"
+          python -c "import astra.config, astra.scheduler.app, astra.runtime.agent_loop"
       - name: alembic single head
         # Catch the classic merge-conflict pattern where two PRs each
         # add a migration and we end up with multiple alembic heads.
