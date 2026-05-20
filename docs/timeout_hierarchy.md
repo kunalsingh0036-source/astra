@@ -36,9 +36,9 @@ anymore. That eliminated three entire timeout layers:
 - **Vercel `/api/chat` maxDuration (was 300s)** — now 10s. The
   route just enqueues a turn and returns `{turn_id}`; if it ever
   takes longer than 10s, `/turns/start` upstream is hung.
-- **Stream service per-frame heartbeat (was 15s)** — gone for the
-  polling path. The legacy `/stream` endpoint (gated behind
-  `USE_LEGACY_SSE=1`) still has it for the rollback fallback.
+- **Stream service per-frame heartbeat (was 15s)** — gone. Lived
+  inside the `/stream` SSE endpoint, which itself was deleted on
+  2026-05-20 along with the SSE escape hatch.
 
 The remaining timeouts form a much shorter chain.
 
@@ -120,20 +120,6 @@ Separate from per-call duration limits, these fire on inactivity:
 | Postgres `pool_pre_ping` | n/a | `SELECT 1` before each checkout — kills dead connections |
 | TCP keepalives idle | 7200s | OS-level; very long, rarely matters in practice |
 | `_running_turns` sweeper | 300s | Stream service prunes finished asyncio.Tasks every 5min |
-
-## Legacy SSE path (USE_LEGACY_SSE=1 — to be deleted ~May 12)
-
-For the rollback fallback only, these timeouts still apply:
-
-| Layer | Limit | Notes |
-|-------|-------|-------|
-| Vercel `/api/chat` (SSE proxy) | implicit | proxyLegacyStream forwards the SSE body; subject to platform default |
-| Stream service per-frame heartbeat | 15s | services/stream/main.py — keeps Cloudflare Tunnel from idling out |
-| Cloudflare Tunnel idle | ~100s | external; heartbeats keep this from firing |
-
-Once `USE_LEGACY_SSE` is removed (target: one week after Phase 2b
-ships, see TODO_CALENDAR.md), this whole section disappears along
-with the heartbeat code.
 
 ## Maintenance
 

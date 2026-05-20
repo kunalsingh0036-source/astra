@@ -23,7 +23,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Response
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 # Load .env before anything that depends on env vars
@@ -43,12 +42,6 @@ if _astra_path:
     if _astra_path not in sys.path:
         sys.path.insert(0, _astra_path)
     os.chdir(_astra_path)
-
-from stream.events import (  # noqa: E402
-    error as sse_error,
-    done as done_event,
-    heartbeat,
-)
 
 _SHARED_SECRET = os.environ.get("STREAM_SHARED_SECRET", "").strip()
 
@@ -696,87 +689,6 @@ async def uploads_create(request: Request) -> dict[str, object]:
     }
 
 
-@app.post("/stream-lean")
-async def stream_lean(req: StreamRequest, request: Request) -> StreamingResponse:
-    """Run a turn against the LEAN runtime — direct anthropic.AsyncAnthropic,
-    no SDK, no bundled CLI subprocess.
-
-    Phase 2 of the runtime migration: text-only (no tools yet — Phase 3).
-    Lives alongside /stream so we can test the lean path against real
-    Anthropic API in production without affecting the SDK path. Once
-    Phase 5 lands, /stream itself will route here.
-    """
-    _check_secret(request)
-    if not req.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is empty")
-
-    # Lazy import so the service still boots if astra core fails to import.
-    # The astra.runtime.tools side-effect import registers every lean-runtime
-    # tool with REGISTRY before the agent loop reads it.
-    try:
-        import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
-        from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
-        from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
-    except Exception as e:
-        from stream.events import error as sse_error, done
-
-        async def _err_gen():
-            yield sse_error(f"failed to load lean runtime: {e}")
-            yield done(duration_ms=0)
-
-        return StreamingResponse(
-            _err_gen(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache, no-transform"},
-        )
-
-    # Create the durable turn row up-front so a mid-stream crash still
-    # leaves a record. Same store as /stream uses.
-    from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
-
-    turn_id = await create_turn_record(
-        session_id=req.session_id,
-        prompt=req.prompt,
-    )
-
-    async def generate():
-        runner_iter = run_lean_turn(
-            req.prompt,
-            session_id=req.session_id,
-            system_prompt=get_system_prompt(),
-            turn_id=turn_id,
-            load_history=True,
-        ).__aiter__()
-        while True:
-            try:
-                frame = await asyncio.wait_for(
-                    runner_iter.__anext__(),
-                    timeout=15,
-                )
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                yield heartbeat()
-                continue
-            except Exception as e:
-                from stream.events import error as sse_error
-                logger.exception("lean stream raised")
-                yield sse_error(f"lean runtime crashed: {e}")
-                return
-            else:
-                yield frame
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
 # ── In-flight task registry ───────────────────────────────
 #
 # When the browser cancels a turn (Esc, dismiss, navigate away),
@@ -906,76 +818,6 @@ async def turns_cancel(turn_id: int, request: Request) -> dict[str, object]:
         return {"cancelled": False, "reason": "already finished"}
     task.cancel()
     return {"cancelled": True}
-
-
-@app.post("/stream")
-async def stream(req: StreamRequest, request: Request) -> StreamingResponse:
-    """Run an Astra query and stream the result as SSE.
-
-    PHASE 6: this endpoint is now ONLY served by the lean runtime
-    (astra.runtime.agent_loop). The legacy SDK path was removed
-    after Phase 5 ran traffic without regressions. Rollback is no
-    longer a fallback toggle — it's a `git revert`.
-    """
-    _check_secret(request)
-    if not req.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is empty")
-
-    try:
-        import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
-        from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
-        from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
-        from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
-    except Exception as e:
-        async def _err_gen():
-            yield sse_error(f"failed to load lean runtime: {e}")
-            yield done_event(duration_ms=0)
-
-        return StreamingResponse(
-            _err_gen(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache, no-transform"},
-        )
-
-    turn_id = await create_turn_record(
-        session_id=req.session_id,
-        prompt=req.prompt,
-    )
-
-    async def generate():
-        runner_iter = run_lean_turn(
-            req.prompt,
-            session_id=req.session_id,
-            system_prompt=get_system_prompt(),
-            turn_id=turn_id,
-            load_history=True,
-        ).__aiter__()
-        while True:
-            try:
-                frame = await asyncio.wait_for(
-                    runner_iter.__anext__(), timeout=15
-                )
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                yield heartbeat()
-                continue
-            except Exception as e:
-                logger.exception("[lean-runtime] /stream raised")
-                yield sse_error(f"lean runtime crashed: {e}")
-                return
-            else:
-                yield frame
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 def main() -> None:

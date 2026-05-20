@@ -1,14 +1,16 @@
 """
-SSE event formatting — runtime-agnostic.
+Event formatting — runtime-agnostic.
 
-This module is the canonical source for SSE frame helpers used by both
-the legacy SDK runner (services/stream/runner.py) and the lean runtime
-(astra/runtime/agent_loop.py). Moved here from services/stream/events.py
-so the runtime layer can emit events without depending on the
-services/ shell.
-
-services/stream/events.py is kept as a thin re-export so existing
-imports keep working through the migration.
+Canonical source for the event frame helpers used by the lean
+runtime (astra/runtime/agent_loop.py). Frames are written into the
+`turn_events` table via record_event() AND yielded back as SSE-shaped
+bytes for any callers still consuming a streaming response — but the
+last such caller (`POST /stream` in services/stream/main.py) was
+deleted in 2026-05-20 along with the rest of the SSE escape hatch.
+The frame format stays SSE-compatible because the polling consumer's
+translateEvent() in astra-web's lib/chatPoller.ts reads stored
+payloads in the same shape; changing the wire would force a coupled
+deploy of both repos.
 
 Wire format:
     event: <name>
