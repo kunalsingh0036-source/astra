@@ -83,18 +83,74 @@ async def load_session_messages(session_id: str) -> list[dict[str, Any]]:
     return out
 
 
+def _strip_image_blocks(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Replace base64 image content blocks with a small text marker.
+
+    Why HERE, at the persistence boundary: a drag-dropped screenshot
+    arrives as a multi-MB base64 image block on the user message. If
+    that block is persisted into turns.messages, three things go
+    wrong on every later turn in the session:
+      1. The base64 re-ships to the Anthropic API each turn until it
+         falls out of the compaction tail (multi-MB of upload per
+         message sent).
+      2. The char//4 token estimator counts base64 at ~200× the real
+         image token cost (1MB PNG ≈ 343k estimated vs ~1.6k real),
+         so the session crosses the compaction threshold permanently
+         and pass-2 elides ALL history — user-visible as "Astra
+         forgot the conversation after I sent a screenshot."
+      3. turns.messages grows without bound (no retention job yet).
+
+    Semantics: the model SAW the image during the turn it was sent —
+    its text response captures what mattered. History keeps a marker
+    so the model knows an image existed and can ask the user to
+    re-attach if it genuinely needs another look.
+    """
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+        new_content: list[Any] = []
+        changed = False
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "image":
+                changed = True
+                new_content.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            "[image attachment from this turn — analyzed "
+                            "live, not re-sent in later context. Ask the "
+                            "user to re-attach if you need to see it again.]"
+                        ),
+                    }
+                )
+            else:
+                new_content.append(block)
+        if changed:
+            out.append({**msg, "content": new_content})
+        else:
+            out.append(msg)
+    return out
+
+
 async def save_turn_messages(
     turn_id: int, messages: list[dict[str, Any]]
 ) -> None:
     """Write the full message stack onto a turn row.
 
     Called at the end of run_lean_turn so the next turn in the session
-    can rehydrate. Swallows errors — persistence failures must never
-    break the user's actual turn.
+    can rehydrate. Image content blocks are stripped to text markers
+    first (see _strip_image_blocks). Swallows errors — persistence
+    failures must never break the user's actual turn.
     """
     if turn_id is None:
         return
     try:
+        messages = _strip_image_blocks(messages)
         async with async_session() as s:
             await s.execute(
                 text(

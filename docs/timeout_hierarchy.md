@@ -71,8 +71,8 @@ turns (e.g. DB unreachable so events never land).
 | Registry per-tool — fast | **15s** | `astra/runtime/sdk_adapter.py` `_guess_timeout` | DB-bound or pure-CPU tools (recall_*, list_*, simple lookups) |
 | Registry per-tool — moderate | **30s** | same | Network-bound (browser_fetch, email_search) |
 | Registry per-tool — slow | **120s** | same | Generation/render (draft_*, render_*, analyze_reference_site) |
-| Registry per-tool — bridge | **150s** | `astra/runtime/tools/local.py` | Bridge calls; needs margin over wait_for_result (130s) |
-| Bridge wait_for_result | **130s** | `astra/runtime/bridge/store.py` | Margin under registry tool timeout (150s) |
+| Registry per-tool — bridge | **inner + 20s** (local_bash 160s, screenshot 75s, grep 50s, read/glob 40s, write/edit 35s) | `astra/runtime/tools/local.py` | Outer registry wait_for starts before _dispatch's DB round-trips, so it MUST exceed the inner wait_for_result deadline or it fires first and leaves bridge_calls rows stuck at 'running'. Regressed to zero margin once; restored 2026-06-11. |
+| Bridge wait_for_result (inner) | **per-tool** (local_bash 140s, screenshot 55s, grep 30s, read/glob 20s, write/edit 15s) | `astra/runtime/tools/local.py` `_dispatch(...)` | Must stay 20s UNDER the registry timeout above |
 | Bridge daemon glob | **10s** | `astra/bridge_daemon.py` | Wall-clock cap on os.walk |
 | Bridge daemon grep | **15s** | `astra/bridge_daemon.py` | Wall-clock cap on os.walk |
 | Bridge daemon bash | **30s default, 120s max** | `astra/bridge_daemon.py` | User-controllable per call |
@@ -101,8 +101,8 @@ batch of events.
 ```
 poll cap (600)  - runner (240)        = 360s  ✓ huge
 runner (240)    - registry slow (120) = 120s  ✓
-registry slow (150) - wait_for (130)  = 20s   ⚠ tight; only bridge path
-wait_for (130)  - daemon bash (120)   = 10s   ⚠ tight; daemon caps at 120 anyway
+registry bridge outer - inner          = 20s   enforced margin, all 7 bridge tools
+inner bash (140) - daemon bash (120)  = 20s   margin over daemon's own cap
 ```
 
 The two tight margins are bridge-internal — they only matter when

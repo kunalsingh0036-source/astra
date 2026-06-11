@@ -692,3 +692,79 @@ async def test_text_only_turn_does_not_trigger_empty_guard() -> None:
     assert error_frames == [], (
         f"empty-output guard misfired on a non-empty turn: {error_frames}"
     )
+
+
+# ── Turn hard cap + image hygiene (added 2026-06-11) ───────
+
+
+@pytest.mark.asyncio
+async def test_turn_hard_cap_enforced(monkeypatch) -> None:
+    """_TURN_HARD_TIMEOUT_SEC existed for weeks as documentation-only —
+    defined, AST-tested, never enforced. Now the loop must stop with a
+    visible error when the deadline is breached. Cap monkeypatched to
+    0 so the very first iteration check fires."""
+    import astra.runtime.agent_loop as al
+
+    monkeypatch.setattr(al, "_TURN_HARD_TIMEOUT_SEC", 0)
+    fake = _FakeClient(["should never stream"])
+    with patch("astra.runtime.agent_loop.AsyncAnthropic", return_value=fake):
+        frames = []
+        async for f in run_lean_turn("hi", session_id="s", tools_enabled=False):
+            frames.append(_parse_sse_frame(f))
+
+    error_frames = [f for f in frames if f[0] == "error"]
+    assert any(
+        "hard cap" in f[1]["message"] for f in error_frames
+    ), f"expected hard-cap error, got: {[f[1] for f in error_frames]}"
+    assert frames[-1][0] == "done"
+
+
+def test_strip_image_blocks_replaces_base64_with_marker() -> None:
+    """Persisted history must never carry base64 image blocks — they
+    re-ship to the API every turn and blow up the token estimator
+    (the 'Astra forgot everything after a screenshot' bug)."""
+    from astra.runtime.session_store import _strip_image_blocks
+
+    messages = [
+        {"role": "user", "content": "plain text untouched"},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "A" * 1_000_000,
+                    },
+                },
+                {"type": "text", "text": "what is this?"},
+            ],
+        },
+    ]
+    out = _strip_image_blocks(messages)
+    assert out[0] == messages[0]
+    blocks = out[1]["content"]
+    assert all(b.get("type") != "image" for b in blocks)
+    assert "image attachment" in blocks[0]["text"]
+    assert blocks[1] == {"type": "text", "text": "what is this?"}
+    # original input not mutated
+    assert messages[1]["content"][0]["type"] == "image"
+
+
+def test_estimator_counts_image_blocks_at_real_cost() -> None:
+    """A 1MB base64 image must estimate at worst-case Anthropic image
+    cost (~1.6k tokens), not chars//4 (~343k) — the overcount forced
+    permanent pass-2 compaction on any session with a screenshot."""
+    from astra.runtime.agent_loop import _estimate_tokens_for_block
+
+    image_block = {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "A" * 1_400_000,
+        },
+    }
+    est = _estimate_tokens_for_block(image_block)
+    assert est <= 2_000, f"image block estimated at {est} tokens"

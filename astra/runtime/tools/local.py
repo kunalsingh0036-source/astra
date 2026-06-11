@@ -214,7 +214,7 @@ async def _dispatch(
         "required": ["path"],
     },
     tier=ActionTier.READ,
-    timeout_sec=20,
+    timeout_sec=40,
     namespace="local",
 )
 async def local_read_impl(args: dict) -> dict:
@@ -239,7 +239,7 @@ async def local_read_impl(args: dict) -> dict:
         "required": ["path", "content"],
     },
     tier=ActionTier.WRITE,
-    timeout_sec=15,
+    timeout_sec=35,
     namespace="local",
 )
 async def local_write_impl(args: dict) -> dict:
@@ -271,7 +271,7 @@ async def local_write_impl(args: dict) -> dict:
         "required": ["path", "old_string", "new_string"],
     },
     tier=ActionTier.WRITE,
-    timeout_sec=15,
+    timeout_sec=35,
     namespace="local",
 )
 async def local_edit_impl(args: dict) -> dict:
@@ -310,7 +310,7 @@ async def local_edit_impl(args: dict) -> dict:
         "required": ["command"],
     },
     tier=ActionTier.DESTRUCTIVE,
-    timeout_sec=140,
+    timeout_sec=160,
     namespace="local",
 )
 async def local_bash_impl(args: dict) -> dict:
@@ -335,7 +335,7 @@ async def local_bash_impl(args: dict) -> dict:
         "required": ["pattern"],
     },
     tier=ActionTier.READ,
-    timeout_sec=20,
+    timeout_sec=40,
     namespace="local",
 )
 async def local_glob_impl(args: dict) -> dict:
@@ -368,7 +368,7 @@ async def local_glob_impl(args: dict) -> dict:
         "required": ["pattern", "path"],
     },
     tier=ActionTier.READ,
-    timeout_sec=30,
+    timeout_sec=50,
     namespace="local",
 )
 async def local_grep_impl(args: dict) -> dict:
@@ -458,7 +458,7 @@ async def local_bridge_status_impl(args: dict) -> dict:
     # Outer cap. Inner: chrome subprocess timeout (30s) + bridge
     # network + dispatch overhead. 60s leaves margin without hanging
     # the runner per-turn budget.
-    timeout_sec=60,
+    timeout_sec=75,
     namespace="local",
 )
 async def screenshot_url_impl(args: dict) -> dict:

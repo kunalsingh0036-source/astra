@@ -333,8 +333,39 @@ async def run_lean_turn(
     turn_status = "complete"
     turn_error: str | None = None
 
+    # Hard wall-clock ceiling for the whole turn. The constant existed
+    # (defined, documented, even AST-tested) but NOTHING enforced it —
+    # a wedged Anthropic stream or a chain of slow tools could run the
+    # better part of an hour server-side, burning tokens long after
+    # the browser declared the turn dead. Enforcement is two-fold:
+    #   1. each Anthropic stream call runs inside asyncio.timeout()
+    #      bounded by the time remaining, and
+    #   2. the deadline is checked before every iteration and every
+    #      tool dispatch.
+    # Per-tool timeouts (ToolRegistry) bound the third leg.
+    deadline = started + _TURN_HARD_TIMEOUT_SEC
+
+    def _remaining() -> float:
+        return deadline - time.monotonic()
+
     try:
         for iteration in range(_MAX_TOOL_ITERATIONS):
+            if _remaining() <= 0:
+                turn_status = "failed"
+                turn_error = (
+                    f"turn exceeded {_TURN_HARD_TIMEOUT_SEC}s hard cap"
+                )
+                yield await _emit(
+                    turn_id,
+                    error,
+                    message=(
+                        f"turn hit the {_TURN_HARD_TIMEOUT_SEC}s hard "
+                        "cap and was stopped. partial work is saved — "
+                        "retry with a narrower ask."
+                    ),
+                )
+                break
+
             stream_kwargs: dict[str, Any] = {
                 "model": model,
                 "max_tokens": max_tokens,
@@ -349,23 +380,43 @@ async def run_lean_turn(
             # text deltas; we get the full message (with tool_use
             # blocks) at the end via get_final_message().
             assistant_text_chunks: list[str] = []
-            async with client.messages.stream(**stream_kwargs) as stream:
-                async for chunk in stream.text_stream:
-                    if not chunk:
-                        continue
-                    assistant_text_chunks.append(chunk)
-                    total_text_chars += len(chunk)
-                    text = chunk
-                    while len(text) > _MAX_DELTA_CHARS:
-                        chunk_to_emit = text[:_MAX_DELTA_CHARS]
-                        yield await _emit(
-                            turn_id, text_delta, content=chunk_to_emit
-                        )
-                        text = text[_MAX_DELTA_CHARS:]
-                    if text:
-                        yield await _emit(turn_id, text_delta, content=text)
+            try:
+                async with asyncio.timeout(max(5.0, _remaining())):
+                    async with client.messages.stream(**stream_kwargs) as stream:
+                        async for chunk in stream.text_stream:
+                            if not chunk:
+                                continue
+                            assistant_text_chunks.append(chunk)
+                            total_text_chars += len(chunk)
+                            text = chunk
+                            while len(text) > _MAX_DELTA_CHARS:
+                                chunk_to_emit = text[:_MAX_DELTA_CHARS]
+                                yield await _emit(
+                                    turn_id, text_delta, content=chunk_to_emit
+                                )
+                                text = text[_MAX_DELTA_CHARS:]
+                            if text:
+                                yield await _emit(
+                                    turn_id, text_delta, content=text
+                                )
 
-                final_message = await stream.get_final_message()
+                        final_message = await stream.get_final_message()
+            except TimeoutError:
+                turn_status = "failed"
+                turn_error = (
+                    f"model stream exceeded the {_TURN_HARD_TIMEOUT_SEC}s "
+                    "turn cap"
+                )
+                yield await _emit(
+                    turn_id,
+                    error,
+                    message=(
+                        "the model stream stalled past the "
+                        f"{_TURN_HARD_TIMEOUT_SEC}s turn cap and was cut "
+                        "off. partial text (if any) is shown — retry."
+                    ),
+                )
+                break
 
             assistant_text = "".join(assistant_text_chunks)
             final_response_text = assistant_text  # last iteration wins
@@ -442,6 +493,35 @@ async def run_lean_turn(
                 tool_input = getattr(block, "input", None) or {}
                 if not isinstance(tool_input, dict):
                     tool_input = {}
+
+                # Turn-cap check per tool: a chain of slow-but-legal
+                # tool calls (each under its own registry timeout) must
+                # not carry the turn past the hard cap. Remaining
+                # tool_use blocks get error results instead of
+                # dispatch so the tool_use/tool_result pairing in the
+                # saved history stays intact.
+                if _remaining() <= 0:
+                    msg = (
+                        f"not executed: turn exceeded the "
+                        f"{_TURN_HARD_TIMEOUT_SEC}s hard cap"
+                    )
+                    yield await _emit(
+                        turn_id, tool_result, id=tool_id, preview=msg, is_error=True
+                    )
+                    tool_results_for_user_turn.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": msg,
+                            "is_error": True,
+                        }
+                    )
+                    turn_status = "failed"
+                    turn_error = (
+                        f"turn exceeded {_TURN_HARD_TIMEOUT_SEC}s hard cap "
+                        "during tool dispatch"
+                    )
+                    continue
 
                 tools_called += 1
                 yield await _emit(
@@ -798,6 +878,15 @@ def _estimate_tokens_for_block(block: Any) -> int:
     if isinstance(block, str):
         return len(block) // 4
     if isinstance(block, dict):
+        # image blocks: Anthropic charges ~(width*height)/750 tokens,
+        # capped by API-side downscaling to ~1.15MP → ~1,600 tokens
+        # worst case. The JSON fallback below would count the base64
+        # body at chars//4 — ~200× the real cost for a 1MB PNG —
+        # which used to push sessions over the compaction threshold
+        # permanently after a single screenshot. Flat worst-case
+        # number; exactness doesn't matter, order of magnitude does.
+        if block.get("type") == "image":
+            return 1_600
         # text blocks
         if "text" in block and isinstance(block["text"], str):
             return len(block["text"]) // 4
