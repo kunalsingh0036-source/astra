@@ -18,6 +18,28 @@ maxDuration on /api/chat doesn't compete with runner anymore.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+# Repo root, derived from this file's location — NOT the CWD and NOT
+# an absolute laptop path. The hardcoded /Users/kunalsingh/... paths
+# this replaced passed locally and failed in CI (FileNotFoundError),
+# which the old soft-fail gate masked for weeks.
+_ASTRA_ROOT = Path(__file__).resolve().parents[2]
+
+# astra-web is a SEPARATE repo. On the laptop it's checked out as a
+# sibling; in astra's CI it isn't checked out at all. Cross-repo
+# hierarchy checks skip cleanly when it's absent — they still run
+# everywhere the two repos coexist (laptop, any combined checkout).
+_WEB_ROOT = _ASTRA_ROOT.parent / "astra-web"
+
+requires_web = pytest.mark.skipif(
+    not _WEB_ROOT.is_dir(),
+    reason=f"astra-web not checked out at {_WEB_ROOT} — cross-repo "
+    "timeout checks only run where both repos coexist",
+)
+
 
 def _read_constant(module_path: str, constant: str) -> int:
     """Read a top-level integer constant from a module without
@@ -44,9 +66,7 @@ def _vercel_chat_max_duration() -> int:
     # In TS — read by string match for the export const. With
     # Phase 2b, this is the enqueue-only timeout (10s). It no
     # longer governs the runner's lifetime.
-    text = open(
-        "/Users/kunalsingh/Claude Code/astra-web/app/api/chat/route.ts"
-    ).read()
+    text = (_WEB_ROOT / "app/api/chat/route.ts").read_text()
     import re
     m = re.search(r"export const maxDuration\s*=\s*(\d+)", text)
     assert m, "maxDuration not found in /api/chat route"
@@ -55,14 +75,13 @@ def _vercel_chat_max_duration() -> int:
 
 def _runner_per_turn_hard() -> int:
     return _read_constant(
-        "astra/runtime/agent_loop.py", "_TURN_HARD_TIMEOUT_SEC"
+        str(_ASTRA_ROOT / "astra/runtime/agent_loop.py"),
+        "_TURN_HARD_TIMEOUT_SEC",
     )
 
 
 def _browser_watchdog_ms() -> int:
-    text = open(
-        "/Users/kunalsingh/Claude Code/astra-web/components/ChatProvider.tsx"
-    ).read()
+    text = (_WEB_ROOT / "components/ChatProvider.tsx").read_text()
     import re
     m = re.search(r"const WATCHDOG_MS\s*=\s*([\d_]+)", text)
     assert m, "WATCHDOG_MS not found in ChatProvider"
@@ -74,9 +93,7 @@ def _chat_poller_max_duration_ms() -> int:
     stops polling after this; nothing observes terminal events
     after that. This is the actual outer bound on a turn from
     the user's POV."""
-    text = open(
-        "/Users/kunalsingh/Claude Code/astra-web/lib/chatPoller.ts"
-    ).read()
+    text = (_WEB_ROOT / "lib/chatPoller.ts").read_text()
     import re
     # const DEFAULT_MAX_DURATION_MS = 10 * 60 * 1000;
     m = re.search(
@@ -98,6 +115,7 @@ def _chat_poller_max_duration_ms() -> int:
 # ── Tests ─────────────────────────────────────────────────
 
 
+@requires_web
 def test_runner_under_poll_cap_with_margin() -> None:
     """Runner must finish + write terminal status BEFORE the
     browser's poll cap fires. Otherwise the user sees 'polling
@@ -118,6 +136,7 @@ def test_runner_under_poll_cap_with_margin() -> None:
     )
 
 
+@requires_web
 def test_browser_watchdog_above_runner() -> None:
     """The browser's stall watchdog (no events for N seconds)
     must NOT fire before the runner's hard cap. Otherwise a slow
@@ -137,6 +156,7 @@ def test_browser_watchdog_above_runner() -> None:
     )
 
 
+@requires_web
 def test_runner_smaller_than_browser_watchdog() -> None:
     """Runner must finish before browser gives up. Otherwise a slow-
     but-valid turn looks dead from the browser's POV."""
@@ -149,6 +169,7 @@ def test_runner_smaller_than_browser_watchdog() -> None:
     )
 
 
+@requires_web
 def test_chat_post_under_runner() -> None:
     """The /api/chat enqueue call must return way faster than a
     full turn. With Phase 2b, /api/chat just spawns the asyncio
@@ -164,12 +185,11 @@ def test_chat_post_under_runner() -> None:
     )
 
 
+@requires_web
 def test_documented_values_match_code() -> None:
     """If anyone updates the hierarchy doc without updating the
     code (or vice versa), this test catches the drift."""
-    doc_text = open(
-        "/Users/kunalsingh/Claude Code/astra/docs/timeout_hierarchy.md"
-    ).read()
+    doc_text = (_ASTRA_ROOT / "docs/timeout_hierarchy.md").read_text()
     runner_sec = _runner_per_turn_hard()
     chat_sec = _vercel_chat_max_duration()
     watchdog_sec = _browser_watchdog_ms() // 1000
