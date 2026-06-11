@@ -320,6 +320,22 @@ async def run_lean_turn(
         if tools_enabled
         else []
     )
+    # Prompt caching: ~10k tokens of system prompt + ~10-15k tokens of
+    # 117 tool schemas were re-sent UNCACHED on every iteration of
+    # every turn — 2-5× avoidable input spend on multi-iteration
+    # turns, and a fresh full-price read every turn within a session.
+    # One cache_control breakpoint on the LAST tool definition caches
+    # the whole tools array AND everything before it in the request
+    # (tools are serialized first). The system prompt gets its own
+    # breakpoint below (block form). Cache reads are 10% of input
+    # price; TTL 5 min, refreshed on use — typical chat cadence stays
+    # warm. The last-tool dict is copied so the registry's schema
+    # object isn't mutated.
+    if anthropic_tools:
+        anthropic_tools = [
+            *anthropic_tools[:-1],
+            {**anthropic_tools[-1], "cache_control": {"type": "ephemeral"}},
+        ]
 
     final_response_text = ""
     tools_called = 0
@@ -372,7 +388,15 @@ async def run_lean_turn(
                 "messages": messages,
             }
             if system_prompt:
-                stream_kwargs["system"] = system_prompt
+                # Block form so the system prompt carries its own
+                # cache_control breakpoint (string form can't).
+                stream_kwargs["system"] = [
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
             if anthropic_tools:
                 stream_kwargs["tools"] = anthropic_tools
 
