@@ -34,15 +34,51 @@ SCOPES: list[str] = [
     "https://www.googleapis.com/auth/calendar.events",
 ]
 
-# Reuse email-agent's OAuth client (installed-app type, same GCP project).
+# Path resolution, env-first. The old laptop absolutes are kept as
+# last-resort fallbacks for local dev, but the hardcoded
+# email-agent/ path no longer exists even there (repo deleted in the
+# Railway migration) — which is why cloud calendar sync never worked.
+# In the cloud: CALENDAR_*_PATH point at /tmp and the *_JSON env vars
+# carry the content (materialized below, same pattern as the email
+# agent's Gmail fix).
+import os as _os
+
 DEFAULT_CREDENTIALS_PATH = Path(
-    "/Users/kunalsingh/Claude Code/email-agent/credentials/gmail_credentials.json"
+    _os.environ.get("CALENDAR_CREDENTIALS_PATH", "").strip()
+    or "/Users/kunalsingh/Claude Code/email-agent/credentials/gmail_credentials.json"
 )
 
-# Astra gets its own token file so gmail auth stays independent.
 DEFAULT_TOKEN_PATH = Path(
-    "/Users/kunalsingh/Claude Code/astra/credentials/calendar_token.json"
+    _os.environ.get("CALENDAR_TOKEN_PATH", "").strip()
+    or "/Users/kunalsingh/Claude Code/astra/credentials/calendar_token.json"
 )
+
+
+def _materialize_calendar_creds(creds_path: Path, tok_path: Path) -> None:
+    """Write CALENDAR_*_JSON env contents to disk if files are absent.
+
+    CALENDAR_CREDENTIALS_JSON falls back to GMAIL_CREDENTIALS_JSON —
+    it's the same installed-app OAuth client, only the token (scopes)
+    differs. Idempotent: an on-disk refreshed token is never
+    clobbered by the env original.
+    """
+    pairs = [
+        (
+            _os.environ.get("CALENDAR_CREDENTIALS_JSON", "").strip()
+            or _os.environ.get("GMAIL_CREDENTIALS_JSON", "").strip(),
+            creds_path,
+        ),
+        (_os.environ.get("CALENDAR_TOKEN_JSON", "").strip(), tok_path),
+    ]
+    for content, path in pairs:
+        if not content or path.exists():
+            continue
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            logger.info("[calendar] materialized creds → %s", path)
+        except Exception:
+            logger.exception("[calendar] failed to materialize %s", path)
 
 
 def get_calendar_service(
@@ -65,6 +101,7 @@ def get_calendar_service(
 
     creds_path = credentials_path or DEFAULT_CREDENTIALS_PATH
     tok_path = token_path or DEFAULT_TOKEN_PATH
+    _materialize_calendar_creds(creds_path, tok_path)
 
     creds = None
     if tok_path.exists():
@@ -89,7 +126,20 @@ def get_calendar_service(
                     creds_path,
                 )
                 return None
-            # First-run consent flow. Blocks on Kunal's browser.
+            # First-run consent flow blocks on a browser — only valid
+            # on an interactive machine. In a headless container this
+            # used to mean run_local_server() hanging the scheduler's
+            # thread forever waiting for a browser that doesn't exist.
+            import sys as _sys
+
+            if not _sys.stdin.isatty():
+                logger.warning(
+                    "[calendar] token missing/invalid and no tty for the "
+                    "consent flow — run scripts/gcal_reauth.py from the "
+                    "laptop to provision CALENDAR_TOKEN_JSON. calendar "
+                    "disabled until then."
+                )
+                return None
             flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
             try:
                 creds = flow.run_local_server(port=0)

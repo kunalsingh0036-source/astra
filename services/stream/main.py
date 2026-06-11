@@ -875,6 +875,44 @@ async def turns_cancel(turn_id: int, request: Request) -> dict[str, object]:
     return {"cancelled": True}
 
 
+@app.get("/turns/{turn_id}/result")
+async def turns_result(turn_id: int, request: Request) -> dict[str, object]:
+    """Terminal status + final response for a turn, off the turns row.
+
+    Built for machine consumers that only need the answer — the
+    WhatsApp→Astra channel polls this. Unlike the web's
+    /api/turns/[id]/events there's no event replay or ord cursor;
+    one row read per poll.
+    """
+    _check_secret(request)
+    from sqlalchemy import text as _text
+
+    from astra.db.engine import async_session
+
+    async with async_session() as s:
+        r = await s.execute(
+            _text(
+                """
+                SELECT status, response, error_message, duration_ms
+                FROM turns WHERE id = :id
+                """
+            ),
+            {"id": turn_id},
+        )
+        row = r.first()
+    if row is None:
+        raise HTTPException(404, "unknown turn")
+    status = row.status or "running"
+    return {
+        "turn_id": turn_id,
+        "status": status,
+        "terminal": status not in ("running", "pending"),
+        "response": row.response,
+        "error_message": row.error_message,
+        "duration_ms": row.duration_ms,
+    }
+
+
 def main() -> None:
     """Entry point for `python -m stream.main`."""
     import uvicorn

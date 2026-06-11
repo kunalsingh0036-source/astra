@@ -51,6 +51,7 @@ from astra.scheduler.jobs import (
     run_betterstack_heartbeat,
     run_email_sync,
     run_retention_sweep,
+    run_wa_dispatch,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,17 @@ def _build_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=3, minute=30),
         id="retention_sweep",
         name="Retention sweep (turn_events/bridge_calls/previews)",
+        replace_existing=True,
+    )
+
+    # WhatsApp outbound drain — every 60s. Sends QUEUED gateway
+    # messages via POST /api/v1/queue/drain (mesh-auth). Replaces the
+    # celery-beat dispatch that was never deployed.
+    scheduler.add_job(
+        run_wa_dispatch,
+        IntervalTrigger(seconds=60),
+        id="wa_dispatch",
+        name="WhatsApp outbound drain",
         replace_existing=True,
     )
 

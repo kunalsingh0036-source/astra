@@ -1,13 +1,26 @@
-from pydantic import field_validator
 """
 Centralized configuration. All settings from .env, single source of truth.
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # extra="ignore": the env_file is whatever .env exists in CWD —
+    # on a laptop that's often a repo root with unrelated vars, and
+    # pydantic-settings' default extra='forbid' turned each one into
+    # an import-time ValidationError. Deployed containers never hit
+    # this (no .env file; undeclared plain env vars are always
+    # ignored), which is why it lurked until the test suite imported
+    # gateway modules from the repo root. Also fixes the no-op
+    # module docstring (an import preceded it — flagged in the
+    # deep-scan P2s).
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
     # Database
     database_url: str = "postgresql+asyncpg://astra:astra_dev@localhost:5433/whatsapp_gateway"

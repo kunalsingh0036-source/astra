@@ -1283,3 +1283,44 @@ async def email_sync() -> dict:
 
 async def run_email_sync():
     return await _safe("email_sync", email_sync)
+
+
+async def wa_dispatch() -> dict:
+    """Drain the WhatsApp gateway's outbound queue (mesh-auth HTTP).
+
+    Cloud replacement for the celery-beat process_queue task that was
+    never deployed — QUEUED messages sat unsent forever. The gateway
+    re-validates session windows + cooldowns per message at send time,
+    so draining frequently is safe.
+    """
+    import os
+
+    import httpx
+
+    base = os.environ.get(
+        "GATEWAY_URL", "http://whatsapp.railway.internal:8080"
+    ).rstrip("/")
+    headers = {
+        "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            r = await c.post(f"{base}/api/v1/queue/drain", headers=headers)
+            if r.status_code != 200:
+                logger.warning(
+                    "[scheduler] wa_dispatch → %s: %s",
+                    r.status_code,
+                    r.text[:200],
+                )
+                return {"ok": False, "status": r.status_code}
+            result = r.json()
+            if result.get("dispatched"):
+                logger.info("[scheduler] wa_dispatch: %s", result)
+            return {"ok": True, **result}
+    except Exception as e:
+        logger.warning("[scheduler] wa_dispatch error: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def run_wa_dispatch():
+    return await _safe("wa_dispatch", wa_dispatch)

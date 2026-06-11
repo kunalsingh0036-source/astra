@@ -106,6 +106,9 @@ astra = "astra.main:main"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# services/ on the path so gateway/email_agent modules are testable —
+# mirrors the deploy images' PYTHONPATH=/app:/app/services.
+pythonpath = [".", "services"]
 
 [tool.setuptools.packages.find]
 include = ["astra*"]

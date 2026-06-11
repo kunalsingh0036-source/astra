@@ -7,6 +7,7 @@ POST /api/v1/webhook — Inbound messages and status updates
 Returns 200 immediately, processes async via background tasks.
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -229,6 +230,38 @@ async def _handle_inbound_message(
         # Open/extend session window
         session_mgr = SessionManager(session)
         await session_mgr.open_session(conversation.id)
+
+        # Owner channel: messages from Kunal's own numbers are chat
+        # turns against Astra, not leads to route. Fire-and-forget so
+        # Meta's webhook deadline is never at risk; the task polls
+        # the stream service and replies on WhatsApp when the turn
+        # finishes. The message row is still stored so the
+        # conversation record stays complete.
+        from gateway.services.astra_chat import chat_and_reply, is_owner
+
+        if is_owner(phone) and content.strip():
+            conversation.owning_agent = "astra"
+            conversation.status = ConversationStatus.ACTIVE
+            message = Message(
+                conversation_id=conversation.id,
+                direction=MessageDirection.INBOUND,
+                message_type=MessageType.TEXT,
+                content=content,
+                status=MessageStatus.DELIVERED,
+                external_id=wamid,
+                agent_name="astra",
+            )
+            session.add(message)
+            conversation.last_message_at = datetime.now(timezone.utc)
+            conversation.message_count += 1
+            await session.commit()
+            asyncio.create_task(chat_and_reply(phone, content))
+            logger.info(
+                "Inbound from OWNER %s: %r → astra chat turn",
+                phone,
+                content[:50],
+            )
+            return
 
         # Route to agent
         inbound_router = InboundRouter(session)
