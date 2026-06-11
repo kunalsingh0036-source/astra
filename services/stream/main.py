@@ -16,6 +16,7 @@ kept tight: only localhost dev origins are allowed for direct debug.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 
@@ -225,6 +226,50 @@ async def _prewarm_embedding_model() -> None:
     t.start()
 
 
+@app.on_event("startup")
+async def _populate_fleet_registry() -> None:
+    """Register the 7 external agents in the fleet registry + A2A
+    discovery cache.
+
+    register_all_external_agents()'s docstring says "Called on Astra
+    startup" — but its only call site was deleted with the SDK runner
+    (commit 5f2d256, 2026-05-04) and never re-wired. Result: every
+    fleet tool (list_agents, agent_status, recommend_agent,
+    fleet_summary) and every A2A tool ran against an EMPTY registry
+    for five weeks. This is that call site, restored.
+
+    A2A_BRIDGE_BASE (optional): the agent cards hardcode the laptop
+    bridge-server address (http://localhost:8500/<name>). When set —
+    e.g. http://bridge.railway.internal:8080 — each card's URL is
+    rebased onto it so send_a2a_task reaches a deployed bridge
+    instead of a dead localhost socket.
+    """
+    try:
+        from urllib.parse import urlparse
+
+        from astra.agents.external.registry import (  # type: ignore[import-not-found]
+            EXTERNAL_AGENTS,
+            register_all_external_agents,
+        )
+
+        base = os.environ.get("A2A_BRIDGE_BASE", "").strip().rstrip("/")
+        if base:
+            for card in EXTERNAL_AGENTS:
+                path = urlparse(card.url).path
+                card.url = f"{base}{path}"
+        n = register_all_external_agents()
+        logger.info(
+            "[fleet] registered %d external agents (bridge base: %s)",
+            n,
+            base or "card defaults",
+        )
+    except Exception:
+        logger.exception(
+            "[fleet] external-agent registration FAILED — fleet/A2A "
+            "tools will see an empty registry"
+        )
+
+
 # ── Stuck-turn sweeper at startup ──────────────────────────────
 #
 # Every previous deploy/restart that interrupted an in-flight turn
@@ -341,14 +386,24 @@ class StreamRequest(BaseModel):
 def _check_secret(request: Request) -> None:
     """Reject any call that doesn't carry the shared secret.
 
-    When STREAM_SHARED_SECRET is empty the check is skipped — that's
-    the dev-only mode. In production (Cloudflare-tunneled), astra-web's
-    /api/chat proxy adds the header on every request.
+    FAIL CLOSED: when STREAM_SHARED_SECRET is unset, every guarded
+    endpoint returns 503 instead of silently going open. The old
+    fail-open "dev mode" meant one bad env save (the documented
+    empty-string-save failure class) turned the public stream service
+    into an unauthenticated agent with the full 117-tool surface —
+    including local_bash on Kunal's Mac. Local dev now requires
+    setting STREAM_SHARED_SECRET explicitly.
+
+    Comparison is constant-time (hmac.compare_digest) so the secret
+    can't be recovered byte-by-byte via response-timing.
     """
     if not _SHARED_SECRET:
-        return
+        raise HTTPException(
+            status_code=503,
+            detail="auth not configured: STREAM_SHARED_SECRET is unset",
+        )
     provided = request.headers.get("x-astra-secret", "").strip()
-    if provided != _SHARED_SECRET:
+    if not hmac.compare_digest(provided, _SHARED_SECRET):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 

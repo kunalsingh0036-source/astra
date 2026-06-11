@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8600
 
+    # Mesh auth — callers (astra-web, stream, scheduler, A2A client)
+    # must send `x-astra-secret: <this value>` on every protected
+    # request. Empty value = FAIL CLOSED (503), never open: this
+    # service can send WhatsApp as Kunal's businesses and sat publicly
+    # unauthenticated until 2026-06-11.
+    agent_shared_secret: str = ""
+
     @property
     def meta_base_url(self) -> str:
         return f"https://graph.facebook.com/{self.meta_api_version}"

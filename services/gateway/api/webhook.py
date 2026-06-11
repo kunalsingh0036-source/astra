@@ -61,9 +61,15 @@ async def verify_webhook(request: Request):
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
-    """Verify Meta's HMAC-SHA256 webhook signature."""
+    """Verify Meta's HMAC-SHA256 webhook signature.
+
+    Returns False when WHATSAPP_APP_SECRET is unset — the caller
+    decides whether to degrade (accept + CRITICAL log) or reject.
+    The old `return True` here was a silent fail-open: forged
+    webhooks were indistinguishable from Meta's.
+    """
     if not settings.whatsapp_app_secret:
-        return True  # Skip if not configured (dev mode)
+        return False
 
     expected = hmac.new(
         settings.whatsapp_app_secret.encode(),
@@ -83,13 +89,28 @@ async def receive_webhook(
 
     Returns 200 immediately — Meta requires response within 5 seconds.
     Actual processing happens in background.
+
+    Signature policy: when WHATSAPP_APP_SECRET is set, POSTs with a
+    bad signature are rejected (403). When it's UNSET we accept but
+    log CRITICAL on every event — inbound webhooks only trigger
+    message storage/refetch (no actions), so breaking live Meta
+    traffic outright is worse than the forged-junk-row risk. Set
+    WHATSAPP_APP_SECRET (Meta App Dashboard → App settings → Basic)
+    to close this. The mesh-secret middleware does NOT cover this
+    path because Meta can't send our header.
     """
     body = await request.body()
 
-    # Verify signature
     signature = request.headers.get("X-Hub-Signature-256", "")
-    if settings.whatsapp_app_secret and not _verify_signature(body, signature):
-        raise HTTPException(403, "Invalid signature")
+    if settings.whatsapp_app_secret:
+        if not _verify_signature(body, signature):
+            raise HTTPException(403, "Invalid signature")
+    else:
+        logger.critical(
+            "[webhook] accepting UNVERIFIED webhook — WHATSAPP_APP_SECRET "
+            "is unset, signatures cannot be checked. Set it in Railway "
+            "(value: Meta App Dashboard → App settings → Basic → App secret)."
+        )
 
     payload = await request.json()
 

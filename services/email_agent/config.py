@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8005
 
+    # Mesh auth — callers (astra-web, scheduler, stream) must send
+    # `x-astra-secret: <this value>` on every /api/v1/* request.
+    # Empty value = FAIL CLOSED (503 on protected routes), never open:
+    # this service fronts Kunal's real mailbox (read + send-as), and it
+    # sat publicly unauthenticated on the internet until 2026-06-11.
+    agent_shared_secret: str = ""
+
     @field_validator("gmail_credentials_path", "gmail_token_path", mode="after")
     @classmethod
     def _resolve_relative(cls, v: str) -> str:

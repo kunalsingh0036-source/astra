@@ -45,6 +45,47 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Mesh auth ───────────────────────────────────────────────
+#
+# This service sends WhatsApp as Kunal's businesses. Until 2026-06-11
+# it sat on the public internet with NO auth — anyone could POST
+# /api/v1/send. Every protected request now requires `x-astra-secret`
+# matching AGENT_SHARED_SECRET.
+#
+# Public (no secret):
+#   - /health                 — fleet probes + Railway healthcheck
+#   - /api/v1/webhook         — Meta's inbound traffic. GET is the
+#     hub.verify_token challenge; POST is HMAC-signature-verified in
+#     the handler (X-Hub-Signature-256). Meta can't send our header.
+#   - /.well-known/agent.json — A2A discovery card, public metadata.
+#
+# FAIL CLOSED: if AGENT_SHARED_SECRET is unset, protected routes
+# return 503 rather than going open.
+
+_PUBLIC_EXACT = {"/health", "/api/v1/webhook", "/.well-known/agent.json"}
+
+
+@app.middleware("http")
+async def require_mesh_secret(request, call_next):
+    import hmac as _hmac
+
+    from fastapi.responses import JSONResponse
+
+    path = request.url.path.rstrip("/") or "/"
+    if request.method == "OPTIONS" or path in _PUBLIC_EXACT:
+        return await call_next(request)
+    secret = settings.agent_shared_secret.strip()
+    if not secret:
+        return JSONResponse(
+            {"detail": "auth not configured: AGENT_SHARED_SECRET is unset"},
+            status_code=503,
+        )
+    provided = request.headers.get("x-astra-secret", "").strip()
+    if not _hmac.compare_digest(provided, secret):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
 # Mount API routers
 from gateway.api.send import router as send_router
 from gateway.api.webhook import router as webhook_router

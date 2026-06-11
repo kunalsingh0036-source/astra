@@ -61,6 +61,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── Mesh auth ───────────────────────────────────────────────
+#
+# This service fronts Kunal's real mailbox: read archive, send-as.
+# Until 2026-06-11 it sat on the public internet with NO auth — any
+# caller could list messages or send email as Kunal. Every /api/v1/*
+# request now requires `x-astra-secret` matching AGENT_SHARED_SECRET.
+#
+# Public (no secret):
+#   - /health, /            — fleet probes + Railway healthcheck
+#   - POST /api/v1/webhook/gmail — Google Pub/Sub push. Google can't
+#     send our header; the handler only triggers a refetch from Gmail
+#     (no attacker-controlled data is stored verbatim), so a forged
+#     push costs us an API call, not integrity.
+#
+# FAIL CLOSED: if AGENT_SHARED_SECRET is unset, protected routes
+# return 503 rather than going open — the empty-env-save failure
+# class is documented in learnings_railway_migration.md.
+
+# Exact paths only — /api/v1/webhook/gmail/diag and /gmail/watch are
+# operator endpoints and stay protected; only Google's push target is
+# open.
+_PUBLIC_EXACT = {"/", "/health", "/api/v1/webhook/gmail"}
+
+
+@app.middleware("http")
+async def require_mesh_secret(request, call_next):
+    import hmac as _hmac
+
+    from fastapi.responses import JSONResponse
+
+    path = request.url.path.rstrip("/") or "/"
+    if request.method == "OPTIONS" or path in _PUBLIC_EXACT:
+        return await call_next(request)
+    secret = settings.agent_shared_secret.strip()
+    if not secret:
+        return JSONResponse(
+            {"detail": "auth not configured: AGENT_SHARED_SECRET is unset"},
+            status_code=503,
+        )
+    provided = request.headers.get("x-astra-secret", "").strip()
+    if not _hmac.compare_digest(provided, secret):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
 # Mount all API routes under /api/v1
 for route_module in [
     accounts, messages, threads, contacts, templates, drafts, scheduled, ai, webhook,

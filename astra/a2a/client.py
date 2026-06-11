@@ -78,9 +78,25 @@ class A2AClient:
         self._tasks: dict[str, Task] = {}
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Lazy-init HTTP client."""
+        """Lazy-init HTTP client.
+
+        Default headers carry the mesh secret: fleet agents (gateway
+        et al.) verify x-astra-secret on their /a2a/* routes and fail
+        closed. Set as client-level defaults so every send_task /
+        get_task / cancel_task call is covered without per-call
+        plumbing.
+        """
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=30.0)
+            import os
+
+            self._http_client = httpx.AsyncClient(
+                timeout=30.0,
+                headers={
+                    "x-astra-secret": os.environ.get(
+                        "AGENT_SHARED_SECRET", ""
+                    ).strip()
+                },
+            )
         return self._http_client
 
     async def close(self) -> None:
