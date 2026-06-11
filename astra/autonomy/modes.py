@@ -112,7 +112,32 @@ def get_action_tier(tool_name: str) -> ActionTier:
     return TOOL_TIERS.get(tool_name, ActionTier.WRITE)
 
 
-def get_permission(mode: AutonomyMode, tool_name: str) -> PermissionDecision:
-    """Determine whether to allow, deny, or ask for a given tool in the current mode."""
-    tier = get_action_tier(tool_name)
+def get_permission_for_tier(
+    mode: AutonomyMode, tier: ActionTier
+) -> PermissionDecision:
+    """Permission decision for a KNOWN tier.
+
+    This is the path the lean runtime uses: the tool registry already
+    declares every tool's tier at registration (ToolDef.tier), so the
+    gate must trust that — not the name-keyed TOOL_TIERS map below.
+    The map only knows 36 legacy names out of 117 registered tools;
+    everything else silently fell to WRITE, which auto-allowed
+    local_bash (arbitrary shell on Kunal's Mac, registered
+    DESTRUCTIVE) in semi_auto because the map only listed the old
+    SDK name "Bash". Same split-brain class as the autonomy-mode bug
+    fixed in 7374fd7: two sources of truth, the stale one consulted.
+    """
     return PERMISSION_MATRIX[mode][tier]
+
+
+def get_permission(mode: AutonomyMode, tool_name: str) -> PermissionDecision:
+    """Name-based permission lookup — LEGACY path.
+
+    Only for callers that genuinely have no ToolDef (SDK-era hooks,
+    tests). Anything with access to the tool registry must use
+    get_permission_for_tier with the registered tier instead; the
+    name map here defaults unknown names to WRITE, which is exactly
+    the silent-permission-bypass this split caused.
+    """
+    tier = get_action_tier(tool_name)
+    return get_permission_for_tier(mode, tier)

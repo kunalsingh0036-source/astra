@@ -1101,7 +1101,7 @@ def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
         from astra.autonomy.modes import (
             ActionTier as AutonomyTier,
             PermissionDecision,
-            get_permission,
+            get_permission_for_tier,
         )
     except Exception:
         return True, "autonomy module unavailable — allowing by default"
@@ -1110,7 +1110,11 @@ def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
         mode = autonomy_manager.mode
         # Map our ActionTier (runtime copy) to the autonomy module's.
         tier = AutonomyTier(td.tier.value)
-        decision = get_permission(mode, tool_name)
+        # Gate on the tier the registry declared at registration —
+        # NOT the legacy name-keyed TOOL_TIERS map, which only knew
+        # 36 SDK-era names and silently defaulted the other ~80 tools
+        # (including local_bash, registered DESTRUCTIVE) to WRITE.
+        decision = get_permission_for_tier(mode, tier)
         if decision == PermissionDecision.ALLOW:
             return True, f"auto-allow ({mode.value} / {tier.value})"
         if decision == PermissionDecision.DENY:

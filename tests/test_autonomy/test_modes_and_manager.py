@@ -41,6 +41,61 @@ class TestModes:
         assert get_action_tier("Edit") == ActionTier.WRITE
         assert get_action_tier("Bash") == ActionTier.DESTRUCTIVE
 
+    def test_tier_based_permission_ignores_name_map(self):
+        """The lean runtime gates on the REGISTERED tier, not the
+        legacy name map. Regression lock for the local_bash bypass:
+        the name map only knew SDK-era "Bash", so "local_bash" fell
+        to the WRITE default and auto-ran arbitrary shell in
+        semi_auto. With the tier-based path, a DESTRUCTIVE
+        registration must yield ASK in semi_auto regardless of what
+        the tool is called."""
+        from astra.autonomy.modes import get_permission_for_tier
+
+        # local_bash is NOT in TOOL_TIERS — the name path is wrong:
+        assert get_action_tier("local_bash") == ActionTier.WRITE
+        # …but the tier path (what the runtime now uses) is right:
+        assert (
+            get_permission_for_tier(AutonomyMode.SEMI_AUTO, ActionTier.DESTRUCTIVE)
+            == PermissionDecision.ASK
+        )
+        assert (
+            get_permission_for_tier(AutonomyMode.ALWAYS_ASK, ActionTier.DESTRUCTIVE)
+            == PermissionDecision.ASK
+        )
+        assert (
+            get_permission_for_tier(AutonomyMode.FULL_AUTO, ActionTier.DESTRUCTIVE)
+            == PermissionDecision.ALLOW
+        )
+
+    def test_runtime_gate_denies_destructive_tier_in_semi_auto(self):
+        """End-to-end through _autonomy_check: a ToolDef registered
+        DESTRUCTIVE under a name absent from TOOL_TIERS must be
+        denied in semi_auto (ask-deny — no approval UX yet), not
+        silently allowed."""
+        from astra.autonomy.manager import autonomy_manager
+        from astra.runtime.agent_loop import _autonomy_check
+        from astra.runtime.tool_registry import ActionTier as RegistryTier, ToolDef
+
+        async def fn(args: dict) -> str:
+            return "boom"
+
+        td = ToolDef(
+            name="local_bash",
+            description="",
+            input_schema={"type": "object"},
+            fn=fn,
+            tier=RegistryTier.DESTRUCTIVE,
+        )
+        previous = autonomy_manager.mode
+        try:
+            autonomy_manager.set_mode(AutonomyMode.SEMI_AUTO, reason="test")
+            allowed, reason = _autonomy_check(td, "local_bash")
+            assert allowed is False, (
+                f"DESTRUCTIVE tool auto-allowed in semi_auto: {reason}"
+            )
+        finally:
+            autonomy_manager.set_mode(previous, reason="test restore")
+
 
 class TestManager:
     def test_default_mode(self):
