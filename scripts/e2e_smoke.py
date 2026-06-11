@@ -1362,6 +1362,82 @@ async def test_14_no_sentinel_leak(
     )
 
 
+async def test_15_upstream_auth_enforced(
+    state: HarnessState, client: httpx.AsyncClient
+) -> TestResult:
+    """Security lock: fleet-agent APIs reject unauthenticated calls.
+
+    Regression lock for the 2026-06-11 finding that email-agent and
+    whatsapp-gateway sat publicly unauthenticated — anyone could read
+    Kunal's mail or send WhatsApp as him. The mesh-auth middleware
+    must 401 (bad/missing secret) or 503 (secret unconfigured) every
+    unauthenticated request, and must accept the same request WITH
+    the shared secret. Health endpoints stay public for fleet probes.
+    """
+    started = time.monotonic()
+    probes = [
+        # (label, url, expect_data_with_secret)
+        (
+            "email",
+            "https://email.thearrogantclub.com/api/v1/messages/summary",
+            True,
+        ),
+        (
+            "whatsapp",
+            "https://whatsapp.thearrogantclub.com/api/v1/templates/",
+            True,
+        ),
+    ]
+    failures: list[str] = []
+    details: list[str] = []
+    for label, url, expect_ok in probes:
+        # 1. No secret → must be rejected.
+        try:
+            r = await client.get(url, timeout=10.0)
+            if r.status_code not in (401, 403, 503):
+                failures.append(
+                    f"{label}: unauthenticated GET returned "
+                    f"{r.status_code} (expected 401/403/503) — PUBLIC HOLE"
+                )
+                continue
+            details.append(f"{label}:{r.status_code} w/o secret")
+        except Exception as e:
+            failures.append(f"{label}: unauth probe error {type(e).__name__}")
+            continue
+        # 2. With secret → must work (when we have one to send).
+        if expect_ok and state.shared_secret:
+            try:
+                r2 = await client.get(
+                    url,
+                    headers={"x-astra-secret": state.shared_secret},
+                    timeout=10.0,
+                )
+                if r2.status_code != 200:
+                    failures.append(
+                        f"{label}: authenticated GET returned "
+                        f"{r2.status_code} (expected 200) — secret "
+                        "mismatch between caller and agent?"
+                    )
+            except Exception as e:
+                failures.append(
+                    f"{label}: auth probe error {type(e).__name__}"
+                )
+    elapsed = int((time.monotonic() - started) * 1000)
+    if failures:
+        return TestResult(
+            name="15 upstream auth enforced",
+            passed=False,
+            duration_ms=elapsed,
+            error="; ".join(failures),
+        )
+    return TestResult(
+        name="15 upstream auth enforced",
+        passed=True,
+        duration_ms=elapsed,
+        detail=" · ".join(details),
+    )
+
+
 # ── Runner ─────────────────────────────────────────────────
 
 
@@ -1382,6 +1458,8 @@ TESTS = [
     test_12_image_attachment_vision,
     test_13_event_replay_idempotent,
     test_14_no_sentinel_leak,
+    # Security locks (added 2026-06-11).
+    test_15_upstream_auth_enforced,
 ]
 
 
