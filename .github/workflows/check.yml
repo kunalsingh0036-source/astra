@@ -78,8 +78,13 @@ jobs:
       - name: alembic upgrade head
         run: python -m alembic upgrade head
       - name: pytest
-        run: |
-          # Soft-fail on test failures for now — we have legacy tests
-          # that depend on local-state we haven't sandboxed yet.
-          # Tighten this once tests are reliable in CI.
-          pytest -x --tb=short || echo "(soft-fail until tests are CI-sandboxed)"
+        # HARD GATE since 2026-06-11. The soft-fail (`|| echo`) this
+        # replaced meant every push since the job was added could ship
+        # arbitrary test regressions — and did: 6 SDK-era test
+        # corpses failed every run for 5+ weeks with a green check.
+        # Those tests are fixed; environment-dependent ones (redis)
+        # now skip instead of fail. Full suite verified green against
+        # a clean localhost Postgres before this flag was flipped.
+        # If this step is red, the commit is broken. Fix it, don't
+        # soften the gate.
+        run: pytest --tb=short

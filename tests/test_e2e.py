@@ -169,36 +169,48 @@ class TestAutonomyE2E:
 # ── Agent Fleet ────────────────────────────────────────────────
 
 class TestFleetE2E:
-    """Fleet management: registration, recommendations, research-intel."""
+    """Fleet management: external-agent registration + recommendations.
 
-    def test_research_intel_registered(self):
-        from astra.agents.definitions.research_intel import register, AGENT_NAME
-        from astra.agents.registry import AgentRegistry, AgentStatus
+    The research_intel tests that used to live here imported a module
+    deleted in the Phase-6 SDK removal (5f2d256) and failed every run
+    for 5+ weeks — masked by check.yml's pytest soft-fail. Replaced
+    with locks on the behavior that actually exists: the 7 external
+    A2A agents registering into the fleet registry, which is what the
+    stream-service startup hook (re-wired 2026-06-11 after its call
+    site was lost in the same SDK removal) depends on.
+    """
 
-        registry = AgentRegistry()
-        # Simulate registration
-        from astra.agents.definitions.research_intel import AgentDefinitionRecord
-        registry.register(AgentDefinitionRecord(
-            name=AGENT_NAME,
-            description="Research agent",
-            capabilities=["research", "analysis"],
-            status=AgentStatus.ACTIVE,
-            tools=["WebSearch", "WebFetch"],
-            model_tier="sonnet",
-        ))
+    def test_external_agents_register_into_fleet_and_discovery(self):
+        from astra.agents.external.registry import (
+            EXTERNAL_AGENTS,
+            register_all_external_agents,
+        )
+        from astra.agents.registry import agent_registry
 
-        agents = registry.list_all()
-        assert len(agents) == 1
-        assert agents[0]["name"] == "research-intel"
-        assert agents[0]["status"] == "active"
+        n = register_all_external_agents()
+        assert n == len(EXTERNAL_AGENTS) == 7
 
-    def test_research_intel_definition(self):
-        from astra.agents.definitions.research_intel import get_agent_definition
+        registered = {a["name"] for a in agent_registry.list_all()}
+        for card in EXTERNAL_AGENTS:
+            assert card.name in registered, (
+                f"{card.name} missing from fleet registry after "
+                "register_all_external_agents()"
+            )
 
-        definition = get_agent_definition()
-        assert definition.description is not None
-        assert "WebSearch" in definition.tools
-        assert definition.model == "sonnet"
+    def test_external_agents_discoverable_via_a2a(self):
+        from astra.a2a.discovery import agent_discovery
+        from astra.agents.external.registry import (
+            EXTERNAL_AGENTS,
+            register_all_external_agents,
+        )
+
+        register_all_external_agents()
+        for card in EXTERNAL_AGENTS:
+            found = agent_discovery.get(card.name)
+            assert found is not None, (
+                f"{card.name} not in A2A discovery cache — send_a2a_task "
+                "would fail with 'unknown agent'"
+            )
 
     def test_recommendations_exclude_built_agents(self):
         from astra.agents.registry import AgentRegistry, AgentDefinitionRecord, AgentStatus
@@ -284,9 +296,13 @@ class TestLeanRuntimeE2E:
         prompt = get_system_prompt()
         assert prompt
         assert "Astra" in prompt
+        # The old `assert options.max_turns == 50` here referenced an
+        # SDK-era ClaudeAgentOptions variable that no longer exists —
+        # a NameError that failed every run since Phase 6. The lean
+        # runtime's equivalent budget lives in agent_loop:
+        from astra.runtime.agent_loop import _MAX_TOOL_ITERATIONS
 
-        # Has budget limits
-        assert options.max_turns == 50
+        assert _MAX_TOOL_ITERATIONS >= 10, "tool-iteration budget too tight"
 
     def test_system_prompt_completeness(self):
         from astra.core.system_prompt import get_system_prompt
@@ -337,17 +353,31 @@ class TestSystemE2E:
         assert settings.embedding_model == "all-MiniLM-L6-v2"
         assert settings.embedding_dimension == 384
         assert settings.default_autonomy_mode in ("always_ask", "semi_auto", "full_auto")
-        assert "5433" in settings.database_url
-        assert "6380" in settings.redis_url
+        # Environment-agnostic: laptop runs Docker PG on 5433 / Redis
+        # on 6380, CI's service container is 5432/6379, Railway is
+        # internal hostnames. Asserting specific ports here made the
+        # test fail everywhere except one laptop. What actually
+        # matters: the URL parses and carries the async driver.
+        assert settings.database_url.startswith("postgresql+asyncpg://")
+        assert settings.redis_url.startswith("redis://")
 
     @pytest.mark.asyncio
     async def test_database_connectivity(self):
         from sqlalchemy import text
-        from astra.db.engine import engine
+        from sqlalchemy.ext.asyncio import create_async_engine
 
-        async with engine.connect() as conn:
-            result = await conn.execute(text("SELECT 1"))
-            assert result.scalar() == 1
+        # Own engine per test, NOT the module-global astra.db.engine —
+        # the global engine binds to the first asyncio event loop that
+        # touches it, and pytest-asyncio gives each test its own loop.
+        # Reusing the global was the source of the full-suite-only
+        # RuntimeError flake (passed solo, failed in sequence).
+        test_engine = create_async_engine(settings.database_url)
+        try:
+            async with test_engine.connect() as conn:
+                result = await conn.execute(text("SELECT 1"))
+                assert result.scalar() == 1
+        finally:
+            await test_engine.dispose()
 
     @pytest.mark.asyncio
     async def test_pgvector_extension(self):
@@ -363,9 +393,16 @@ class TestSystemE2E:
         await test_engine.dispose()
 
     def test_redis_connectivity(self):
-        import redis as redis_lib
-        r = redis_lib.from_url(settings.redis_url)
-        assert r.ping() is True
+        # Environment-availability probe, not a code regression test:
+        # skip (don't fail) when redis isn't installed or running —
+        # CI's check.yml provisions Postgres but not Redis, and the
+        # only Redis consumers (Celery paths) aren't deployed either.
+        redis_lib = pytest.importorskip("redis")
+        r = redis_lib.from_url(settings.redis_url, socket_connect_timeout=2)
+        try:
+            assert r.ping() is True
+        except redis_lib.exceptions.ConnectionError:
+            pytest.skip(f"no redis listening at {settings.redis_url}")
 
     def test_embedding_model_loads(self):
         from astra.memory.embeddings import embed_text
