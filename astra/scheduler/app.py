@@ -173,50 +173,69 @@ def _build_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    # Apple Notes sync — every 30 minutes. Incremental (only changed
-    # notes re-fetched), so a no-op run is <2s. Keeps Astra's mirror
-    # of Kunal's notes in near-sync without spamming AppleScript.
-    scheduler.add_job(
-        run_notes_sync,
-        IntervalTrigger(minutes=30),
-        id="notes_sync",
-        name="Apple Notes sync",
-        replace_existing=True,
-    )
+    # ── macOS-only jobs ─────────────────────────────────────
+    # These five shell out to /usr/bin/osascript (Apple Notes, macOS
+    # notifications) or watch laptop-filesystem paths (~/Astra/
+    # recordings). Registering them on the Linux cloud scheduler
+    # meant they fired forever, failed forever, and — worse — the
+    # apply-workers could NEVER apply approved rows, silently
+    # stranding Kunal's /tonight submissions. Gate on the platform:
+    # the cloud scheduler simply doesn't get them; a laptop-side
+    # scheduler (if/when one runs again) registers them as before.
+    import sys as _sys
 
-    # Missed-session snapshot — daily at 21:30 IST, half an hour
-    # before the evening briefing so the briefing reads a fresh
-    # snapshot. Also runs a re-sync first so catch-up sessions
-    # logged in the note later in the day are captured. The snapshot
-    # is idempotent per UTC day, so no harm from manual re-runs.
-    scheduler.add_job(
-        run_missed_session_snapshot,
-        CronTrigger(hour=21, minute=30),
-        id="missed_session_snapshot",
-        name="Missed-session snapshot",
-        replace_existing=True,
-    )
+    _IS_MACOS = _sys.platform == "darwin"
+    if not _IS_MACOS:
+        logger.info(
+            "[scheduler] skipping 5 macOS-only jobs (notes_sync, "
+            "missed_session_snapshot, training_catchup_prompt*, "
+            "apply_approved_catchups, meetings_pipeline, "
+            "meeting_capture_trigger) — no osascript on %s. "
+            "*catchup prompt still posts the web notification path.",
+            _sys.platform,
+        )
+
+    if _IS_MACOS:
+        # Apple Notes sync — every 30 minutes. Incremental (only
+        # changed notes re-fetched), so a no-op run is <2s.
+        scheduler.add_job(
+            run_notes_sync,
+            IntervalTrigger(minutes=30),
+            id="notes_sync",
+            name="Apple Notes sync",
+            replace_existing=True,
+        )
+
+        # Missed-session snapshot — daily at 21:30 IST, half an hour
+        # before the evening briefing so the briefing reads a fresh
+        # snapshot. Requires the Apple Notes mirror.
+        scheduler.add_job(
+            run_missed_session_snapshot,
+            CronTrigger(hour=21, minute=30),
+            id="missed_session_snapshot",
+            name="Missed-session snapshot",
+            replace_existing=True,
+        )
+
+        # Apply-worker — every 60s. Writes approved catchup rows to
+        # the Kunal Apple Note via osascript.
+        scheduler.add_job(
+            run_apply_approved_catchups,
+            IntervalTrigger(seconds=60),
+            id="apply_approved_catchups",
+            name="Apply approved catchups",
+            replace_existing=True,
+        )
 
     # Training catch-up prompt — 21:30 IST. Notification primary,
-    # email secondary. The prompt opens /tonight for Kunal to fill
-    # in the six-row form; submission stages a pending approval.
+    # email secondary; BOTH legs work from the cloud (web push +
+    # email-agent send), so this job stays cross-platform. Only the
+    # Apple-Note writeback (apply-worker above) is macOS-bound.
     scheduler.add_job(
         run_training_catchup_prompt,
         CronTrigger(hour=21, minute=30),
         id="training_catchup_prompt",
         name="Training catch-up prompt",
-        replace_existing=True,
-    )
-
-    # Apply-worker — every 60s. Picks up any `catchup_approvals` rows
-    # in state='approved' and writes them to the Kunal Apple Note,
-    # then marks them 'applied'. Also expires stale (>24h) 'pending'
-    # rows so half-finished approvals don't linger.
-    scheduler.add_job(
-        run_apply_approved_catchups,
-        IntervalTrigger(seconds=60),
-        id="apply_approved_catchups",
-        name="Apply approved catchups",
         replace_existing=True,
     )
 
@@ -243,29 +262,28 @@ def _build_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    # Meetings pipeline — every 30 s. Scans ~/Astra/recordings for
-    # dropped audio files, transcribes via whisper.cpp, summarizes
-    # via Claude, stages action items as tasks, fires a macOS
-    # notification. Self-healing state machine.
-    scheduler.add_job(
-        run_meetings_pipeline,
-        IntervalTrigger(seconds=30),
-        id="meetings_pipeline",
-        name="Meeting pipeline (transcribe + summarize)",
-        replace_existing=True,
-    )
+    if _IS_MACOS:
+        # Meetings pipeline — every 30 s. Scans ~/Astra/recordings
+        # for dropped audio, transcribes via whisper.cpp, summarizes
+        # via Claude, fires a macOS notification. Laptop-only by
+        # nature (recordings land on the laptop filesystem).
+        scheduler.add_job(
+            run_meetings_pipeline,
+            IntervalTrigger(seconds=30),
+            id="meetings_pipeline",
+            name="Meeting pipeline (transcribe + summarize)",
+            replace_existing=True,
+        )
 
-    # Calendar-triggered auto-capture — every 60 s. Finds upcoming Meet
-    # events, starts astra-capture subprocess at the event start time,
-    # stops when end + 5-min buffer passes. Output file lands in
-    # ~/Astra/recordings and is picked up by meetings_pipeline.
-    scheduler.add_job(
-        run_meeting_capture_trigger,
-        IntervalTrigger(seconds=60),
-        id="meeting_capture_trigger",
-        name="Auto-capture (calendar-triggered)",
-        replace_existing=True,
-    )
+        # Calendar-triggered auto-capture — every 60 s. Starts the
+        # astra-capture subprocess on the laptop for upcoming Meets.
+        scheduler.add_job(
+            run_meeting_capture_trigger,
+            IntervalTrigger(seconds=60),
+            id="meeting_capture_trigger",
+            name="Auto-capture (calendar-triggered)",
+            replace_existing=True,
+        )
 
     # Research Intel — 07:00 IST daily. Rotating topic queue drives
     # Mon-Fri + Sun. Saturday is the weekly meta-review (self-audit
@@ -338,6 +356,33 @@ def start_scheduler() -> AsyncIOScheduler:
         _scheduler = _build_scheduler()
     if not _scheduler.running:
         _scheduler.start()
+        # The jobstore is Postgres-persisted: jobs registered by a
+        # PREVIOUS process (e.g. the macOS-only set, before they were
+        # platform-gated) survive in astra_scheduler_jobs and load on
+        # start regardless of what _build_scheduler registered. Purge
+        # any job that's persisted but platform-inappropriate here —
+        # otherwise the gating above only affects fresh databases.
+        import sys as _sys
+
+        if _sys.platform != "darwin":
+            _MACOS_JOB_IDS = (
+                "notes_sync",
+                "missed_session_snapshot",
+                "apply_approved_catchups",
+                "meetings_pipeline",
+                "meeting_capture_trigger",
+            )
+            for _jid in _MACOS_JOB_IDS:
+                try:
+                    _scheduler.remove_job(_jid)
+                    logger.info(
+                        "[scheduler] purged persisted macOS-only job %r "
+                        "(platform=%s)",
+                        _jid,
+                        _sys.platform,
+                    )
+                except Exception:
+                    pass  # not in the store — nothing to purge
         logger.info(
             "[scheduler] started — jobs: %s",
             [j.id for j in _scheduler.get_jobs()],

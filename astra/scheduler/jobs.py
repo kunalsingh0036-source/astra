@@ -236,14 +236,68 @@ async def run_betterstack_heartbeat():
     return await _safe("betterstack_heartbeat", betterstack_heartbeat)
 
 
+async def _cloud_fleet_probe() -> list[dict]:
+    """Probe the DEPLOYED fleet over Railway's private network.
+
+    The legacy path (service_manager.health_check_all) probes laptop
+    localhost ports and working directories that were decommissioned
+    in the Railway migration — on the cloud scheduler it reported
+    0/9 running forever, filing 'fleet health issue' memories about a
+    fleet that doesn't exist. This is the honest replacement.
+
+    Override targets with FLEET_HEALTH_URLS (comma-separated
+    name=url pairs) if the topology changes.
+    """
+    import os
+
+    import httpx
+
+    raw = os.environ.get("FLEET_HEALTH_URLS", "").strip()
+    if raw:
+        targets = {}
+        for pair in raw.split(","):
+            name, _, url = pair.strip().partition("=")
+            if name and url:
+                targets[name] = url
+    else:
+        targets = {
+            "stream": "http://stream.railway.internal:8080/health",
+            "email": "http://email.railway.internal:8080/health",
+            "whatsapp": "http://whatsapp.railway.internal:8080/health",
+            "finance": "http://finance.railway.internal:8080/health",
+        }
+
+    results: list[dict] = []
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for name, url in targets.items():
+            try:
+                r = await client.get(url)
+                results.append(
+                    {
+                        "service": name,
+                        "status": "healthy" if r.status_code == 200 else "unhealthy",
+                    }
+                )
+            except Exception:
+                results.append({"service": name, "status": "unhealthy"})
+    return results
+
+
 async def fleet_health_check() -> dict:
     """Probe every service; log and remember any unhealthy ones."""
-    from astra.services.manager import service_manager
+    import sys as _sys
+
     from astra.memory.store import store_memory
     from astra.memory.models import MemoryType
     from astra.db.engine import async_session
 
-    results = await service_manager.health_check_all()
+    if _sys.platform == "darwin":
+        # Laptop topology — pid files + localhost ports.
+        from astra.services.manager import service_manager
+
+        results = await service_manager.health_check_all()
+    else:
+        results = await _cloud_fleet_probe()
     healthy = [r for r in results if r["status"] == "healthy"]
     unhealthy = [r for r in results if r["status"] == "unhealthy"]
     stopped = [r for r in results if r["status"] == "stopped"]
