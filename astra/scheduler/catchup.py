@@ -67,8 +67,14 @@ PROMPT_SUBJECT = "astra · catch-up · what did you get done today?"
 # Email-agent endpoints. The agent has a `GET /api/v1/messages/`
 # list endpoint but no server-side search, so we pull the recent
 # window and filter client-side on subject + direction.
-EMAIL_SEND_URL = "http://localhost:8005/api/v1/messages/send"
-EMAIL_LIST_URL = "http://localhost:8005/api/v1/messages/"
+# Derived from the canonical email-agent base URL (EMAIL_AGENT_URL
+# env on Railway; localhost only on the laptop). Hardcoded localhost
+# here is what silently severed the training-catch-up email loop
+# after the Railway migration.
+from astra.email.client import BASE_URL as _EMAIL_BASE, mesh_headers
+
+EMAIL_SEND_URL = f"{_EMAIL_BASE}/api/v1/messages/send"
+EMAIL_LIST_URL = f"{_EMAIL_BASE}/api/v1/messages/"
 
 
 # ─── 21:30 prompt ───────────────────────────────────────────────────
@@ -107,6 +113,7 @@ async def training_catchup_prompt() -> dict[str, Any]:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.post(
                     EMAIL_SEND_URL,
+                    headers=mesh_headers(),
                     json={
                         "to": ["kunalsingh0036@gmail.com"],
                         "cc": [],
@@ -186,6 +193,7 @@ async def fetch_latest_reply() -> dict[str, Any] | None:
             # EmailDirection enum: "inbound" | "outbound" (not "received").
             r = await client.get(
                 EMAIL_LIST_URL,
+                headers=mesh_headers(),
                 params={"direction": "inbound", "limit": 25, "offset": 0},
             )
             if r.status_code != 200:

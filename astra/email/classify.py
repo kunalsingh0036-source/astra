@@ -27,7 +27,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-BASE_URL = "http://localhost:8005"
+# Single source of truth for the email-agent address + mesh auth —
+# see astra/email/client.py for why this must NOT be hardcoded.
+from astra.email.client import BASE_URL, mesh_headers
 DEFAULT_CONCURRENCY = 3
 DEFAULT_MAX_PER_RUN = 50
 FALLBACK_SUMMARY = "Classification unavailable"
@@ -68,6 +70,7 @@ async def classify_sweep(
                     r = await client.post(
                         f"{BASE_URL}/api/v1/ai/classify/{msg_id}",
                         json={},
+                        headers=mesh_headers(),
                     )
                     if r.status_code != 200:
                         logger.warning(
@@ -125,6 +128,7 @@ async def _collect_targets(
         while len(targets) < max_messages and scanned < MAX_SCAN:
             r = await client.get(
                 f"{BASE_URL}/api/v1/messages/",
+                headers=mesh_headers(),
                 params={
                     "direction": "inbound",
                     "limit": page_size,

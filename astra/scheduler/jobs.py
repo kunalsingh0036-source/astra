@@ -295,11 +295,17 @@ async def gmail_watch_renew() -> dict:
     """Renew Gmail push notification watch before it expires (7d cycle)."""
     import httpx
 
-    # email-agent exposes the watch renewal at /api/v1/webhook/gmail/watch
-    email_url = "http://localhost:8005/api/v1/webhook/gmail/watch"
+    # email-agent exposes the watch renewal at /api/v1/webhook/gmail/watch.
+    # Canonical base + mesh secret from astra/email/client.py — the
+    # hardcoded localhost this replaced is the bug that silently
+    # severed every scheduler→email-agent call after the Railway
+    # migration.
+    from astra.email.client import BASE_URL as _email_base, mesh_headers
+
+    email_url = f"{_email_base}/api/v1/webhook/gmail/watch"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(email_url)
+            resp = await client.post(email_url, headers=mesh_headers())
             if resp.status_code != 200:
                 logger.warning("[scheduler] gmail_watch_renew failed: %s", resp.status_code)
                 return {"status": "error", "code": resp.status_code}
@@ -530,9 +536,12 @@ async def evening_briefing() -> dict:
         # Fall back to the raw summary counter if the signal pipe
         # is down — better than nothing.
         try:
+            from astra.email.client import BASE_URL as _email_base, mesh_headers
+
             async with httpx.AsyncClient(timeout=5) as client:
                 r = await client.get(
-                    "http://localhost:8005/api/v1/messages/summary"
+                    f"{_email_base}/api/v1/messages/summary",
+                    headers=mesh_headers(),
                 )
                 if r.status_code == 200:
                     email_summary = {"raw_summary": r.json()}
@@ -861,9 +870,12 @@ Write the briefing now."""
     if channel in ("email", "both"):
         try:
             subject = f"astra · evening brief · {now_ist.strftime('%a %d %b')}"
+            from astra.email.client import BASE_URL as _email_base, mesh_headers
+
             async with httpx.AsyncClient(timeout=15) as client2:
                 r = await client2.post(
-                    "http://localhost:8005/api/v1/messages/send",
+                    f"{_email_base}/api/v1/messages/send",
+                    headers=mesh_headers(),
                     json={
                         "to": ["kunalsingh0036@gmail.com"],
                         "cc": [],

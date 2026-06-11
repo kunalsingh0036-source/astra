@@ -20,14 +20,42 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-BASE_URL = "http://localhost:8005"
+# Base URL + auth for the email-agent service.
+#
+# EMAIL_AGENT_URL: on Railway this is the private-network address
+# (http://email.railway.internal:8080). The localhost default is for
+# laptop dev only — it was ALSO what production silently used after
+# the Railway migration, which is how the cloud scheduler spent weeks
+# reporting "inbox clean" against a connection-refused socket. The
+# empty-on-error contract below hid it; the env var is now the single
+# knob, and mesh_headers() carries the shared secret the agent
+# fail-closes on. classify.py and scheduler/catchup.py import BOTH
+# from here — one source of truth for "where is the email agent."
+import os
+
+BASE_URL = (
+    os.environ.get("EMAIL_AGENT_URL", "").strip().rstrip("/")
+    or "http://localhost:8005"
+)
 DEFAULT_TIMEOUT = 5.0
+
+
+def mesh_headers() -> dict[str, str]:
+    """Auth header for every call to a fleet agent. The agents verify
+    x-astra-secret against AGENT_SHARED_SECRET and fail closed."""
+    return {
+        "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+    }
 
 
 async def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as c:
-            r = await c.get(f"{BASE_URL}{path}", params=params or {})
+            r = await c.get(
+                f"{BASE_URL}{path}",
+                params=params or {},
+                headers=mesh_headers(),
+            )
             if r.status_code != 200:
                 logger.warning("[email] GET %s → %s", path, r.status_code)
                 return None
