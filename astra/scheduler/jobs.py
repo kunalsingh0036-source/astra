@@ -1207,3 +1207,79 @@ async def shares_pipeline() -> dict:
 
 async def run_shares_pipeline():
     return await _safe("shares_pipeline", shares_pipeline)
+
+
+# ── Retention + ingestion (added 2026-06-11, fix-order #9/#10) ──
+
+
+async def retention_sweep() -> dict:
+    """Prune unbounded tables to their approved retention windows.
+
+    Windows approved by Kunal 2026-06-11:
+      - turn_events: 30 days (replay/resume only needs recent turns;
+        the turns table keeps the conversation itself)
+      - bridge_calls: 14 days (includes rows stuck at 'running' from
+        the old zero-margin timeout bug)
+      - previews: TTL already on each row (default 7d) — this finally
+        CALLS sweep_expired(), which existed since the previews table
+        landed but had zero call sites while multi-MB base64 uploads
+        accumulated.
+      - turns.messages: kept forever, deliberately — it's the
+        conversation history.
+    """
+    from astra.db.engine import async_session
+    from astra.runtime.preview_store import sweep_expired
+    from sqlalchemy import text as _text
+
+    counts: dict[str, int] = {}
+    async with async_session() as session:
+        r = await session.execute(
+            _text(
+                "DELETE FROM turn_events "
+                "WHERE created_at < now() - interval '30 days'"
+            )
+        )
+        counts["turn_events"] = r.rowcount or 0
+        r = await session.execute(
+            _text(
+                "DELETE FROM bridge_calls "
+                "WHERE created_at < now() - interval '14 days'"
+            )
+        )
+        counts["bridge_calls"] = r.rowcount or 0
+        await session.commit()
+
+    counts["previews"] = await sweep_expired()
+
+    logger.info("[scheduler] retention_sweep: %s", counts)
+    return counts
+
+
+async def run_retention_sweep():
+    return await _safe("retention_sweep", retention_sweep)
+
+
+async def email_sync() -> dict:
+    """Trigger a Gmail sync cycle on the email agent (HTTP, mesh auth).
+
+    Cloud replacement for the celery-beat ingestion path that was
+    never deployed — the reason prod's message store sat at 0
+    messages while /health said healthy.
+    """
+    from astra.email.client import trigger_sync
+
+    result = await trigger_sync()
+    if result.get("ok"):
+        logger.info(
+            "[scheduler] email_sync: %d account(s), %d new message(s)%s",
+            result.get("accounts_synced", 0),
+            result.get("messages_synced", 0),
+            " (bootstrapped)" if result.get("bootstrapped") else "",
+        )
+    else:
+        logger.warning("[scheduler] email_sync failed: %s", result)
+    return result
+
+
+async def run_email_sync():
+    return await _safe("email_sync", email_sync)

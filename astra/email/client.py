@@ -133,3 +133,25 @@ async def search_messages(
 async def contacts_list(limit: int = 100) -> list[dict[str, Any]]:
     data = await _get("/api/v1/contacts/", params={"limit": limit})
     return data if isinstance(data, list) else []
+
+
+async def trigger_sync() -> dict[str, Any]:
+    """Kick a Gmail sync cycle on the email agent.
+
+    Called by the scheduler's email_sync job every few minutes —
+    the cloud replacement for the celery-beat ingestion that was
+    never deployed. Longer timeout than the read paths: a bootstrap
+    backfill fetches up to 200 full messages from the Gmail API.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/sync/", headers=mesh_headers()
+            )
+            if r.status_code != 200:
+                logger.warning("[email] sync → %s: %s", r.status_code, r.text[:200])
+                return {"ok": False, "status": r.status_code}
+            return r.json()
+    except Exception as e:
+        logger.warning("[email] sync error: %s", e)
+        return {"ok": False, "error": str(e)}

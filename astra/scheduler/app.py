@@ -49,6 +49,8 @@ from astra.scheduler.jobs import (
     run_shares_pipeline,
     run_scheduler_self_check,
     run_betterstack_heartbeat,
+    run_email_sync,
+    run_retention_sweep,
 )
 
 logger = logging.getLogger(__name__)
@@ -118,6 +120,29 @@ def _build_scheduler() -> AsyncIOScheduler:
         IntervalTrigger(seconds=settings.health_check_interval_seconds),
         id="fleet_health_check",
         name="Fleet health check",
+        replace_existing=True,
+    )
+
+    # Gmail ingestion — every 5 min. POSTs the email agent's
+    # /api/v1/sync (mesh-auth). Replaces the celery-beat path that
+    # was never deployed to Railway; this is what actually fills the
+    # message store the digests/briefings/classify sweeps read.
+    scheduler.add_job(
+        run_email_sync,
+        IntervalTrigger(minutes=5),
+        id="email_sync",
+        name="Gmail ingestion (via email agent)",
+        replace_existing=True,
+    )
+
+    # Retention sweep — daily 03:30 IST (off-peak). Windows approved
+    # 2026-06-11: turn_events 30d, bridge_calls 14d, previews per-row
+    # TTL (finally calling sweep_expired), turns.messages forever.
+    scheduler.add_job(
+        run_retention_sweep,
+        CronTrigger(hour=3, minute=30),
+        id="retention_sweep",
+        name="Retention sweep (turn_events/bridge_calls/previews)",
         replace_existing=True,
     )
 

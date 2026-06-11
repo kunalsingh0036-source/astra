@@ -13,16 +13,55 @@ from email_agent.api.routes import (
     drafts,
     messages,
     scheduled,
+    sync,
     templates,
     threads,
     webhook,
 )
 
 
+def _materialize_gmail_creds() -> None:
+    """Write GMAIL_*_JSON env contents to the paths gmail_client reads.
+
+    The Railway migration provisioned GMAIL_CREDENTIALS_JSON and
+    GMAIL_TOKEN_JSON env vars (with GMAIL_*_PATH pointing at /tmp),
+    but the loader that turns env content into files was never
+    written — so _get_gmail_service() found no token and every sync
+    path silently returned empty. Classic severed wire. Idempotent:
+    existing files are left alone (a refreshed token written back by
+    google-auth must not be clobbered by the original from env).
+    """
+    import logging
+    import os
+    from pathlib import Path
+
+    logger = logging.getLogger(__name__)
+    pairs = [
+        ("GMAIL_CREDENTIALS_JSON", settings.gmail_credentials_path),
+        ("GMAIL_TOKEN_JSON", settings.gmail_token_path),
+    ]
+    for env_name, path_str in pairs:
+        content = os.environ.get(env_name, "").strip()
+        if not content:
+            continue
+        path = Path(path_str)
+        if path.exists():
+            continue  # refreshed token on disk wins over env original
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            logger.info("[gmail] materialized %s → %s", env_name, path)
+        except Exception:
+            logger.exception("[gmail] failed to materialize %s", env_name)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     import email_agent.models  # noqa: F401
+    # Gmail OAuth material from env → files, BEFORE anything can
+    # touch gmail_client.
+    _materialize_gmail_creds()
     # Detect ngrok URL on startup
     await _detect_ngrok_url()
     yield
@@ -108,7 +147,8 @@ async def require_mesh_secret(request, call_next):
 
 # Mount all API routes under /api/v1
 for route_module in [
-    accounts, messages, threads, contacts, templates, drafts, scheduled, ai, webhook,
+    accounts, messages, threads, contacts, templates, drafts, scheduled, ai,
+    sync, webhook,
 ]:
     app.include_router(route_module.router, prefix="/api/v1")
 
