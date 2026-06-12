@@ -1438,6 +1438,137 @@ async def test_15_upstream_auth_enforced(
     )
 
 
+
+
+async def test_16_approval_round_trip(
+    state: HarnessState, client: httpx.AsyncClient
+) -> TestResult:
+    """User journey: the autonomy gate actually asks, and a web
+    approval actually grants.
+
+    Locks Phase C: flip to always_ask → a WRITE tool call must
+    surface an approval_request event + an 'awaiting approval'
+    tool_result instead of executing → resolving via the web API
+    flips the row. Mode is restored in finally, like test 11.
+    """
+    if not state.has_auth:
+        return TestResult(
+            name="16 approval round-trip",
+            passed=True,
+            duration_ms=0,
+            detail="SKIPPED — no auth",
+        )
+    started = time.monotonic()
+
+    async def _set_mode(mode: str) -> bool:
+        try:
+            r = await client.post(
+                f"{state.base_url}/api/autonomy",
+                headers=_headers(state),
+                json={"mode": mode},
+                timeout=10.0,
+            )
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    # snapshot + flip
+    try:
+        r = await client.get(
+            f"{state.base_url}/api/autonomy", headers=_headers(state), timeout=10.0
+        )
+        original = (r.json() or {}).get("mode") or "semi_auto"
+    except Exception as e:
+        return TestResult(
+            name="16 approval round-trip",
+            passed=False,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error=f"mode snapshot failed: {e}",
+        )
+    if not await _set_mode("always_ask"):
+        return TestResult(
+            name="16 approval round-trip",
+            passed=False,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            error="couldn't set always_ask",
+        )
+    try:
+        out = await _post_chat_stream(
+            state,
+            client,
+            "Use the store_memory tool RIGHT NOW to store: 'approval "
+            "smoke test marker'. Do not ask questions, call the tool.",
+            timeout=90.0,
+        )
+        elapsed = out["duration_ms"]
+        approval_events = [
+            e for e in out.get("events", [])
+            if e.get("event") == "approval_request"
+        ]
+        if not approval_events:
+            tool_results = [
+                (e.get("data") or {}).get("preview", "")
+                for e in out.get("events", [])
+                if e.get("event") == "tool_result"
+            ]
+            return TestResult(
+                name="16 approval round-trip",
+                passed=False,
+                duration_ms=elapsed,
+                error=(
+                    "no approval_request event in always_ask mode — gate "
+                    f"not asking. tool_results: {tool_results[:3]}"
+                ),
+            )
+        approval_id = (approval_events[0].get("data") or {}).get("id")
+        if not approval_id:
+            return TestResult(
+                name="16 approval round-trip",
+                passed=False,
+                duration_ms=elapsed,
+                error="approval_request event missing id",
+            )
+        # resolve via the web API (the /approvals page path)
+        rr = await client.post(
+            f"{state.base_url}/api/approvals/{approval_id}/resolve",
+            headers=_headers(state),
+            json={"decision": "approved"},
+            timeout=10.0,
+        )
+        if rr.status_code != 200 or not (rr.json() or {}).get("ok"):
+            return TestResult(
+                name="16 approval round-trip",
+                passed=False,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error=f"resolve failed: {rr.status_code} {rr.text[:150]}",
+            )
+        # resolved row must leave the pending list
+        rl = await client.get(
+            f"{state.base_url}/api/approvals",
+            headers=_headers(state),
+            timeout=10.0,
+        )
+        still_pending = [
+            a for a in (rl.json() or {}).get("approvals", [])
+            if a.get("id") == approval_id
+        ]
+        if still_pending:
+            return TestResult(
+                name="16 approval round-trip",
+                passed=False,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error=f"approval #{approval_id} still pending after resolve",
+            )
+        return TestResult(
+            name="16 approval round-trip",
+            passed=True,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            detail=f"gate asked (#{approval_id}), web approve cleared it",
+        )
+    finally:
+        await _set_mode(original)
+
+
 # ── Runner ─────────────────────────────────────────────────
 
 
@@ -1460,6 +1591,7 @@ TESTS = [
     test_14_no_sentinel_leak,
     # Security locks (added 2026-06-11).
     test_15_upstream_auth_enforced,
+    test_16_approval_round_trip,
 ]
 
 
