@@ -121,6 +121,28 @@ async def receive_webhook(
     return {"status": "ok"}
 
 
+@router.post("/webhook/forwarded")
+async def receive_forwarded_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Inbound WhatsApp forwarded by another agent that owns the shared
+    Meta number (HelmTech).
+
+    Meta allows only ONE webhook URL per app, and the HelmTech number's
+    app points at HelmTech's outreach system. So HelmTech's webhook
+    forwards Kunal's owner-number messages here, and we run the SAME
+    processing as the Meta-facing /webhook — minus the X-Hub-Signature
+    check (the forwarder re-serialized the payload, so Meta's signature
+    no longer matches the bytes). Auth instead is the gateway's mesh
+    secret: this path is NOT in _PUBLIC_EXACT, so the middleware
+    already required x-astra-secret before we got here.
+    """
+    payload = await request.json()
+    background_tasks.add_task(_process_webhook, payload)
+    return {"status": "ok"}
+
+
 async def _process_webhook(payload: dict) -> None:
     """Process a webhook payload in the background.
 
