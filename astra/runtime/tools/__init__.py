@@ -217,6 +217,12 @@ def _imp_business():
 _bridge_constructor("business", _imp_business)
 
 
+def _imp_railway_ops():
+    from astra.tools.railway_ops_tools import create_railway_ops_mcp_server
+    return create_railway_ops_mcp_server()
+_bridge_constructor("railway_ops", _imp_railway_ops)
+
+
 # Modules that don't expose a constructor but publish a module-level
 # tool list constant. Previously NOT BRIDGED AT ALL — these 19 tools
 # were silently absent from the lean runtime.

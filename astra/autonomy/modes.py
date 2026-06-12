@@ -96,8 +96,13 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "start_service": ActionTier.WRITE,
     "start_fleet": ActionTier.WRITE,
 
+    # Read-only ops
+    "agent_logs": ActionTier.READ,
+    "fleet_status": ActionTier.READ,
+
     # Destructive tools
     "Bash": ActionTier.DESTRUCTIVE,
+    "restart_agent": ActionTier.DESTRUCTIVE,
     "forget_memory": ActionTier.DESTRUCTIVE,
     # A2A protocol tools — destructive
     "cancel_a2a_task": ActionTier.DESTRUCTIVE,
