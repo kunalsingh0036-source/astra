@@ -223,6 +223,12 @@ def _imp_railway_ops():
 _bridge_constructor("railway_ops", _imp_railway_ops)
 
 
+def _imp_agent_repos():
+    from astra.tools.agent_repos_tools import create_agent_repos_mcp_server
+    return create_agent_repos_mcp_server()
+_bridge_constructor("agent_repos", _imp_agent_repos)
+
+
 # Modules that don't expose a constructor but publish a module-level
 # tool list constant. Previously NOT BRIDGED AT ALL — these 19 tools
 # were silently absent from the lean runtime.
