@@ -94,3 +94,53 @@ def test_restart_is_destructive_tier():
 
     assert TOOL_TIERS["restart_agent"] == ActionTier.DESTRUCTIVE
     assert TOOL_TIERS["agent_logs"] == ActionTier.READ
+
+
+@pytest.mark.asyncio
+async def test_resolve_matches_project_name_to_app_service(monkeypatch):
+    """'linkedin' must resolve to the LinkedIn project's APP service
+    ('Backend'), not fail and not pick Postgres/Redis. This was a real
+    miss: the resolver only matched service names, but Kunal refers to
+    agents by project/agent name."""
+    monkeypatch.setenv("RAILWAY_API_TOKEN", "tok")
+    from astra.tools import railway_ops_tools as r
+
+    fake = {"projects": {"edges": [{"node": {
+        "name": "LinkedIn Agent",
+        "environments": {"edges": [{"node": {"id": "e", "name": "production"}}]},
+        "services": {"edges": [
+            {"node": {"id": "pg", "name": "Postgres"}},
+            {"node": {"id": "rd", "name": "Redis"}},
+            {"node": {"id": "be", "name": "Backend"}},
+        ]},
+    }}]}}
+
+    async def _fake_gql(q, v=None):
+        return fake
+    monkeypatch.setattr(r, "_gql", _fake_gql)
+
+    t = await r._resolve_service("linkedin")
+    assert t is not None, "linkedin should resolve via project name"
+    assert t["service"] == "Backend", f"picked infra, not app: {t['service']}"
+
+
+@pytest.mark.asyncio
+async def test_resolve_never_picks_infra_for_project_match(monkeypatch):
+    monkeypatch.setenv("RAILWAY_API_TOKEN", "tok")
+    from astra.tools import railway_ops_tools as r
+
+    fake = {"projects": {"edges": [{"node": {
+        "name": "HelmTech Sales",
+        "environments": {"edges": [{"node": {"id": "e", "name": "production"}}]},
+        "services": {"edges": [
+            {"node": {"id": "pg", "name": "Postgres"}},
+            {"node": {"id": "h", "name": "Helm-Sales"}},
+        ]},
+    }}]}}
+
+    async def _fake_gql(q, v=None):
+        return fake
+    monkeypatch.setattr(r, "_gql", _fake_gql)
+
+    t = await r._resolve_service("helmtech")
+    assert t["service"] == "Helm-Sales"

@@ -81,11 +81,23 @@ query {
 """
 
 
+# Infra service names — never the thing a user means by "restart X".
+# When a query matches a PROJECT, we pick the app service, not these.
+_INFRA = {"postgres", "redis", "mysql", "mongo", "backup", "worker",
+          "beat", "celery", "scheduler-worker"}
+
+
 async def _resolve_service(name: str) -> dict | None:
     """Name → {service_id, environment_id, project, service} across
-    all projects. Prefers a 'production' environment; falls back to
-    the first. Case-insensitive, also matches on substring so
-    'apex' finds 'apex-sales-team'."""
+    all projects.
+
+    Matches the way Kunal actually refers to agents — by SERVICE name
+    OR PROJECT name ('linkedin' → project 'LinkedIn Agent' → its app
+    service 'Backend'; 'apex' → 'apex-sales-team'). When the match is
+    on the project (or ambiguous), picks the app service, never the
+    Postgres/Redis/worker infra. Prefers a 'production' environment.
+    Exact service-name match always wins.
+    """
     data = await _gql(_RESOLVE_QUERY)
     if not data:
         return None
@@ -93,6 +105,7 @@ async def _resolve_service(name: str) -> dict | None:
     candidates: list[dict] = []
     for pedge in data.get("projects", {}).get("edges", []):
         proj = pedge["node"]
+        pname = proj["name"].lower()
         envs = [e["node"] for e in proj.get("environments", {}).get("edges", [])]
         env = next(
             (e for e in envs if e["name"].lower() == "production"),
@@ -100,10 +113,22 @@ async def _resolve_service(name: str) -> dict | None:
         )
         if not env:
             continue
-        for sedge in proj.get("services", {}).get("edges", []):
-            svc = sedge["node"]
+        services = [se["node"] for se in proj.get("services", {}).get("edges", [])]
+        app_services = [s for s in services if s["name"].lower() not in _INFRA]
+        project_hit = (
+            want in pname.replace(" ", "")
+            or pname.replace(" ", "") in want
+            or want in pname
+        )
+        for svc in services:
             sname = svc["name"].lower()
-            if want == sname or want in sname or sname in want:
+            svc_hit = want == sname or want in sname or sname in want
+            # A project-name match resolves to the APP service only
+            # (not infra); a direct service-name match always counts.
+            if svc_hit or (
+                project_hit and svc in app_services
+                and (len(app_services) == 1 or sname not in _INFRA)
+            ):
                 candidates.append(
                     {
                         "service_id": svc["id"],
@@ -111,12 +136,17 @@ async def _resolve_service(name: str) -> dict | None:
                         "environment_id": env["id"],
                         "project": proj["name"],
                         "exact": want == sname,
+                        "is_app": svc in app_services,
+                        # project-only matches rank below service matches
+                        "svc_hit": svc_hit,
                     }
                 )
     if not candidates:
         return None
-    # Exact name match wins over substring.
-    candidates.sort(key=lambda c: not c["exact"])
+    # Rank: exact service name > any service-name hit > app service > rest.
+    candidates.sort(
+        key=lambda c: (not c["exact"], not c["svc_hit"], not c["is_app"])
+    )
     return candidates[0]
 
 
