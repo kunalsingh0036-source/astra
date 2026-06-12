@@ -92,12 +92,14 @@ from gateway.api.webhook import router as webhook_router
 from gateway.api.conversations import router as conversations_router
 from gateway.api.templates import router as templates_router
 from gateway.api.queue import router as queue_router
+from gateway.api.notify import router as notify_router
 
 app.include_router(send_router)
 app.include_router(webhook_router)
 app.include_router(conversations_router)
 app.include_router(templates_router)
 app.include_router(queue_router)
+app.include_router(notify_router)
 
 # Mount A2A protocol routers
 try:

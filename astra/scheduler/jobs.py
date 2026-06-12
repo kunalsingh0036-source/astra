@@ -979,11 +979,56 @@ async def _safe(name: str, fn):
 
 
 async def run_morning_briefing():
-    return await _safe("morning_briefing", morning_briefing)
+    # v2 (briefing_v2.py): decision document — calendar + triaged
+    # inbox + honest fleet + training + research, synthesized by
+    # Claude against the compass, delivered memory→push→WhatsApp.
+    # The v1 impls above are retained for reference/fallback but no
+    # longer scheduled.
+    from astra.scheduler.briefing_v2 import morning_briefing_v2
+
+    return await _safe("morning_briefing", morning_briefing_v2)
 
 
 async def run_evening_briefing():
-    return await _safe("evening_briefing", evening_briefing)
+    from astra.scheduler.briefing_v2 import evening_briefing_v2
+
+    return await _safe("evening_briefing", evening_briefing_v2)
+
+
+async def inbox_triage() -> dict:
+    """Silent triage before 13:00 — stage reply drafts for action-
+    needed mail via the email agent (mesh HTTP). Operating-mode
+    contract: by the time Kunal looks up, replies are WAITING."""
+    import os
+
+    import httpx
+
+    base = os.environ.get(
+        "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
+    ).rstrip("/")
+    headers = {
+        "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+    }
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as c:
+            r = await c.post(f"{base}/api/v1/ai/triage", headers=headers)
+            if r.status_code != 200:
+                logger.warning(
+                    "[scheduler] inbox_triage → %s: %s",
+                    r.status_code,
+                    r.text[:200],
+                )
+                return {"ok": False, "status": r.status_code}
+            result = r.json()
+            logger.info("[scheduler] inbox_triage: %s", result)
+            return result
+    except Exception as e:
+        logger.warning("[scheduler] inbox_triage error: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def run_inbox_triage():
+    return await _safe("inbox_triage", inbox_triage)
 
 
 async def run_notes_sync():

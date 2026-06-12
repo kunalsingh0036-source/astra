@@ -52,6 +52,7 @@ from astra.scheduler.jobs import (
     run_email_sync,
     run_retention_sweep,
     run_wa_dispatch,
+    run_inbox_triage,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,18 @@ def _build_scheduler() -> AsyncIOScheduler:
         IntervalTrigger(seconds=60),
         id="wa_dispatch",
         name="WhatsApp outbound drain",
+        replace_existing=True,
+    )
+
+    # Silent inbox triage — 12:15 IST, ahead of the operating-mode
+    # 13:00 "silent triage done" bar. Stages reply drafts for
+    # action-needed mail; the morning briefing (07:30) reports
+    # yesterday's leftovers, this catches the morning's arrivals.
+    scheduler.add_job(
+        run_inbox_triage,
+        CronTrigger(hour=12, minute=15),
+        id="inbox_triage",
+        name="Silent inbox triage (staged drafts)",
         replace_existing=True,
     )
 

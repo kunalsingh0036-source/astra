@@ -74,3 +74,15 @@ async def classify_existing(
         summary=result.summary,
         action_needed=result.action_needed,
     )
+
+
+@router.post("/triage")
+async def triage(session: AsyncSession = Depends(get_session)) -> dict:
+    """Stage draft replies for recent action-needed inbound mail.
+
+    Called by the scheduler's inbox_triage job (mesh-auth applies via
+    the /api/v1 middleware). Drafts are READY rows — review surface is
+    the /email page; nothing sends without Kunal."""
+    from email_agent.services.triage import triage_and_draft
+
+    return await triage_and_draft(session)
