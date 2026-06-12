@@ -1528,11 +1528,17 @@ async def test_16_approval_round_trip(
                 duration_ms=elapsed,
                 error="approval_request event missing id",
             )
-        # resolve via the web API (the /approvals page path)
+        # Resolve via the web API (the /approvals page path).
+        # DENY, deliberately: an approved row is a live one-shot
+        # grant, and leaving one behind made the NEXT smoke run's
+        # identical tool call consume it and execute without asking
+        # (exactly what the grant system is supposed to do — first
+        # live proof it works, and a non-idempotent test). Denial
+        # proves the round-trip and grants nothing.
         rr = await client.post(
             f"{state.base_url}/api/approvals/{approval_id}/resolve",
             headers=_headers(state),
-            json={"decision": "approved"},
+            json={"decision": "denied"},
             timeout=10.0,
         )
         if rr.status_code != 200 or not (rr.json() or {}).get("ok"):
@@ -1563,7 +1569,7 @@ async def test_16_approval_round_trip(
             name="16 approval round-trip",
             passed=True,
             duration_ms=int((time.monotonic() - started) * 1000),
-            detail=f"gate asked (#{approval_id}), web approve cleared it",
+            detail=f"gate asked (#{approval_id}), web deny cleared it",
         )
     finally:
         await _set_mode(original)
