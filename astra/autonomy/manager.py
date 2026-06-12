@@ -155,6 +155,9 @@ class AutonomyManager:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             self._history.append(transition)
+            _persist_transition_async(
+                old_mode.value, mode.value, reason, "set_mode"
+            )
 
             return transition
 
@@ -177,6 +180,13 @@ class AutonomyManager:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+                _persist_transition_async(
+                    old.value,
+                    self._mode.value,
+                    f"task {task_id} completed",
+                    "task_revert",
+                )
+                _persist_mode_value_async(self._mode)
                 return True
             return False
 
@@ -195,6 +205,10 @@ class AutonomyManager:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            _persist_transition_async(
+                old.value, self._mode.value, "time-based revert", "time_revert"
+            )
+            _persist_mode_value_async(self._mode)
 
     def get_status(self) -> dict:
         """Get current autonomy status."""
@@ -245,6 +259,9 @@ class AutonomyManager:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            _persist_transition_async(
+                old.value, new_mode.value, "cross-service sync", "refresh"
+            )
             logger.info(
                 "[autonomy] mode synced from DB: %s -> %s",
                 old.value,
@@ -275,6 +292,59 @@ class AutonomyManager:
         )
         await _write_mode_to_db(mode)
         return result
+
+
+def _persist_transition_async(
+    from_mode: str, to_mode: str, reason: str, source: str
+) -> None:
+    """Fire-and-forget insert into autonomy_mode_history. Sync-callable
+    (the manager's lock-holding methods are sync); schedules onto the
+    running loop when there is one, silently skips otherwise — the
+    in-memory _history still has the entry, and the next loop-borne
+    transition persists normally. Never raises."""
+    async def _write() -> None:
+        try:
+            from sqlalchemy import text as _sql
+
+            from astra.db.engine import async_session
+
+            async with async_session() as s:
+                await s.execute(
+                    _sql(
+                        """
+                        INSERT INTO autonomy_mode_history
+                            (from_mode, to_mode, reason, source)
+                        VALUES (:f, :t, :r, :s)
+                        """
+                    ),
+                    {"f": from_mode, "t": to_mode, "r": reason[:1000], "s": source},
+                )
+                await s.commit()
+        except Exception as e:
+            logger.warning("[autonomy] history persist failed: %s", e)
+
+    try:
+        import asyncio
+
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        pass  # no loop (sync caller at import time) — skip
+
+
+def _persist_mode_value_async(mode: AutonomyMode) -> None:
+    """Fire-and-forget write-through of the CURRENT mode value to
+    app_settings. Fixes the time/task-revert split-brain: the local
+    revert used to be silently undone next turn when refresh_from_db
+    re-adopted the still-persisted temporary mode."""
+    async def _write() -> None:
+        await _write_mode_to_db(mode)
+
+    try:
+        import asyncio
+
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        pass
 
 
 # Global singleton

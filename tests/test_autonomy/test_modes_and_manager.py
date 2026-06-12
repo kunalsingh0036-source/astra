@@ -67,13 +67,14 @@ class TestModes:
             == PermissionDecision.ALLOW
         )
 
-    def test_runtime_gate_denies_destructive_tier_in_semi_auto(self):
-        """End-to-end through _autonomy_check: a ToolDef registered
-        DESTRUCTIVE under a name absent from TOOL_TIERS must be
-        denied in semi_auto (ask-deny — no approval UX yet), not
-        silently allowed."""
+    def test_runtime_gate_asks_for_destructive_tier_in_semi_auto(self):
+        """Through _autonomy_decide: a ToolDef registered DESTRUCTIVE
+        under a name absent from TOOL_TIERS must come back 'ask' in
+        semi_auto (Phase C approval flow) — never a silent allow. The
+        pre-approval-UX behavior was a flat deny; with the approvals
+        table this is now a real pending-approval path."""
         from astra.autonomy.manager import autonomy_manager
-        from astra.runtime.agent_loop import _autonomy_check
+        from astra.runtime.agent_loop import _autonomy_decide
         from astra.runtime.tool_registry import ActionTier as RegistryTier, ToolDef
 
         async def fn(args: dict) -> str:
@@ -89,15 +90,64 @@ class TestModes:
         previous = autonomy_manager.mode
         try:
             autonomy_manager.set_mode(AutonomyMode.SEMI_AUTO, reason="test")
-            allowed, reason = _autonomy_check(td, "local_bash")
-            assert allowed is False, (
-                f"DESTRUCTIVE tool auto-allowed in semi_auto: {reason}"
+            decision, reason = _autonomy_decide(td, "local_bash")
+            assert decision == "ask", (
+                f"DESTRUCTIVE tool not gated in semi_auto: {decision} ({reason})"
             )
         finally:
-            autonomy_manager.set_mode(previous, reason="test restore")
+            autonomy_manager.set_mode(previous, reason="test cleanup")
 
+    def test_runtime_gate_asks_for_write_in_always_ask(self):
+        """always_ask means ASK — the old runtime silently allowed
+        read/write under ask, making the most conservative mode a
+        fiction. Locked here."""
+        from astra.autonomy.manager import autonomy_manager
+        from astra.runtime.agent_loop import _autonomy_decide
+        from astra.runtime.tool_registry import ActionTier as RegistryTier, ToolDef
 
-class TestManager:
+        async def fn(args: dict) -> str:
+            return "w"
+
+        td = ToolDef(
+            name="store_memory",
+            description="",
+            input_schema={"type": "object"},
+            fn=fn,
+            tier=RegistryTier.WRITE,
+        )
+        previous = autonomy_manager.mode
+        try:
+            autonomy_manager.set_mode(AutonomyMode.ALWAYS_ASK, reason="test")
+            decision, _ = _autonomy_decide(td, "store_memory")
+            assert decision == "ask"
+        finally:
+            autonomy_manager.set_mode(previous, reason="test cleanup")
+
+    def test_gate_exempt_tools_always_allow(self):
+        """resolve_approval must NEVER be gated — gating it deadlocks
+        (you'd need an approval to approve an approval)."""
+        from astra.autonomy.manager import autonomy_manager
+        from astra.runtime.agent_loop import _autonomy_decide
+        from astra.runtime.tool_registry import ActionTier as RegistryTier, ToolDef
+
+        async def fn(args: dict) -> str:
+            return "ok"
+
+        td = ToolDef(
+            name="resolve_approval",
+            description="",
+            input_schema={"type": "object"},
+            fn=fn,
+            tier=RegistryTier.WRITE,
+        )
+        previous = autonomy_manager.mode
+        try:
+            autonomy_manager.set_mode(AutonomyMode.ALWAYS_ASK, reason="test")
+            decision, reason = _autonomy_decide(td, "resolve_approval")
+            assert decision == "allow", reason
+        finally:
+            autonomy_manager.set_mode(previous, reason="test cleanup")
+
     def test_default_mode(self):
         """Default mode comes from settings.default_autonomy_mode (.env)."""
         mgr = AutonomyManager()

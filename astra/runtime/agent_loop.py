@@ -32,6 +32,7 @@ from typing import Any, AsyncIterator
 from anthropic import AsyncAnthropic
 
 from astra.runtime.event_emitter import (
+    approval_request,
     artifact,
     done,
     error,
@@ -85,6 +86,7 @@ _EVENT_NAMES: dict[Any, str] = {
     tool_call: "tool_call",
     tool_result: "tool_result",
     artifact: "artifact",
+    approval_request: "approval_request",
     error: "error",
     done: "done",
 }
@@ -572,14 +574,31 @@ async def run_lean_turn(
                     )
                     continue
 
-                # Autonomy gate — same vocabulary as the legacy SDK
-                # autonomy_pre_tool_hook. We check the current mode +
-                # tool tier; deny in always_ask is auto-allowed here
-                # (no UI prompt mechanism in lean runtime yet — Phase
-                # 6 work). The gate is a function call instead of an
-                # SDK hook callback that could hang the CLI.
-                allowed, decision_reason = _autonomy_check(td, tool_name)
-                if not allowed:
+                # Autonomy gate — three-way. ASK is real now: the
+                # turn never blocks on a human; the tool gets an
+                # "awaiting approval #N" result, an approval_request
+                # event reaches every surface (web chip, /approvals,
+                # WhatsApp via the chat channel), and Kunal's yes
+                # becomes a one-shot or standing grant consumed on
+                # the next identical call.
+                decision, decision_reason = _autonomy_decide(td, tool_name)
+
+                if decision == "ask":
+                    # Earned trust first: standing tool_grants or an
+                    # unconsumed prior approval let the call through.
+                    try:
+                        from astra.autonomy.approvals import check_grant
+
+                        granted, grant_reason = await check_grant(tool_name)
+                    except Exception:
+                        granted, grant_reason = False, "grant check failed"
+                    if granted:
+                        decision = "allow"
+                        decision_reason = (
+                            f"{decision_reason} → {grant_reason}"
+                        )
+
+                if decision == "deny":
                     msg = f"denied by autonomy: {decision_reason}"
                     logger.info("[lean-runtime] tool %s %s", tool_name, msg)
                     yield await _emit(
@@ -595,6 +614,55 @@ async def run_lean_turn(
                     )
                     _audit_log(tool_name, td, decision_reason="deny")
                     continue
+
+                if decision == "ask":
+                    try:
+                        from astra.autonomy.approvals import create_approval
+
+                        approval_id = await create_approval(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            reason=decision_reason,
+                            turn_id=turn_id,
+                            session_id=sid,
+                        )
+                        yield await _emit(
+                            turn_id,
+                            approval_request,
+                            id=approval_id,
+                            tool_name=tool_name,
+                            reason=decision_reason,
+                        )
+                        msg = (
+                            f"NOT EXECUTED — awaiting Kunal's approval "
+                            f"(#{approval_id}, {decision_reason}). Tell the "
+                            f"user: approve on /approvals, or by saying "
+                            f"'approve {approval_id}' (add 'always' to "
+                            f"grant {tool_name} permanently). Re-run the "
+                            f"action after approval."
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            "[lean-runtime] approval create failed"
+                        )
+                        msg = (
+                            f"NOT EXECUTED — approval required but the "
+                            f"approval store failed ({e}). Fail closed."
+                        )
+                    yield await _emit(
+                        turn_id, tool_result, id=tool_id, preview=msg[:240], is_error=True
+                    )
+                    tool_results_for_user_turn.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": msg,
+                            "is_error": True,
+                        }
+                    )
+                    _audit_log(tool_name, td, decision_reason="ask-pending")
+                    continue
+
                 _audit_log(tool_name, td, decision_reason=decision_reason)
 
                 logger.info(
@@ -1202,13 +1270,31 @@ def _compact_messages(
     return compacted, before, final_tokens
 
 
-def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
-    """Check whether a tool may run under the current autonomy mode.
+# Tools that bypass the gate entirely. These ARE the approval
+# mechanism (gating resolve_approval would deadlock: you'd need an
+# approval to approve an approval) plus read-only introspection of
+# the autonomy state itself.
+_GATE_EXEMPT_TOOLS = {
+    "resolve_approval",
+    "list_pending_approvals",
+    "revoke_tool_grant",
+    "get_mode",
+    "get_audit_log",
+    "audit_stats",
+}
 
-    Returns (allowed, reason). On any failure (autonomy module
-    missing, etc.) defaults to ALLOW so the migration doesn't
-    introduce regressions vs the legacy path.
+
+def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
+    """Three-way autonomy decision: 'allow' | 'deny' | 'ask'.
+
+    ASK is now a REAL outcome — the dispatch loop turns it into a
+    pending approval + an approval_request event instead of the old
+    silent ASK→ALLOW collapse that made always_ask a fiction
+    (deep-scan P1 #7). On any internal failure defaults to ALLOW so
+    a broken autonomy module can't brick every tool.
     """
+    if tool_name in _GATE_EXEMPT_TOOLS:
+        return "allow", "gate-exempt (approval/introspection tool)"
     try:
         from astra.autonomy.manager import autonomy_manager
         from astra.autonomy.modes import (
@@ -1217,30 +1303,24 @@ def _autonomy_check(td: Any, tool_name: str) -> tuple[bool, str]:
             get_permission_for_tier,
         )
     except Exception:
-        return True, "autonomy module unavailable — allowing by default"
+        return "allow", "autonomy module unavailable — allowing by default"
 
     try:
         mode = autonomy_manager.mode
-        # Map our ActionTier (runtime copy) to the autonomy module's.
-        tier = AutonomyTier(td.tier.value)
         # Gate on the tier the registry declared at registration —
         # NOT the legacy name-keyed TOOL_TIERS map, which only knew
         # 36 SDK-era names and silently defaulted the other ~80 tools
         # (including local_bash, registered DESTRUCTIVE) to WRITE.
+        tier = AutonomyTier(td.tier.value)
         decision = get_permission_for_tier(mode, tier)
+        ctx = f"{mode.value} / {tier.value}"
         if decision == PermissionDecision.ALLOW:
-            return True, f"auto-allow ({mode.value} / {tier.value})"
+            return "allow", f"auto-allow ({ctx})"
         if decision == PermissionDecision.DENY:
-            return False, f"deny ({mode.value} / {tier.value})"
-        # ASK — in the lean runtime there's no UI prompt mechanism yet
-        # (the SDK had a permission flow). We allow ASK in semi_auto
-        # for read tools and let it through. Conservative: deny ASK
-        # for destructive tools. Phase 6 will wire a real prompt UX.
-        if tier == AutonomyTier.DESTRUCTIVE:
-            return False, f"ask-deny destructive ({mode.value})"
-        return True, f"ask-allow ({mode.value} / {tier.value})"
+            return "deny", f"deny ({ctx})"
+        return "ask", f"ask ({ctx})"
     except Exception:
-        return True, "autonomy check raised — allowing"
+        return "allow", "autonomy check raised — allowing"
 
 
 def _audit_log(tool_name: str, td: Any, *, decision_reason: str) -> None:

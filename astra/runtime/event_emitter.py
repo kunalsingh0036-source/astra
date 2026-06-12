@@ -73,6 +73,20 @@ def artifact(
     )
 
 
+def approval_request(
+    id: int,
+    tool_name: str,
+    reason: str,
+) -> bytes:
+    """The autonomy gate wants Kunal's yes/no before a tool runs.
+    The turn does NOT block — the tool got an 'awaiting approval'
+    result and the model relays. UI renders a resolve affordance."""
+    return _format(
+        "approval_request",
+        {"id": id, "tool_name": tool_name, "reason": reason},
+    )
+
+
 def done(duration_ms: int, meta: dict[str, Any] | None = None) -> bytes:
     """Final event — the turn is complete."""
     payload = {"duration_ms": duration_ms}

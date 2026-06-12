@@ -111,9 +111,54 @@ async def get_audit_log_tool(args: dict) -> dict:
         except ValueError:
             pass
 
-    entries = audit_logger.get_entries(
-        limit=limit, tool_name=tool_name, decision=decision
-    )
+    # DB-backed (calendared 2026-06-06 item, shipped with Phase C):
+    # audit_events is what EVERY service writes and what the web
+    # /audit page reads. The in-memory audit_logger only sees this
+    # process — answers to "what did you do today" were blind to
+    # cross-service activity. Falls back to the in-memory list if
+    # the DB read fails.
+    entries: list[dict] = []
+    try:
+        from sqlalchemy import text as _sql
+
+        from astra.db.engine import async_session
+
+        where = ["1=1"]
+        params: dict = {"l": int(limit)}
+        if tool_name:
+            where.append("tool_name = :tn")
+            params["tn"] = tool_name
+        if decision:
+            where.append("decision = :d")
+            params["d"] = decision.value
+        async with async_session() as s:
+            r = await s.execute(
+                _sql(
+                    f"""
+                    SELECT ts, tool_name, action_tier, autonomy_mode,
+                           decision, tool_input_summary
+                    FROM audit_events
+                    WHERE {' AND '.join(where)}
+                    ORDER BY ts DESC LIMIT :l
+                    """
+                ),
+                params,
+            )
+            entries = [
+                {
+                    "timestamp": row.ts.isoformat(),
+                    "tool_name": row.tool_name,
+                    "action_tier": row.action_tier,
+                    "autonomy_mode": row.autonomy_mode,
+                    "decision": row.decision,
+                    "tool_input_summary": row.tool_input_summary,
+                }
+                for row in r.fetchall()
+            ]
+    except Exception:
+        entries = audit_logger.get_entries(
+            limit=limit, tool_name=tool_name, decision=decision
+        )
 
     if not entries:
         return {"content": [{"type": "text", "text": "No audit entries found."}]}
@@ -137,7 +182,54 @@ async def get_audit_log_tool(args: dict) -> dict:
     {},
 )
 async def audit_stats_tool(args: dict) -> dict:
-    stats = audit_logger.get_stats()
+    # DB-backed cross-service stats; in-memory fallback.
+    try:
+        from sqlalchemy import text as _sql
+
+        from astra.db.engine import async_session
+
+        async with async_session() as s:
+            total = (
+                await s.execute(_sql("SELECT count(*) FROM audit_events"))
+            ).scalar() or 0
+            by_decision = dict(
+                (
+                    await s.execute(
+                        _sql(
+                            "SELECT decision, count(*) FROM audit_events "
+                            "GROUP BY decision"
+                        )
+                    )
+                ).fetchall()
+            )
+            by_tier = dict(
+                (
+                    await s.execute(
+                        _sql(
+                            "SELECT action_tier, count(*) FROM audit_events "
+                            "GROUP BY action_tier"
+                        )
+                    )
+                ).fetchall()
+            )
+            by_tool = dict(
+                (
+                    await s.execute(
+                        _sql(
+                            "SELECT tool_name, count(*) FROM audit_events "
+                            "GROUP BY tool_name ORDER BY count(*) DESC LIMIT 10"
+                        )
+                    )
+                ).fetchall()
+            )
+        stats = {
+            "total": total,
+            "by_decision": by_decision,
+            "by_tier": by_tier,
+            "by_tool": by_tool,
+        }
+    except Exception:
+        stats = audit_logger.get_stats()
 
     lines = [
         f"Total actions logged: {stats['total']}",
@@ -159,5 +251,97 @@ def create_autonomy_mcp_server():
             set_mode_tool,
             get_audit_log_tool,
             audit_stats_tool,
+            list_pending_approvals_tool,
+            resolve_approval_tool,
+            revoke_tool_grant_tool,
         ],
     )
+
+
+@tool(
+    "list_pending_approvals",
+    "List actions waiting for Kunal's approval. Each entry shows id, "
+    "tool, input summary, and why it was gated. Use when the user "
+    "asks 'what's waiting on me' or before resolving approvals.",
+    {},
+)
+async def list_pending_approvals_tool(args: dict) -> dict:
+    from astra.autonomy.approvals import list_pending
+
+    rows = await list_pending()
+    if not rows:
+        return {"content": [{"type": "text", "text": "No pending approvals."}]}
+    lines = [f"{len(rows)} pending approval(s):"]
+    for r in rows:
+        inp = str(r["tool_input"])[:120]
+        lines.append(
+            f"  #{r['id']} · {r['tool_name']} · {inp} · {r['reason']}"
+        )
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+@tool(
+    "resolve_approval",
+    "Approve or deny a pending action by id — THIS is how Kunal says "
+    "yes/no from chat or WhatsApp ('approve 12', 'deny 12', 'approve "
+    "12 always'). decision: 'approved' or 'denied'. standing=true "
+    "grants the tool permanently (no more asking for that tool). "
+    "After approving, re-run the original action — the grant is "
+    "consumed by the next identical tool call.",
+    {
+        "approval_id": int,
+        "decision": str,
+        "standing": bool,
+    },
+)
+async def resolve_approval_tool(args: dict) -> dict:
+    from astra.autonomy.approvals import resolve_approval
+
+    decision = str(args.get("decision", "")).strip().lower()
+    if decision in ("approve", "yes", "y"):
+        decision = "approved"
+    if decision in ("deny", "no", "n", "reject"):
+        decision = "denied"
+    result = await resolve_approval(
+        int(args["approval_id"]),
+        decision,
+        standing=bool(args.get("standing", False)),
+        source="chat",
+    )
+    if not result.get("ok"):
+        return {
+            "content": [{"type": "text", "text": f"Failed: {result.get('error')}"}],
+            "is_error": True,
+        }
+    extra = " (standing grant — won't ask again)" if result.get("standing") else ""
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": (
+                    f"Approval #{args['approval_id']} → {result['decision']} "
+                    f"for {result['tool_name']}{extra}. Re-run the action "
+                    "now if approved."
+                ),
+            }
+        ]
+    }
+
+
+@tool(
+    "revoke_tool_grant",
+    "Remove a standing grant for a tool so it asks for approval "
+    "again — the demotion path on the trust ladder.",
+    {"tool_name": str},
+)
+async def revoke_tool_grant_tool(args: dict) -> dict:
+    from astra.autonomy.approvals import revoke_grant
+
+    found = await revoke_grant(str(args.get("tool_name", "")))
+    text = (
+        f"Standing grant for {args.get('tool_name')} revoked — it will "
+        "ask for approval again."
+        if found
+        else f"No standing grant found for {args.get('tool_name')}."
+    )
+    return {"content": [{"type": "text", "text": text}]}
