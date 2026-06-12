@@ -125,6 +125,7 @@ async def _run_turn(phone: str, text: str) -> str:
     body = {
         "prompt": prompt,
         "session_id": session_id_for(phone),
+        "channel": "whatsapp",
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as c:

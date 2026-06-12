@@ -381,6 +381,42 @@ class StreamRequest(BaseModel):
         description="UUIDs returned by POST /uploads. Each gets fetched "
         "and embedded as an image content block on the user message.",
     )
+    channel: str | None = Field(
+        default=None,
+        description="Origin surface — 'whatsapp', 'web' (default). Shapes "
+        "a system-prompt addendum so replies fit the medium (e.g. tight, "
+        "plain-text answers on WhatsApp).",
+    )
+
+
+_CHANNEL_ADDENDA: dict[str, str] = {
+    "whatsapp": (
+        "\n\n## Channel: WhatsApp\n"
+        "You are replying to Kunal over WhatsApp on his phone, NOT the "
+        "web app. Optimise for the medium:\n"
+        "- Keep it tight — a few short lines, like a sharp human texting "
+        "back. No preamble, no sign-off.\n"
+        "- Plain text only. WhatsApp can't render markdown — no tables, "
+        "no headers, no code fences, no `backticks`. Use a dash or a "
+        "line break for lists; bold sparingly with *single asterisks* "
+        "(WhatsApp's own syntax) only when it earns its place.\n"
+        "- Lead with the answer. If the full answer is long, give the "
+        "headline + offer to send detail, rather than dumping it.\n"
+        "- Artifacts (tables, palettes, previews) don't render here. "
+        "Describe the result in words, or note it's viewable in the web "
+        "app, instead of calling an emit_* tool expecting it to show.\n"
+        "- This is a phone conversation: answer THIS message, don't "
+        "recap the thread."
+    ),
+}
+
+
+def _channel_addendum(channel: str | None) -> str:
+    """System-prompt addendum for a given origin surface. Empty for
+    web / unknown so the default behaviour is unchanged."""
+    if not channel:
+        return ""
+    return _CHANNEL_ADDENDA.get(channel.strip().lower(), "")
 
 
 def _check_secret(request: Request) -> None:
@@ -824,7 +860,7 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
             agen = run_lean_turn(
                 req.prompt,
                 session_id=req.session_id,
-                system_prompt=get_system_prompt(),
+                system_prompt=get_system_prompt() + _channel_addendum(req.channel),
                 turn_id=turn_id,
                 load_history=True,
                 attachments=req.attachments,
