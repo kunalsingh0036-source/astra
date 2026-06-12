@@ -279,12 +279,22 @@ async def _probe(name: str, spec: str | None) -> tuple[str, str]:
         return name, "no HTTP health surface"
     if not url:
         return name, "not deployed"
-    data = await _get_json(url.rstrip("/") + "/health")
-    if data is None:
-        return name, "unreachable"
-    if "_status" in data:
-        return name, f"HTTP {data['_status']}"
-    return name, str(data.get("status", "ok"))
+    base = url.rstrip("/")
+    # Health-path conventions differ across the federated agents
+    # (FastAPI defaults to /health, but some mount under /api). Try
+    # the common paths so a non-standard agent reads as healthy
+    # instead of a misleading 404.
+    last = None
+    for path in ("/health", "/api/health", "/healthz"):
+        data = await _get_json(base + path)
+        if data is None:
+            last = "unreachable"
+            continue
+        if "_status" in data:
+            last = f"HTTP {data['_status']}"
+            continue
+        return name, str(data.get("status", "ok"))
+    return name, last or "unreachable"
 
 
 @tool(
