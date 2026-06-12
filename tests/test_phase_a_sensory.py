@@ -41,18 +41,32 @@ def test_owner_numbers_empty_env_means_nobody(monkeypatch):
     assert not astra_chat.is_owner("919987953145")
 
 
-def test_session_id_stable_per_number():
-    """Same number → same session forever (continuity); different
-    numbers → different sessions (isolation). And it must be a valid
-    UUID string because turns.session_id stores UUIDs."""
-    from gateway.services.astra_chat import session_id_for
+def test_session_id_stable_per_number_per_day(monkeypatch):
+    """Same number, same IST day → same session (intra-day
+    continuity); different numbers → different sessions; and the key
+    ROTATES at the IST day boundary — the original forever-key let
+    months of WhatsApp history pile into one session and a stale
+    test prompt bled into a fresh answer (turn 319). Valid UUID
+    because turns.session_id stores UUIDs."""
+    import gateway.services.astra_chat as ac
 
-    a1 = session_id_for("+919987953145")
-    a2 = session_id_for("919987953145")  # normalized equal
-    b = session_id_for("919993094281")
+    a1 = ac.session_id_for("+919987953145")
+    a2 = ac.session_id_for("919987953145")  # normalized equal
+    b = ac.session_id_for("919993094281")
     assert a1 == a2
     assert a1 != b
     uuid.UUID(a1)  # parses
+
+    # Day rotation: recompute the key the same way with tomorrow's
+    # IST date and assert it differs from today's.
+    from datetime import datetime, timedelta, timezone
+
+    tomorrow = (
+        datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+        + timedelta(days=1)
+    ).date()
+    rotated = str(uuid.uuid5(ac._SESSION_NS, f"919987953145:{tomorrow}"))
+    assert rotated != a1
 
 
 def test_chunks_respects_meta_limit():

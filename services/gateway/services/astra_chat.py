@@ -71,7 +71,26 @@ def _mesh_headers() -> dict[str, str]:
 
 
 def session_id_for(phone: str) -> str:
-    return str(uuid.uuid5(_SESSION_NS, phone.lstrip("+")))
+    """Per-day session key: uuid5(phone + IST date).
+
+    The original key was uuid5(phone) alone — ONE ever-growing session
+    for all WhatsApp history. First live use surfaced the failure mode:
+    rehydrating months of accumulated turns let a stale test question's
+    framing bleed into a fresh answer (turn 319 replied to a two-turns-
+    old prompt). Day-scoped keys match how texting an assistant
+    actually feels — "today's conversation" — and keep every session's
+    rehydration bounded. Cross-day continuity is the memory system's
+    job (post-turn extraction + recall_memories), not rehydration's.
+
+    IST day boundary, not UTC: Kunal's day is the natural session
+    boundary, and his midnight is 18:30 UTC.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    ist_today = (
+        datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    ).date()
+    return str(uuid.uuid5(_SESSION_NS, f"{phone.lstrip('+')}:{ist_today}"))
 
 
 async def chat_and_reply(phone: str, text: str) -> None:
