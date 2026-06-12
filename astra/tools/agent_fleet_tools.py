@@ -136,14 +136,23 @@ async def fleet_summary_tool(args: dict) -> dict:
 
 
 def create_fleet_mcp_server():
-    """Create the MCP server for fleet management tools."""
+    """Create the MCP server for fleet management tools.
+
+    agent_status_tool + fleet_summary_tool were REMOVED 2026-06-13:
+    both read the in-memory agent_registry, which is populated with
+    static card data (status hardcoded ACTIVE at registration), so
+    they reported every agent "active" regardless of real health —
+    a different lie from the service_manager tools, same effect.
+    Live health is `fleet_status` (business namespace). What's left
+    here is genuinely static + useful: list_agents (the catalogue of
+    what agents EXIST + their capabilities) and recommend_agent
+    (what to build next). Neither claims live health.
+    """
     return create_sdk_mcp_server(
         name="astra-fleet",
         version="0.1.0",
         tools=[
             list_agents_tool,
-            agent_status_tool,
             recommend_agent_tool,
-            fleet_summary_tool,
         ],
     )

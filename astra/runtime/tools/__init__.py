@@ -192,10 +192,17 @@ def _imp_system():
 _bridge_constructor("system", _imp_system)
 
 
-def _imp_services():
-    from astra.tools.service_tools import create_service_mcp_server
-    return create_service_mcp_server()
-_bridge_constructor("services", _imp_services)
+# The `services` namespace (fleet_status/fleet_health/service_logs/
+# start_service/stop_service/start_fleet/stop_fleet) is DELETED from
+# the runtime as of 2026-06-13. Every one was backed by
+# service_manager probing the decommissioned laptop topology
+# (localhost:80xx) — the fleet-status tools reported healthy cloud
+# services as "down / working directory missing", and the start/stop
+# tools tried to control local subprocesses that don't exist in the
+# cloud. The honest replacement is `fleet_status` (business namespace,
+# probes live Railway endpoints). service_tools.py + services/manager.py
+# remain on disk for the laptop-only CLI, but the agent can no longer
+# reach them.
 
 
 def _imp_a2a():

@@ -233,6 +233,123 @@ async def topstudios_state_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
+# ── Unified fleet status ───────────────────────────────────
+#
+# THE single honest "how is everything" answer. Replaces the
+# laptop-era liars: the `services` namespace (service_manager probing
+# dead localhost:80xx — source of the "down/working-directory-missing"
+# fiction) and the fleet-registry tools that returned a STATIC "active"
+# from each agent card regardless of real health.
+#
+# Two tiers, matching the actual architecture:
+#   Tier 1 — direct children: services deployed FROM the astra repo,
+#            inside the astra Railway project. Probed over Railway's
+#            private network (railway.internal).
+#   Tier 2 — federated appendages: separate repos + separate Railway
+#            projects, bridged via A2A. Probed over their public URLs.
+# A dead source becomes one honest line, never fiction.
+
+_TIER1 = {
+    "stream": "STREAM_URL|http://stream.railway.internal:8080",
+    "scheduler": None,  # no HTTP surface; reported via jobstore elsewhere
+    "email": "EMAIL_AGENT_URL|http://email.railway.internal:8080",
+    "finance": "FINANCE_URL|http://finance.railway.internal:8080",
+    "whatsapp": "GATEWAY_URL|http://whatsapp.railway.internal:8080",
+    "bridge": "A2A_BRIDGE_BASE|http://bridge.railway.internal:8500",
+}
+_TIER2 = {
+    "helmtech": "HELMTECH_URL|https://helm-sales-production.up.railway.app",
+    "apex-sales": "APEX_URL|https://apex-sales-team-production-2c45.up.railway.app",
+    "apex-experimental": "APEX_EXPERIMENTAL_URL|https://apex-experimental-production.up.railway.app",
+    "linkedin": "LINKEDIN_URL|https://backend-production-a2994.up.railway.app",
+    "bookkeeper": "BOOKKEEPER_URL|",  # not deployed; honest 'not deployed'
+}
+
+
+def _resolve(spec: str | None) -> str:
+    if not spec:
+        return ""
+    env_name, _, default = spec.partition("|")
+    return os.environ.get(env_name, "").strip() or default
+
+
+async def _probe(name: str, spec: str | None) -> tuple[str, str]:
+    url = _resolve(spec)
+    if spec is None:
+        return name, "no HTTP health surface"
+    if not url:
+        return name, "not deployed"
+    data = await _get_json(url.rstrip("/") + "/health")
+    if data is None:
+        return name, "unreachable"
+    if "_status" in data:
+        return name, f"HTTP {data['_status']}"
+    return name, str(data.get("status", "ok"))
+
+
+@tool(
+    "fleet_status",
+    "THE single honest status of every service + agent connected to "
+    "Astra. Use for 'how is everything', 'is anything down', 'fleet "
+    "status', or any whole-system health question. Covers Tier-1 "
+    "direct children (stream/scheduler/email/finance/whatsapp/bridge) "
+    "and Tier-2 federated agents (helmtech/apex/linkedin/bookkeeper). "
+    "Prefer this over any service_* / agent_status / fleet_summary "
+    "tool — those probe a decommissioned laptop topology and lie.",
+    {},
+)
+async def fleet_status_tool(args: dict) -> dict:
+    import asyncio
+
+    t1 = await asyncio.gather(*[_probe(n, s) for n, s in _TIER1.items()])
+    t2 = await asyncio.gather(*[_probe(n, s) for n, s in _TIER2.items()])
+
+    def _healthy(v: str) -> bool:
+        return v in ("ok", "healthy")
+
+    lines = ["FLEET STATUS\n", "Tier 1 — Astra's own services:"]
+    for n, v in t1:
+        mark = "✓" if _healthy(v) else ("·" if "no HTTP" in v else "✗")
+        lines.append(f"  {mark} {n}: {v}")
+    lines.append("\nTier 2 — federated agents (separate projects, via A2A):")
+    for n, v in t2:
+        mark = "✓" if _healthy(v) else ("·" if v == "not deployed" else "✗")
+        lines.append(f"  {mark} {n}: {v}")
+
+    down = [n for n, v in (*t1, *t2) if not _healthy(v) and v not in ("not deployed", "no HTTP health surface")]
+    healthy_ct = sum(1 for _, v in (*t1, *t2) if _healthy(v))
+    total = len(t1) + len(t2)
+    lines.append(
+        f"\nSummary: {healthy_ct}/{total} healthy"
+        + (f" · DOWN: {', '.join(down)}" if down else " · all green")
+    )
+    # Local bridge daemon (the Mac connection) — distinct from the
+    # cloud `bridge` A2A service above. "Online" = a bridge token was
+    # seen polling within the last 2 minutes (it long-polls ~every
+    # few seconds when the Mac is awake).
+    try:
+        from sqlalchemy import text as _sql2
+
+        from astra.db.engine import async_session
+
+        async with async_session() as s:
+            recent = (
+                await s.execute(
+                    _sql2(
+                        "SELECT count(*) FROM bridge_tokens "
+                        "WHERE last_seen_at > now() - interval '2 minutes'"
+                    )
+                )
+            ).scalar() or 0
+        lines.append(
+            "Local bridge daemon: "
+            + ("online" if recent else "offline (Mac asleep / not running)")
+        )
+    except Exception:
+        pass
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
 def create_business_state_mcp_server():
     return create_sdk_mcp_server(
         name="astra-business-state",
@@ -242,5 +359,6 @@ def create_business_state_mcp_server():
             apex_state_tool,
             bay_state_tool,
             topstudios_state_tool,
+            fleet_status_tool,
         ],
     )

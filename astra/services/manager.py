@@ -78,7 +78,7 @@ SERVICES: dict[str, ServiceConfig] = {
         name="apex",
         display_name="Apex Outreach Agent",
         port=8001,
-        working_dir=f"{PROJECTS_DIR}/apex-outreach-agent/backend",
+        working_dir=f"{PROJECTS_DIR}/apex-sales-team/backend",
         start_command=[
             "uvicorn", "app.main:app",
             "--host", "0.0.0.0",
@@ -86,7 +86,7 @@ SERVICES: dict[str, ServiceConfig] = {
             "--reload",
         ],
         health_url="http://localhost:8001/docs",
-        venv_path=f"{PROJECTS_DIR}/apex-outreach-agent/backend/.venv/bin/activate",
+        venv_path=f"{PROJECTS_DIR}/apex-sales-team/backend/.venv/bin/activate",
         startup_wait=5.0,
     ),
     "linkedin": ServiceConfig(
@@ -143,34 +143,12 @@ SERVICES: dict[str, ServiceConfig] = {
         venv_path=f"{PROJECTS_DIR}/astra/.venv/bin/activate",
         startup_wait=2.0,
     ),
-    "finance": ServiceConfig(
-        name="finance",
-        display_name="Finance Agent",
-        port=8004,
-        working_dir=f"{PROJECTS_DIR}/finance-agent",
-        start_command=[
-            "uvicorn", "finance.main:app",
-            "--host", "0.0.0.0",
-            "--port", "8004",
-        ],
-        health_url="http://localhost:8004/health",
-        venv_path=f"{PROJECTS_DIR}/finance-agent/.venv/bin/activate",
-        startup_wait=4.0,
-    ),
-    "email": ServiceConfig(
-        name="email",
-        display_name="Email Agent",
-        port=8005,
-        working_dir=f"{PROJECTS_DIR}/email-agent",
-        start_command=[
-            "uvicorn", "email_agent.main:app",
-            "--host", "0.0.0.0",
-            "--port", "8005",
-        ],
-        health_url="http://localhost:8005/health",
-        venv_path=f"{PROJECTS_DIR}/email-agent/.venv/bin/activate",
-        startup_wait=4.0,
-    ),
+    # "finance": ServiceConfig(  # DISABLED: directory does not exist
+    #     ...
+    # ),
+    # "email": ServiceConfig(  # DISABLED: directory does not exist
+    #     ...
+    # ),
     "scheduler": ServiceConfig(
         name="scheduler",
         display_name="Astra Scheduler (APScheduler)",
@@ -305,10 +283,18 @@ class ServiceManager:
                 "service": config.display_name,
             }
 
-        # Build the shell command with venv activation
-        # Quote paths to handle spaces in directory names (e.g. "Claude Code")
+        # Build the command — use venv's python directly instead of shell source
+        # (shell source doesn't work reliably in subprocess.Popen)
         if config.venv_path and Path(config.venv_path).exists():
-            shell_cmd = f'source "{config.venv_path}" && {" ".join(config.start_command)}'
+            venv_bin = Path(config.venv_path).parent  # .venv/bin/activate → .venv/bin/
+            # Replace 'python' and 'uvicorn' with absolute paths
+            cmd = []
+            for part in config.start_command:
+                if part in ('python', 'python3', 'uvicorn'):
+                    cmd.append(str(venv_bin / part))
+                else:
+                    cmd.append(part)
+            shell_cmd = " ".join(cmd)
         else:
             shell_cmd = " ".join(config.start_command)
 

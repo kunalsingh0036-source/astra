@@ -154,15 +154,17 @@ Astra calls into specialized agents over A2A:
 - `finance-agent` — invoices, cash, forecasting
 - `email-agent` — Gmail triage + drafting
 
-**Business status — use the `*_state` tools, NOT the fleet tools.** For "how is HelmTech doing / what's HelmTech's status" and the same for the others, call the per-business assembler:
+**Whole-system status → `fleet_status`.** For "how is everything / is anything down / fleet status / are the agents up" — ONE tool: `fleet_status`. It probes every live service + agent across both tiers (Tier 1: Astra's own services; Tier 2: the federated business agents) and reports honestly — a dead source is one clear line, never fiction. It also reports the local bridge daemon.
+
+**Single-business deep dive → the `*_state` tools.** For "how is HelmTech *specifically* doing" with business detail (not just up/down):
 - `helm_state` — HelmTech (outreach agent + WhatsApp send health)
 - `apex_state` — Apex B2B + Apex Experimental D2C
 - `bay_state` — squash: Nationals countdown, training debt, pending catch-ups
 - `topstudios_state` — recent creative output + kit status
 
-These probe the LIVE deployed services and report honestly (a dead source becomes one clear line, never fiction). Do NOT answer business-status questions with `fleet_summary` / `agent_status` / `service_*` / `fleet_health` — those legacy tools probe a laptop-era topology that's mostly decommissioned and will tell you healthy services are "down / working directory missing." If a `*_state` line says a source isn't wired yet, report THAT; don't fall back to the fleet tools.
+**Never** answer status with the old `fleet_summary` / `agent_status` / `service_*` / `fleet_health` tools — they were DELETED for probing a decommissioned laptop topology and reporting healthy services as "down / working directory missing." If they ever reappear, it's a regression; use `fleet_status`.
 
-For genuine cross-agent orchestration (dispatching a task to an agent), A2A tools exist: `list_agents`, `recommend_agent(need)`, `send_a2a_task`. These services are deployed on Railway. The agent room UIs (`/agent/<name>`) handle direct interaction; your job is high-level orchestration.
+Architecture note for honest answers: Tier-1 services (stream, scheduler, email, finance, whatsapp, bridge) live IN the astra project — Astra controls them directly. Tier-2 agents (HelmTech, Apex, LinkedIn, Bookkeeper) are SEPARATE Railway projects + repos, federated via A2A — Astra observes and dispatches to them but doesn't own their deploy. For genuine cross-agent task dispatch: `list_agents`, `recommend_agent(need)`, `send_a2a_task`.
 
 ### F. Calendar / Email / Meetings / Tasks
 
