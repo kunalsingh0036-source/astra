@@ -21,7 +21,13 @@ from astra.a2a.models import (
 from astra.a2a.server import A2AServer
 
 AGENT_NAME = "apex-outreach"
-BASE_URL = "http://localhost:8001"
+import os as _os
+
+# Env-first; cloud default. The laptop-era localhost target was the
+# reason every A2A task failed after the Railway migration — the
+# bridge ran (eventually) but pointed at services that no longer
+# listen on this machine.
+BASE_URL = _os.environ.get("APEX_URL", "").strip() or "https://apex-sales-team-production-2c45.up.railway.app"
 BRIDGE_PORT = 8500
 
 CARD = AgentCard(
@@ -32,7 +38,7 @@ CARD = AgentCard(
         "Instagram), tracks orders through 7-stage pipeline, and provides "
         "full CRM with client management, quotes, and products."
     ),
-    url=f"http://localhost:{BRIDGE_PORT}/apex",
+    url=f"{_os.environ.get('A2A_BRIDGE_BASE', '').strip() or 'http://bridge.railway.internal:8500'}/apex",
     version="0.1.0",
     capabilities=AgentCapabilities(
         streaming=False,
@@ -153,6 +159,7 @@ class ApexBridge(A2AServer):
     async def _client(self) -> httpx.AsyncClient:
         if self._http is None or self._http.is_closed:
             self._http = httpx.AsyncClient(
+                headers={"x-astra-secret": _os.environ.get("AGENT_SHARED_SECRET", "").strip()},
                 base_url=BASE_URL,
                 timeout=30.0,
             )

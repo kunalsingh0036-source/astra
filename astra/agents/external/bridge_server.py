@@ -18,8 +18,11 @@ Or from the astra CLI:
     astra-bridges
 """
 
+import os
+
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from astra.agents.external.bookkeeper import BookkeeperBridge
 from astra.agents.external.linkedin import LinkedInBridge
@@ -43,6 +46,37 @@ def create_bridge_app() -> FastAPI:
         ),
         version="0.1.0",
     )
+
+    # Mesh auth — this service has a PUBLIC Railway domain and its
+    # endpoints trigger real agent actions (send email/WhatsApp as
+    # Kunal via A2A tasks). Same fail-closed posture as the email
+    # agent and gateway: every request needs x-astra-secret matching
+    # AGENT_SHARED_SECRET; unset secret = 503 for protected routes,
+    # never open. Public: /health and the discovery cards
+    # (/.well-known/agent.json — capability metadata, no actions).
+    @app.middleware("http")
+    async def _mesh_auth(request, call_next):
+        path = request.url.path
+        if (
+            path == "/health"
+            or path.endswith("/.well-known/agent.json")
+        ):
+            return await call_next(request)
+        secret = os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        if not secret:
+            return JSONResponse(
+                {"detail": "mesh auth not configured"}, status_code=503
+            )
+        import hmac as _hmac
+
+        provided = request.headers.get("x-astra-secret", "").strip()
+        if not _hmac.compare_digest(provided, secret):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy", "service": "a2a-bridge"}
 
     # Initialize bridges
     bookkeeper = BookkeeperBridge()
@@ -151,7 +185,8 @@ def main():
     print(f"   Email:      http://localhost:{BRIDGE_PORT}/email/a2a/health")
     print(f"   Docs:       http://localhost:{BRIDGE_PORT}/docs")
     print()
-    uvicorn.run(app, host="0.0.0.0", port=BRIDGE_PORT)
+    port = int(os.environ.get("PORT", BRIDGE_PORT))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":

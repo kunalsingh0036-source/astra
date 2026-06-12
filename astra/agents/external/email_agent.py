@@ -23,7 +23,13 @@ from astra.a2a.models import (
 from astra.a2a.server import A2AServer
 
 AGENT_NAME = "email-agent"
-BASE_URL = "http://localhost:8005"
+import os as _os
+
+# Env-first; cloud default. The laptop-era localhost target was the
+# reason every A2A task failed after the Railway migration — the
+# bridge ran (eventually) but pointed at services that no longer
+# listen on this machine.
+BASE_URL = _os.environ.get("EMAIL_AGENT_URL", "").strip() or "http://email.railway.internal:8080"
 BRIDGE_PORT = 8500
 
 CARD = AgentCard(
@@ -34,7 +40,7 @@ CARD = AgentCard(
         "manages contacts, templates, and scheduled sending. Handles all of Kunal's "
         "email operations across personal and business accounts."
     ),
-    url=f"http://localhost:{BRIDGE_PORT}/email",
+    url=f"{_os.environ.get('A2A_BRIDGE_BASE', '').strip() or 'http://bridge.railway.internal:8500'}/email",
     version="0.1.0",
     capabilities=AgentCapabilities(
         streaming=False,
@@ -125,7 +131,7 @@ class EmailAgentBridge(A2AServer):
                     payload = {"query": part.content}
 
         try:
-            async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as client:
+            async with httpx.AsyncClient(base_url=BASE_URL, timeout=30, headers={"x-astra-secret": _os.environ.get("AGENT_SHARED_SECRET", "").strip()}) as client:
                 result = await self._route(client, skill_id, payload)
 
             task.state = TaskState.COMPLETED

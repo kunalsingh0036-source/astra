@@ -22,7 +22,13 @@ from astra.a2a.models import (
 from astra.a2a.server import A2AServer
 
 AGENT_NAME = "bookkeeper"
-BASE_URL = "http://localhost:8000"
+import os as _os
+
+# Env-first; cloud default. The laptop-era localhost target was the
+# reason every A2A task failed after the Railway migration — the
+# bridge ran (eventually) but pointed at services that no longer
+# listen on this machine.
+BASE_URL = _os.environ.get("BOOKKEEPER_URL", "").strip() or "http://bookkeeper.thearrogantclub.com"
 BRIDGE_PORT = 8500
 
 CARD = AgentCard(
@@ -32,7 +38,7 @@ CARD = AgentCard(
         "processing (OCR), bank reconciliation, GST compliance (GSTR-1/3B/2B), "
         "payroll, inventory tracking, and financial reporting."
     ),
-    url=f"http://localhost:{BRIDGE_PORT}/bookkeeper",
+    url=f"{_os.environ.get('A2A_BRIDGE_BASE', '').strip() or 'http://bridge.railway.internal:8500'}/bookkeeper",
     version="0.1.0",
     capabilities=AgentCapabilities(
         streaming=False,
@@ -118,6 +124,7 @@ class BookkeeperBridge(A2AServer):
     async def _client(self) -> httpx.AsyncClient:
         if self._http is None or self._http.is_closed:
             self._http = httpx.AsyncClient(
+                headers={"x-astra-secret": _os.environ.get("AGENT_SHARED_SECRET", "").strip()},
                 base_url=BASE_URL,
                 timeout=30.0,
             )
