@@ -204,6 +204,12 @@ def _imp_a2a():
 _bridge_constructor("a2a", _imp_a2a)
 
 
+def _imp_business():
+    from astra.tools.business_state_tools import create_business_state_mcp_server
+    return create_business_state_mcp_server()
+_bridge_constructor("business", _imp_business)
+
+
 # Modules that don't expose a constructor but publish a module-level
 # tool list constant. Previously NOT BRIDGED AT ALL — these 19 tools
 # were silently absent from the lean runtime.

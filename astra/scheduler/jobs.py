@@ -1369,3 +1369,51 @@ async def wa_dispatch() -> dict:
 
 async def run_wa_dispatch():
     return await _safe("wa_dispatch", wa_dispatch)
+
+
+async def weekly_review() -> dict:
+    """Sunday 21:00 IST — the compass question, answered proactively:
+    'where am I losing money or attention?' Gathers all four business
+    operating pictures + training, has Claude take a position (not a
+    summary), delivers like the briefings."""
+    from astra.scheduler.briefing_v2 import _compass_text, _deliver, _synthesize
+    from astra.tools.business_state_tools import (
+        apex_state_tool,
+        bay_state_tool,
+        helm_state_tool,
+        topstudios_state_tool,
+    )
+
+    sections: dict = {"compass": _compass_text()}
+    for name, t in (
+        ("helmtech", helm_state_tool),
+        ("apex", apex_state_tool),
+        ("bay", bay_state_tool),
+        ("top studios", topstudios_state_tool),
+    ):
+        try:
+            out = await t.handler({})
+            sections[name] = out["content"][0]["text"]
+        except Exception as e:
+            sections[name] = f"state unavailable ({e})"
+
+    # Reuse the briefing synthesizer with a review-specific framing
+    # smuggled through the data block — cheaper than a third prompt
+    # path, and the fallback behavior comes free.
+    sections["instruction for this review"] = (
+        "This is the WEEKLY REVIEW, not a daily brief. Answer ONE "
+        "question with a position: where is Kunal losing money or "
+        "attention right now? Rank the four businesses by how much "
+        "they need him this week vs how much they're getting. Call "
+        "out the single biggest mismatch and propose the ONE "
+        "reallocation that fixes it. End with one question whose "
+        "answer would change next week's plan."
+    )
+    body = await _synthesize("evening", sections)
+    delivered = await _deliver("weekly-review", body)
+    logger.info("[scheduler] weekly_review delivered: %s", delivered)
+    return {"status": "success", "review": body, "delivered": delivered}
+
+
+async def run_weekly_review():
+    return await _safe("weekly_review", weekly_review)

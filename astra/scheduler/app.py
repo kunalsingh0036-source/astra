@@ -53,6 +53,7 @@ from astra.scheduler.jobs import (
     run_retention_sweep,
     run_wa_dispatch,
     run_inbox_triage,
+    run_weekly_review,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,17 @@ def _build_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=12, minute=15),
         id="inbox_triage",
         name="Silent inbox triage (staged drafts)",
+        replace_existing=True,
+    )
+
+    # Weekly cross-business review — Sunday 21:00 IST, before the
+    # evening briefing. The compass question answered proactively:
+    # where is attention/money leaking across the four businesses.
+    scheduler.add_job(
+        run_weekly_review,
+        CronTrigger(day_of_week="sun", hour=21, minute=0),
+        id="weekly_review",
+        name="Weekly cross-business review",
         replace_existing=True,
     )
 
