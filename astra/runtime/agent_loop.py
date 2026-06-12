@@ -861,6 +861,29 @@ async def run_lean_turn(
                     "[lean-runtime] session-title fire-and-forget failed"
                 )
 
+        # Fire-and-forget post-turn memory extraction — the automatic
+        # backstop behind the system prompt's "store memories
+        # proactively" rule. Dead code from May 4 (its runner.py call
+        # site was deleted in the SDK removal and never re-wired —
+        # deep-scan P1 #14) until Phase E re-attached it here.
+        # extract_and_store is internally best-effort + deduped;
+        # create_task keeps it off the response path entirely.
+        if turn_status == "complete" and final_response_text:
+            try:
+                from astra.memory.post_turn_extract import extract_and_store
+
+                asyncio.create_task(
+                    extract_and_store(
+                        prompt=prompt,
+                        response=final_response_text,
+                        session_id=sid,
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "[lean-runtime] post-turn extraction failed to start"
+                )
+
     done_payload: dict[str, Any] = {"duration_ms": duration_ms}
     if tools_called:
         done_payload["meta"] = {"tool_count": tools_called}

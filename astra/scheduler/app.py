@@ -54,6 +54,7 @@ from astra.scheduler.jobs import (
     run_wa_dispatch,
     run_inbox_triage,
     run_weekly_review,
+    run_self_improve_scan,
 )
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,18 @@ def _build_scheduler() -> AsyncIOScheduler:
         CronTrigger(day_of_week="sun", hour=21, minute=0),
         id="weekly_review",
         name="Weekly cross-business review",
+        replace_existing=True,
+    )
+
+    # Self-improvement scan — Saturday 20:00 IST. Astra examining its
+    # own week: failure patterns + gate friction → observations into
+    # the self_improvements queue Kunal reviews. The queue existed
+    # since Layer 4; this is the first thing that proactively FEEDS it.
+    scheduler.add_job(
+        run_self_improve_scan,
+        CronTrigger(day_of_week="sat", hour=20, minute=0),
+        id="self_improve_scan",
+        name="Weekly self-improvement scan",
         replace_existing=True,
     )
 

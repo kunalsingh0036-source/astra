@@ -62,8 +62,12 @@ jobs:
         # of /api/uploads etc. and false-pass regressions.
         if: ${{ !inputs.skip_wait }}
         run: |
-          echo "sleeping 150s for Railway + Vercel deploys to land…"
-          sleep 150
+          # 240s: the shared image now rebuilds for 6 services
+          # (stream/scheduler/email/whatsapp/finance/bridge) and they
+          # serialize — 150s raced the tail end and smoked a
+          # half-deployed stack (false-failed on 86f2a60).
+          echo "sleeping 240s for Railway deploys to land…"
+          sleep 240
 
       - name: run smoke
         env:

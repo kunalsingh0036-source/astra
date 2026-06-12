@@ -1417,3 +1417,134 @@ async def weekly_review() -> dict:
 
 async def run_weekly_review():
     return await _safe("weekly_review", weekly_review)
+
+
+async def self_improve_scan() -> dict:
+    """Saturday 20:00 IST — Astra examining its own week.
+
+    Scans the operational record for failure patterns (failed turns,
+    autonomy denials, error events) and files ONE consolidated
+    observation into the self_improvements queue per pattern class.
+    Kunal reviews via list_self_improvements / the existing propose →
+    approve → apply pipeline (test-gated code edits). The queue
+    existed since Layer 4; nothing ever FED it proactively — this is
+    the feed.
+    """
+    from sqlalchemy import text as _sql
+
+    from astra.db.engine import async_session
+
+    findings: list[tuple[str, str]] = []  # (severity, observation)
+    async with async_session() as s:
+        # 1. Failed turns this week, grouped by error shape
+        r = await s.execute(
+            _sql(
+                """
+                SELECT left(coalesce(error_message, 'unknown'), 90) AS err,
+                       count(*) AS n
+                FROM turns
+                WHERE status = 'failed'
+                  AND started_at >= now() - interval '7 days'
+                GROUP BY err ORDER BY n DESC LIMIT 5
+                """
+            )
+        )
+        failed = r.fetchall()
+        total_failed = sum(row.n for row in failed)
+        if total_failed >= 3:
+            tops = "; ".join(f"{row.n}× {row.err}" for row in failed[:3])
+            findings.append(
+                (
+                    "medium" if total_failed < 10 else "high",
+                    f"{total_failed} failed turn(s) this week. Top error "
+                    f"shapes: {tops}. If one shape dominates, it's a "
+                    "class bug, not noise.",
+                )
+            )
+
+        # 2. Autonomy denials — repeated denials of the same tool
+        # mean the gate and the model are fighting; either the tier
+        # is wrong or the model needs prompting away from the tool.
+        r = await s.execute(
+            _sql(
+                """
+                SELECT tool_name, count(*) AS n FROM audit_events
+                WHERE decision = 'deny'
+                  AND ts >= now() - interval '7 days'
+                GROUP BY tool_name HAVING count(*) >= 5
+                ORDER BY n DESC LIMIT 3
+                """
+            )
+        )
+        for row in r.fetchall():
+            findings.append(
+                (
+                    "low",
+                    f"Tool {row.tool_name} denied {row.n}× this week — "
+                    "tier misregistered, or the model keeps reaching for "
+                    "a tool it can't have. Worth a standing grant or a "
+                    "prompt nudge.",
+                )
+            )
+
+        # 3. Approvals nobody resolved (expired) — the ask flow is
+        # generating questions Kunal isn't answering; either over-
+        # asking or the surfaces aren't visible enough.
+        r = await s.execute(
+            _sql(
+                """
+                SELECT count(*) FROM approvals
+                WHERE status = 'expired'
+                  AND created_at >= now() - interval '7 days'
+                """
+            )
+        )
+        expired = r.scalar() or 0
+        if expired >= 3:
+            findings.append(
+                (
+                    "medium",
+                    f"{expired} approval(s) expired unanswered this week — "
+                    "either the gate over-asks (grant the repeat "
+                    "offenders) or approval surfaces need more reach.",
+                )
+            )
+
+        # File findings, skipping duplicates still open in the queue.
+        filed = 0
+        for severity, obs in findings:
+            dup = await s.execute(
+                _sql(
+                    """
+                    SELECT 1 FROM self_improvements
+                    WHERE status IN ('observed', 'proposed')
+                      AND observation = :o
+                    """
+                ),
+                {"o": obs},
+            )
+            if dup.first():
+                continue
+            await s.execute(
+                _sql(
+                    """
+                    INSERT INTO self_improvements
+                        (source, observation, severity, status)
+                    VALUES ('weekly_scan', :o, :sev, 'observed')
+                    """
+                ),
+                {"o": obs, "sev": severity},
+            )
+            filed += 1
+        await s.commit()
+
+    logger.info(
+        "[scheduler] self_improve_scan: %d finding(s), %d filed",
+        len(findings),
+        filed,
+    )
+    return {"findings": len(findings), "filed": filed}
+
+
+async def run_self_improve_scan():
+    return await _safe("self_improve_scan", self_improve_scan)
