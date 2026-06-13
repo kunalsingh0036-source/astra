@@ -282,9 +282,92 @@ async def restart_agent_tool(args: dict) -> dict:
     }
 
 
+@tool(
+    "list_scheduled_jobs",
+    "List Astra's OWN scheduled/cron jobs and their next run times, read "
+    "straight from the cloud Postgres jobstore (`astra_scheduler_jobs`) — "
+    "NO bridge, laptop, or Railway token needed. Use whenever asked what's "
+    "scheduled, which jobs are paused or overdue, or when the next "
+    "briefing/sync/sweep runs. Read-only.",
+    {},
+)
+async def list_scheduled_jobs_tool(args: dict) -> dict:
+    """Direct DB read of the APScheduler jobstore. This is the answer to
+    'list my scheduled jobs' — the jobstore lives in the same Postgres
+    Astra already uses, so there is never a reason to claim a bridge or
+    laptop is needed (an earlier confabulation). next_run_time is a UTC
+    epoch; NULL means the job is paused/unscheduled."""
+    import datetime as _dt
+    from sqlalchemy import text as _text
+
+    from astra.db.engine import async_session
+
+    _IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
+    try:
+        async with async_session() as s:
+            r = await s.execute(
+                _text(
+                    "SELECT id, next_run_time FROM astra_scheduler_jobs "
+                    "ORDER BY next_run_time NULLS LAST, id"
+                )
+            )
+            rows = r.all()
+    except Exception as e:  # never crash the turn
+        return {
+            "content": [
+                {"type": "text", "text": f"Couldn't read the scheduler jobstore: {e}"}
+            ],
+            "is_error": True,
+        }
+
+    if not rows:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "No scheduled jobs in the store — the scheduler "
+                    "may be down (this IS queried live, so an empty result "
+                    "is real, not a connectivity excuse).",
+                }
+            ]
+        }
+
+    now_ts = _dt.datetime.now(_dt.timezone.utc).timestamp()
+    lines: list[str] = []
+    paused = overdue = 0
+    for jid, nrt in rows:
+        if nrt is None:
+            lines.append(f"· {jid} — paused (no next run)")
+            paused += 1
+            continue
+        when = _dt.datetime.fromtimestamp(nrt, _IST)
+        mins = (nrt - now_ts) / 60
+        if mins < -30:
+            tag = f"OVERDUE by {abs(mins) / 60:.1f}h"
+            overdue += 1
+        elif mins < 0:
+            tag = "due now"
+        elif mins < 60:
+            tag = f"in {mins:.0f}m"
+        elif mins < 1440:
+            tag = f"in {mins / 60:.1f}h"
+        else:
+            tag = f"in {mins / 1440:.1f}d"
+        lines.append(f"· {jid} — {when:%a %H:%M} IST ({tag})")
+
+    summary = f"{len(rows)} scheduled jobs"
+    if paused:
+        summary += f", {paused} paused"
+    if overdue:
+        summary += f", {overdue} overdue >30m"
+    return {
+        "content": [{"type": "text", "text": summary + ":\n" + "\n".join(lines)}]
+    }
+
+
 def create_railway_ops_mcp_server():
     return create_sdk_mcp_server(
         name="astra-railway-ops",
         version="0.1.0",
-        tools=[agent_logs_tool, restart_agent_tool],
+        tools=[agent_logs_tool, restart_agent_tool, list_scheduled_jobs_tool],
     )
