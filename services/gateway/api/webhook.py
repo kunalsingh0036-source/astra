@@ -180,6 +180,7 @@ async def _handle_inbound_message(
 
         # Extract message text
         content = ""
+        voice_unavailable = False
         if msg_type == "text":
             content = msg_data.get("text", {}).get("body", "")
         elif msg_type == "button":
@@ -190,6 +191,23 @@ async def _handle_inbound_message(
                 content = interactive["button_reply"].get("title", "")
             elif "list_reply" in interactive:
                 content = interactive["list_reply"].get("title", "")
+        elif msg_type == "audio":
+            # Voice note (or audio file). Fetch the media + transcribe
+            # so it flows through the exact same path as a typed
+            # message. The phone-native input Kunal asked for.
+            from gateway.services.voice import fetch_media, transcribe
+
+            media_id = (msg_data.get("audio") or {}).get("id", "")
+            fetched = (
+                await fetch_media(media_id, settings.whatsapp_access_token)
+                if media_id
+                else None
+            )
+            if fetched:
+                content = (await transcribe(*fetched)) or ""
+            if not content:
+                voice_unavailable = True
+                logger.info("[voice] note from %s not transcribed", phone_raw)
 
         # Normalize phone
         try:
@@ -260,6 +278,24 @@ async def _handle_inbound_message(
         # finishes. The message row is still stored so the
         # conversation record stays complete.
         from gateway.services.astra_chat import chat_and_reply, is_owner
+
+        # Owner sent a voice note we couldn't transcribe — tell them,
+        # don't leave them on read. (No STT key set, fetch failed, or
+        # silent audio.)
+        if is_owner(phone) and voice_unavailable:
+            await session.commit()
+            from gateway.services.astra_chat import _reply_text
+
+            asyncio.create_task(
+                _reply_text(
+                    phone,
+                    "Got your voice note but couldn't transcribe it "
+                    "(speech-to-text isn't wired yet). Text me instead "
+                    "for now.",
+                )
+            )
+            logger.info("Inbound OWNER voice note from %s — STT unavailable", phone)
+            return
 
         if is_owner(phone) and content.strip():
             conversation.owning_agent = "astra"

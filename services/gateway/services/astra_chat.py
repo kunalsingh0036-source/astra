@@ -93,28 +93,33 @@ def session_id_for(phone: str) -> str:
     return str(uuid.uuid5(_SESSION_NS, f"{phone.lstrip('+')}:{ist_today}"))
 
 
+async def _reply_text(phone: str, text: str) -> None:
+    """Send a plain text reply to the owner on WhatsApp, chunked to
+    Meta's limit. Never raises. Used for canned replies (e.g. a voice
+    note we couldn't transcribe) that don't need an Astra turn."""
+    from gateway.services.meta_api import MetaAPIClient
+
+    client = MetaAPIClient()
+    try:
+        for chunk in _chunks(text, _WA_TEXT_LIMIT):
+            result = await client.send_text(phone=phone, body=chunk)
+            if not result.success:
+                logger.error("[astra-chat] reply send failed: %s", result.error)
+                break
+    except Exception:
+        logger.exception("[astra-chat] _reply_text raised")
+    finally:
+        await client.close()
+
+
 async def chat_and_reply(phone: str, text: str) -> None:
     """Run one Astra turn for an owner message and reply on WhatsApp.
 
     Never raises — webhook background tasks must not explode. Every
     failure path sends SOMETHING back so Kunal isn't left on read.
     """
-    from gateway.services.meta_api import MetaAPIClient
-
     reply = await _run_turn(phone, text)
-    client = MetaAPIClient()
-    try:
-        for chunk in _chunks(reply, _WA_TEXT_LIMIT):
-            result = await client.send_text(phone=phone, body=chunk)
-            if not result.success:
-                logger.error(
-                    "[astra-chat] reply send failed: %s", result.error
-                )
-                break
-    except Exception:
-        logger.exception("[astra-chat] reply send raised")
-    finally:
-        await client.close()
+    await _reply_text(phone, reply)
 
 
 async def _run_turn(phone: str, text: str) -> str:
