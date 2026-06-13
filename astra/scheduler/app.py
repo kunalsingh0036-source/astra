@@ -430,36 +430,50 @@ def start_scheduler() -> AsyncIOScheduler:
     if _scheduler is None:
         _scheduler = _build_scheduler()
     if not _scheduler.running:
-        _scheduler.start()
-        # The jobstore is Postgres-persisted: jobs registered by a
-        # PREVIOUS process (e.g. the macOS-only set, before they were
-        # platform-gated) survive in astra_scheduler_jobs and load on
-        # start regardless of what _build_scheduler registered. Purge
-        # any job that's persisted but platform-inappropriate here —
-        # otherwise the gating above only affects fresh databases.
-        import sys as _sys
+        # Capture the set THIS process intends to run, before start().
+        # APScheduler holds add_job()s as pending until start(); the
+        # Postgres jobstore's persisted rows only load on start(). So
+        # get_jobs() here returns exactly what _build_scheduler just
+        # registered (platform-gated — e.g. the 5 macOS-only jobs are
+        # absent on cloud), with NONE of the persisted orphans yet.
+        intended = {j.id for j in _scheduler.get_jobs()}
 
-        if _sys.platform != "darwin":
-            _MACOS_JOB_IDS = (
-                "notes_sync",
-                "missed_session_snapshot",
-                "apply_approved_catchups",
-                "meetings_pipeline",
-                "meeting_capture_trigger",
+        _scheduler.start()
+
+        # Reconcile: drop any persisted job this process did NOT register.
+        # These are orphans — renamed/removed jobs from old deployments,
+        # and the macOS-only set when running on cloud — that survive in
+        # astra_scheduler_jobs with stale/NULL next_run_time. They were
+        # the phantom "22 jobs null / 52 overdue" the scheduler-self-check
+        # alarmed about for weeks. This supersedes the old hardcoded 5-id
+        # macOS purge and is drift-safe: `intended` is derived live from
+        # the registrations, not a list that can fall out of sync.
+        #
+        # FAIL-SAFE: only reconcile if `intended` came back plausibly
+        # full. _build_scheduler always registers ~20+ jobs, so a small
+        # set means something is off (APScheduler quirk) — skip pruning
+        # rather than risk deleting live jobs.
+        if len(intended) >= 10:
+            for j in _scheduler.get_jobs():
+                if j.id not in intended:
+                    try:
+                        _scheduler.remove_job(j.id)
+                        logger.info(
+                            "[scheduler] pruned orphan job %r (not "
+                            "registered this process)",
+                            j.id,
+                        )
+                    except Exception:
+                        pass
+        else:
+            logger.warning(
+                "[scheduler] orphan reconcile SKIPPED — intended set "
+                "implausibly small (%d); not pruning",
+                len(intended),
             )
-            for _jid in _MACOS_JOB_IDS:
-                try:
-                    _scheduler.remove_job(_jid)
-                    logger.info(
-                        "[scheduler] purged persisted macOS-only job %r "
-                        "(platform=%s)",
-                        _jid,
-                        _sys.platform,
-                    )
-                except Exception:
-                    pass  # not in the store — nothing to purge
         logger.info(
-            "[scheduler] started — jobs: %s",
+            "[scheduler] started — %d jobs: %s",
+            len(_scheduler.get_jobs()),
             [j.id for j in _scheduler.get_jobs()],
         )
     return _scheduler

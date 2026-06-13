@@ -145,8 +145,6 @@ async def scheduler_self_check() -> dict:
     """
     from sqlalchemy import text as _text
     from astra.db.engine import async_session
-    from astra.memory.store import store_memory
-    from astra.memory.models import MemoryType
     from astra.notifications import notify
     import datetime as _dt
 
@@ -172,18 +170,17 @@ async def scheduler_self_check() -> dict:
     if issues:
         body = "Scheduler health alert:\n" + "\n".join(f"  · {i}" for i in issues[:8])
         logger.warning("[scheduler-self-check] %s", body.replace("\n", " | "))
-        async with async_session() as session:
-            await store_memory(
-                session=session,
-                content=body,
-                memory_type=MemoryType.EPISODIC,
-                source="scheduler",
-                tags="alert,scheduler,health",
-                importance=0.75,
-            )
+        # IMPORTANT: this is operational TELEMETRY, not knowledge. It used
+        # to be written as an importance-0.75 EPISODIC memory every 5 min,
+        # which (a) flooded the memory store with near-identical rows and
+        # (b) got recalled into briefings/chat as a standing "scheduler is
+        # dead two weeks" crisis long after any transient issue cleared —
+        # a stale snapshot (e.g. captured mid-deploy) haunting every brief.
+        # Alert via push + log only; the brief/chat read scheduler health
+        # LIVE, never from recalled memory. (2026-06-13 confabulation audit.)
         notify(
             title="astra · scheduler issue",
-            body=f"{len(issues)} scheduler problem(s) — see briefing",
+            body=f"{len(issues)} scheduler problem(s) — see /today",
             url="/today",
             tag="scheduler-alert",
         )

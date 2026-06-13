@@ -198,45 +198,42 @@ async def _fleet_line() -> tuple[str, dict]:
 
 
 async def _training_state() -> tuple[str, dict]:
-    """Latest missed-session snapshot → debt line. Snapshot freshness
-    is laptop-dependent (macOS job), so age is reported honestly.
+    """Missed-session debt framed as the WEEK-OVER-WEEK trend, not the
+    raw absolute.
 
-    NOTE: these are CUMULATIVE-since-inception missed-session counters
-    from Kunal's Apple Note — lifetime debt, not a daily target — which
-    is why they look huge (×320). Reporting the week-over-week trend
-    instead of the absolute is a separate P1 fix; for now the absolute
-    facts are still returned so the synthesis can't inflate them."""
-    from astra.db.engine import async_session
-
+    The counters are CUMULATIVE-since-inception (Kunal's Apple Note),
+    so the absolute looks huge (×320) and screams false urgency. The
+    real decision signal is direction: a counter falling = recovery on
+    schedule; rising = slipping (compass rule, 2026-04-19). So we lead
+    with the Δ/week per type and keep the absolute as a quiet suffix."""
     try:
-        async with async_session() as s:
-            r = await s.execute(
-                _sql(
-                    """
-                    SELECT snapshot_date, stretch, meditate, breathe,
-                           movement, skill, workout
-                    FROM missed_session_snapshots
-                    ORDER BY snapshot_date DESC LIMIT 1
-                    """
-                )
-            )
-            row = r.first()
-        if not row:
+        from astra.notes.missed_sessions import trend as _trend, TYPES
+
+        tr = await _trend(14)
+        today = tr.get("today")
+        if not today:
             return "no training snapshot yet", {}
-        date = row[0]
-        debts = dict(
-            zip(
-                ("stretch", "meditate", "breathe", "movement", "skill", "workout"),
-                row[1:],
-            )
-        )
-        owed = {k: int(v) for k, v in debts.items() if (v or 0) > 0}
-        age_days = (_now_ist().date() - date).days
-        stale = f" (snapshot {age_days}d old)" if age_days > 1 else ""
+
+        wow = tr.get("wow_delta") or {}
+        direction = tr.get("direction") or {}
+        owed = {t: int(today[t]) for t in TYPES if (today.get(t) or 0) > 0}
         if not owed:
-            return f"no missed sessions{stale}", {"training_debts": {}}
-        debt_str = ", ".join(f"{k}×{v}" for k, v in owed.items())
-        return f"owed: {debt_str}{stale}", {"training_debts": owed}
+            return "no missed sessions", {"training_debts": {}}
+
+        parts: list[str] = []
+        for t, n in owed.items():
+            d = wow.get(t)
+            if d is None:
+                parts.append(f"{t} {n}")
+            else:
+                arrow = "↓" if d < 0 else ("↑" if d > 0 else "→")
+                tag = direction.get(t, "")
+                parts.append(f"{t} {n} ({arrow}{abs(d)}/wk{(' ' + tag) if tag else ''})")
+        line = "missed-session debt (week trend): " + ", ".join(parts)
+        return line, {
+            "training_debts": owed,
+            "training_wow": {t: wow.get(t) for t in owed},
+        }
     except Exception as e:
         logger.warning("[briefing] training read failed: %s", e)
         return "training data unavailable", {}
