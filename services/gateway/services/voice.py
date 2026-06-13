@@ -1,28 +1,39 @@
 """
-WhatsApp voice-note transcription.
+WhatsApp voice — both directions.
 
-The phone-native input: Kunal sends a voice note instead of typing,
+IN (transcription): Kunal sends a voice note instead of typing,
 especially mid-training or driving. Meta delivers these as
 `type: "audio"` messages with a media id (not the bytes). Flow:
   1. Resolve the media id → a short-lived download URL (Graph API).
   2. Download the audio bytes (WhatsApp voice notes are OGG/Opus).
   3. Transcribe via Whisper-compatible STT.
 
-Transcription is provider-pluggable and env-driven, matching the
-rest of the mesh: set ONE of OPENAI_API_KEY (api.openai.com) or
-GROQ_API_KEY (Groq's whisper-large-v3, faster + cheaper) and voice
-notes light up. With neither, transcribe() returns None and the
-caller tells Kunal on WhatsApp instead of dropping the note —
-honest degradation, never silence.
+OUT (synthesis): when Kunal voice-notes Astra, Astra replies as a
+voice note — mirror modality, hands-free both ways. synthesize()
+turns the reply text into OGG/Opus via ElevenLabs (the SAME voice as
+the web "listen" button) so the gateway can upload it to Meta and
+send a real playable voice bubble.
 
-Claude can't transcribe audio via the Messages API, which is why
-this needs a dedicated STT key rather than reusing ANTHROPIC_API_KEY.
+Both directions are provider-pluggable and env-driven, matching the
+rest of the mesh:
+  - STT: set ONE of OPENAI_API_KEY (api.openai.com) or GROQ_API_KEY
+    (Groq's whisper-large-v3, faster + cheaper) and voice notes light
+    up. With neither, transcribe() returns None and the caller tells
+    Kunal on WhatsApp instead of dropping the note.
+  - TTS: set ELEVENLABS_API_KEY (+ optional ASTRA_VOICE_ID). With it
+    unset synthesize() returns None and the caller replies in text.
+Honest degradation, never silence.
+
+Claude can't transcribe or synthesize audio via the Messages API,
+which is why this needs dedicated STT/TTS keys rather than reusing
+ANTHROPIC_API_KEY.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 
 import httpx
 
@@ -30,6 +41,16 @@ logger = logging.getLogger(__name__)
 
 _GRAPH = "https://graph.facebook.com/v18.0"
 _MAX_AUDIO_BYTES = 16 * 1024 * 1024  # WhatsApp voice notes are small
+
+# --- TTS (voice OUT) -------------------------------------------------------
+_ELEVEN = "https://api.elevenlabs.io/v1/text-to-speech"
+_DEFAULT_VOICE = "SAz9YHcvj6GT2YYXdXww"  # River — Astra's voice
+_TTS_MODEL = "eleven_turbo_v2_5"  # lowest latency, good quality
+# A spoken reply has to stay short — nobody wants a 4-minute voice note,
+# and code blocks / links / tables read terribly aloud. Past this we let
+# the caller fall back to text, which is the better medium for long or
+# technical answers anyway.
+_MAX_SPEAK_CHARS = 1500
 
 
 async def fetch_media(media_id: str, access_token: str) -> tuple[bytes, str] | None:
@@ -104,4 +125,73 @@ async def _whisper_call(url: str, key: str, model: str, files: dict) -> str | No
             return text or None
     except Exception as e:
         logger.warning("[voice] STT call failed: %s", e)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# TTS — synthesize Astra's reply into a WhatsApp voice note
+# ---------------------------------------------------------------------------
+
+
+def _strip_for_speech(text: str) -> str:
+    """Markdown → speakable plain text. Drops code blocks, unwraps
+    links to their label, removes inline-code/emphasis markers, and
+    collapses paragraph breaks into sentence stops."""
+    t = re.sub(r"```.*?```", " ", text, flags=re.S)
+    t = re.sub(r"`([^`]+)`", r"\1", t)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"[*_#>]", "", t)
+    t = re.sub(r"\n{2,}", ". ", t)
+    t = re.sub(r"[ \t]+", " ", t)
+    return t.strip()
+
+
+async def synthesize(text: str) -> tuple[bytes, str] | None:
+    """Reply text → (ogg_opus_bytes, "audio/ogg") via ElevenLabs.
+
+    OGG/Opus specifically: that's the only format WhatsApp renders as
+    a real playable voice bubble (mp3 lands as a file-style row). The
+    web "listen" path uses mp3 because an <audio> element plays that
+    fine — same voice, format chosen per medium.
+
+    Returns None — caller falls back to a text reply — when:
+      - ELEVENLABS_API_KEY is unset (TTS not configured),
+      - the cleaned reply is empty or longer than _MAX_SPEAK_CHARS
+        (long/technical answers belong in text), or
+      - the ElevenLabs call fails.
+    Never raises.
+    """
+    key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not key:
+        logger.info("[voice] no ELEVENLABS_API_KEY — voice reply skipped")
+        return None
+    voice = os.environ.get("ASTRA_VOICE_ID", _DEFAULT_VOICE).strip() or _DEFAULT_VOICE
+
+    clean = _strip_for_speech(text)
+    if not clean or len(clean) > _MAX_SPEAK_CHARS:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            r = await c.post(
+                f"{_ELEVEN}/{voice}",
+                params={"output_format": "opus_48000_64"},
+                headers={
+                    "xi-api-key": key,
+                    "accept": "audio/ogg",
+                    "content-type": "application/json",
+                },
+                json={
+                    "text": clean,
+                    "model_id": _TTS_MODEL,
+                    "voice_settings": {"stability": 0.4, "similarity_boost": 0.75},
+                },
+            )
+        if r.status_code != 200 or not r.content:
+            # On error the body is a small JSON blob, safe to log.
+            logger.warning("[voice] TTS %s: %s", r.status_code, r.text[:160])
+            return None
+        return r.content, "audio/ogg"
+    except Exception as e:
+        logger.warning("[voice] TTS call failed: %s", e)
         return None

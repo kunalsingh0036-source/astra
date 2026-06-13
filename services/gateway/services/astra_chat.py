@@ -112,13 +112,51 @@ async def _reply_text(phone: str, text: str) -> None:
         await client.close()
 
 
-async def chat_and_reply(phone: str, text: str) -> None:
+async def _reply_voice(phone: str, text: str) -> bool:
+    """Send `text` to the owner as an Astra voice note.
+
+    Returns True on success; False (caller then falls back to text)
+    when synthesis is unconfigured / the reply is too long to speak /
+    upload or send fails. Never raises.
+    """
+    from gateway.services.meta_api import MetaAPIClient
+    from gateway.services.voice import synthesize
+
+    synthd = await synthesize(text)
+    if not synthd:
+        return False
+    audio, mime = synthd
+
+    client = MetaAPIClient()
+    try:
+        media_id = await client.upload_media(audio, mime, "astra.ogg")
+        if not media_id:
+            return False
+        result = await client.send_audio(phone, media_id)
+        if not result.success:
+            logger.error("[astra-chat] voice send failed: %s", result.error)
+            return False
+        return True
+    except Exception:
+        logger.exception("[astra-chat] _reply_voice raised")
+        return False
+    finally:
+        await client.close()
+
+
+async def chat_and_reply(phone: str, text: str, voice: bool = False) -> None:
     """Run one Astra turn for an owner message and reply on WhatsApp.
+
+    Mirror modality: when Kunal sends a voice note (`voice=True`), reply
+    as a voice note too — falling back to text if synthesis is off, the
+    reply is too long/technical to speak, or the upload/send fails.
 
     Never raises — webhook background tasks must not explode. Every
     failure path sends SOMETHING back so Kunal isn't left on read.
     """
     reply = await _run_turn(phone, text)
+    if voice and await _reply_voice(phone, reply):
+        return
     await _reply_text(phone, reply)
 
 

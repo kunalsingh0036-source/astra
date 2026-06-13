@@ -86,6 +86,10 @@ class MetaAPIClient:
         return f"{settings.meta_base_url}/{settings.whatsapp_phone_number_id}/messages"
 
     @property
+    def _media_url(self) -> str:
+        return f"{settings.meta_base_url}/{settings.whatsapp_phone_number_id}/media"
+
+    @property
     def _headers(self) -> dict:
         return {
             "Authorization": f"Bearer {settings.whatsapp_access_token}",
@@ -196,6 +200,58 @@ class MetaAPIClient:
                 "link": media_url,
                 "caption": caption[:1024] if caption else "",
             },
+        }
+        return await self._send(payload)
+
+    async def upload_media(
+        self,
+        content: bytes,
+        mime: str,
+        filename: str = "audio.ogg",
+    ) -> str | None:
+        """Upload media bytes to Meta's media store, return the media id.
+
+        Used for synthesized voice replies: we send by id (not a public
+        `link`), so nothing has to be hosted at a reachable URL. The id
+        is single-use and expires after a short window — fine, we send
+        immediately after uploading.
+
+        Multipart, not JSON — so we set Authorization only and let httpx
+        own the Content-Type (boundary). Returns None on any failure;
+        the caller falls back to a text reply.
+        """
+        if not self.is_configured():
+            return None
+        client = await self._get_client()
+        files = {
+            "messaging_product": (None, "whatsapp"),
+            "type": (None, mime),
+            "file": (filename, content, mime),
+        }
+        headers = {"Authorization": f"Bearer {settings.whatsapp_access_token}"}
+        try:
+            resp = await client.post(self._media_url, files=files, headers=headers)
+            if resp.status_code in (200, 201):
+                return (resp.json() or {}).get("id")
+            logger.warning(
+                "[meta] media upload %s: %s", resp.status_code, resp.text[:200]
+            )
+            return None
+        except Exception as e:
+            logger.warning("[meta] media upload failed: %s", e)
+            return None
+
+    async def send_audio(self, phone: str, media_id: str) -> SendResult:
+        """Send a voice/audio message by previously-uploaded media id.
+
+        WhatsApp renders OGG/Opus uploaded this way as a real playable
+        voice bubble — the mirror to an inbound voice note.
+        """
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": phone,
+            "type": "audio",
+            "audio": {"id": media_id},
         }
         return await self._send(payload)
 

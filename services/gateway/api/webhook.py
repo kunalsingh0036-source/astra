@@ -313,11 +313,17 @@ async def _handle_inbound_message(
             conversation.last_message_at = datetime.now(timezone.utc)
             conversation.message_count += 1
             await session.commit()
-            asyncio.create_task(chat_and_reply(phone, content))
+            # Mirror modality: a transcribed voice note gets a voice
+            # reply (when TTS is configured and the answer is short
+            # enough to speak); a typed message gets text.
+            asyncio.create_task(
+                chat_and_reply(phone, content, voice=(msg_type == "audio"))
+            )
             logger.info(
-                "Inbound from OWNER %s: %r → astra chat turn",
+                "Inbound from OWNER %s: %r → astra chat turn (voice=%s)",
                 phone,
                 content[:50],
+                msg_type == "audio",
             )
             return
 
