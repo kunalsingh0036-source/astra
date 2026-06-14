@@ -42,9 +42,7 @@ from astra.memory.store import store_memory
 logger = logging.getLogger(__name__)
 
 
-_EXTRACT_MODEL = os.environ.get(
-    "MEMORY_EXTRACT_MODEL", "claude-haiku-4-5"
-)
+_EXTRACT_MODEL = os.environ.get("MEMORY_EXTRACT_MODEL") or settings.model_haiku
 _DEDUP_THRESHOLD = 0.92  # cosine similarity above which a candidate is a dup
 _MAX_CANDIDATES_PER_TURN = 6  # cap to avoid storage spam from a single chatty turn
 

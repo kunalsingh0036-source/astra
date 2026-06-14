@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 # Model selection — Sonnet for drafting (quality matters when the
 # artifact is going to a Fortune-500 procurement lead or a Tier-1 VC),
 # Haiku for cheaper passes (critique, image-prompt enhancement).
-DRAFT_MODEL = os.environ.get("CREATOR_DRAFT_MODEL", "claude-sonnet-4-6")
-CRITIQUE_MODEL = os.environ.get("CREATOR_CRITIQUE_MODEL", "claude-haiku-4-5")
-IMAGE_PROMPT_MODEL = os.environ.get("CREATOR_IMAGE_PROMPT_MODEL", "claude-haiku-4-5")
+DRAFT_MODEL = os.environ.get("CREATOR_DRAFT_MODEL") or settings.model_sonnet
+CRITIQUE_MODEL = os.environ.get("CREATOR_CRITIQUE_MODEL") or settings.model_haiku
+IMAGE_PROMPT_MODEL = os.environ.get("CREATOR_IMAGE_PROMPT_MODEL") or settings.model_haiku
 DEFAULT_MAX_TOKENS = 8000
 
 

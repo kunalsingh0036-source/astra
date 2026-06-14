@@ -264,7 +264,7 @@ async def _extract_pdf_via_claude(path: str) -> str:
 
     client = anthropic.AsyncAnthropic(api_key=key)
     resp = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=settings.model_haiku,
         max_tokens=4_000,
         messages=[{
             "role": "user",
@@ -531,7 +531,7 @@ async def _classify(payload: str) -> dict[str, Any]:
 
     try:
         resp = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=settings.model_haiku,
             max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )

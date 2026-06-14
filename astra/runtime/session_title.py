@@ -40,13 +40,14 @@ from typing import Any
 from anthropic import AsyncAnthropic
 from sqlalchemy import text
 
+from astra.config import settings
 from astra.db.engine import async_session
 
 logger = logging.getLogger(__name__)
 
-# Haiku is the cheapest current Claude model. If a future cheaper
-# model lands, swap here without touching call sites.
-TITLE_MODEL = os.environ.get("ASTRA_TITLE_MODEL", "claude-haiku-4-5")
+# Cheapest tier, provider-agnostic via settings.model_haiku (env
+# MODEL_HAIKU). ASTRA_TITLE_MODEL still overrides if set explicitly.
+TITLE_MODEL = os.environ.get("ASTRA_TITLE_MODEL") or settings.model_haiku
 TITLE_MAX_TOKENS = 80  # plenty for 4-8 words; bounded so misbehavior is cheap
 TITLE_PROMPT_BUDGET = 1500  # truncate first prompt + first response to this many chars
 

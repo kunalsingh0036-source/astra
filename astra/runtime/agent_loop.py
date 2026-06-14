@@ -31,6 +31,8 @@ from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
+from astra.config import settings
+
 from astra.runtime.event_emitter import (
     approval_request,
     artifact,
@@ -195,7 +197,7 @@ async def run_lean_turn(
     *,
     session_id: str | None = None,
     system_prompt: str = "",
-    model: str = "claude-sonnet-4-5",
+    model: str | None = None,
     max_tokens: int = 8192,
     tools_enabled: bool = True,
     tool_namespaces: list[str] | None = None,
@@ -230,6 +232,11 @@ async def run_lean_turn(
             on the user message. Used by the drag-and-drop screenshot
             feature in InputLine. Empty/None = pure text turn.
     """
+    # Model is provider-agnostic via settings.model_sonnet (env
+    # MODEL_SONNET). Routing the whole loop through one knob is what lets
+    # us point ANTHROPIC_BASE_URL at a compatible provider (e.g. Kimi via
+    # Moonshot's anthropic endpoint) and swap models with zero code edits.
+    model = model or settings.model_sonnet
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
     yield await _emit(turn_id, session_event, session_id=sid)
