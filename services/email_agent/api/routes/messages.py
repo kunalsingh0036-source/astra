@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from email_agent.db.engine import get_session
 from email_agent.models.email_message import EmailDirection, EmailMessage
 from email_agent.schemas.message import MessageOut, MessageSummary, SendRequest
-from email_agent.services.gmail_client import mark_read, modify_labels, send_email
+from email_agent.services.gmail_client import (
+    mark_read as gmail_mark_read,
+    modify_labels,
+    send_email,
+)
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -114,7 +118,7 @@ async def mark_read_batch(
     msgs = (await session.execute(q)).scalars().all()
     gmail_ids = [m.gmail_message_id for m in msgs if m.gmail_message_id]
 
-    res = await mark_read(gmail_ids)
+    res = await gmail_mark_read(gmail_ids)
     if gmail_ids and not res.get("ok"):
         raise HTTPException(
             status_code=502, detail=f"Gmail mark-read failed: {res.get('error')}"
