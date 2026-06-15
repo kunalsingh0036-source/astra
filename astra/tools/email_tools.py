@@ -1,8 +1,10 @@
 """
-MCP tools so Astra Core can read the inbox intelligently.
+MCP tools so Astra Core can work the inbox intelligently.
 
-Four tools, read-only. Sending still goes through email-agent's
-approval-gated path; nothing here writes.
+Mostly read tools (digest / unanswered / search / senders / classify);
+plus mark_emails_read, which WRITES — it clears the unread flag in Gmail
+when Kunal says he's gone through his mail. Sending still goes through
+email-agent's approval-gated path.
 """
 
 from __future__ import annotations
@@ -145,6 +147,57 @@ async def email_classify_sweep_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": text}]}
 
 
+@tool(
+    "mark_emails_read",
+    "Mark Kunal's emails as READ in Gmail (clears the unread flag). Use "
+    "when he says he's gone through his mail and wants it marked read — "
+    "e.g. after you show the unanswered/unread list and he says 'mark them "
+    "read'. With no args, marks ALL currently-unread inbound mail read; "
+    "pass action_needed_only=true to mark only the action-needed ones, or "
+    "days=N to limit to recent mail. This MODIFIES Gmail (write).",
+    {"action_needed_only": bool, "days": int},
+)
+async def mark_emails_read_tool(args: dict) -> dict:
+    import httpx
+
+    from astra.email.client import BASE_URL, mesh_headers
+
+    body: dict = {}
+    if args.get("action_needed_only"):
+        body["action_needed_only"] = True
+    if args.get("days"):
+        body["days"] = max(1, min(365, int(args["days"])))
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/messages/mark-read",
+                json=body,
+                headers=mesh_headers(),
+            )
+        if r.status_code != 200:
+            return {
+                "content": [
+                    {"type": "text", "text": f"mark-read failed ({r.status_code}): {r.text[:200]}"}
+                ],
+                "is_error": True,
+            }
+        data = r.json() or {}
+        marked = data.get("marked", 0)
+        sel = data.get("selected", marked)
+        scope = "action-needed " if body.get("action_needed_only") else ""
+        extra = f" ({sel} matched)" if sel != marked else ""
+        return {
+            "content": [
+                {"type": "text", "text": f"Marked {marked} {scope}email(s) read.{extra}"}
+            ]
+        }
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"mark-read error: {e}"}],
+            "is_error": True,
+        }
+
+
 def create_email_mcp_server():
     return create_sdk_mcp_server(
         name="astra-email",
@@ -155,5 +208,6 @@ def create_email_mcp_server():
             email_search_tool,
             email_top_senders_tool,
             email_classify_sweep_tool,
+            mark_emails_read_tool,
         ],
     )

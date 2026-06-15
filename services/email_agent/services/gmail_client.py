@@ -124,6 +124,27 @@ async def send_email(
         return None
 
 
+async def mark_read(gmail_ids: list[str]) -> dict:
+    """Mark a batch of Gmail messages read in ONE call (batchModify,
+    removing the UNREAD label). Uses the gmail.modify scope (already
+    requested at auth). Returns counts so the caller reports honestly."""
+    service = _get_gmail_service()
+    if not service:
+        return {"ok": False, "error": "gmail not configured", "marked": 0}
+    if not gmail_ids:
+        return {"ok": True, "marked": 0}
+    try:
+        # batchModify takes up to 1000 ids per call and returns 204/empty.
+        service.users().messages().batchModify(
+            userId="me",
+            body={"ids": gmail_ids, "removeLabelIds": ["UNREAD"]},
+        ).execute()
+        return {"ok": True, "marked": len(gmail_ids)}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[gmail] batch mark_read failed: %s", e)
+        return {"ok": False, "marked": 0, "error": str(e)}
+
+
 async def fetch_messages(
     max_results: int = 50,
     query: str = "",

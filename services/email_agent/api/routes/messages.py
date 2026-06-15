@@ -1,15 +1,17 @@
 """Email message endpoints."""
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from email_agent.db.engine import get_session
 from email_agent.models.email_message import EmailDirection, EmailMessage
 from email_agent.schemas.message import MessageOut, MessageSummary, SendRequest
-from email_agent.services.gmail_client import modify_labels, send_email
+from email_agent.services.gmail_client import mark_read, modify_labels, send_email
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -78,6 +80,51 @@ async def message_summary(
         action_needed=action_needed,
         by_category=by_category,
     )
+
+
+class MarkReadBatch(BaseModel):
+    """Selection for a batch mark-read. With no message_ids, defaults to
+    'all currently-unread', optionally narrowed to action-needed and/or a
+    recency window — the natural 'I've gone through them, mark them read.'"""
+
+    message_ids: list[uuid.UUID] | None = None
+    action_needed_only: bool = False
+    days: int | None = None
+    limit: int = 200
+
+
+@router.post("/mark-read")
+async def mark_read_batch(
+    data: MarkReadBatch, session: AsyncSession = Depends(get_session)
+):
+    """Mark a SET of messages read in one Gmail batchModify call, then
+    mirror is_read locally so summaries update immediately. Selection is
+    explicit ids OR (default) the current unread set."""
+    q = select(EmailMessage)
+    if data.message_ids:
+        q = q.where(EmailMessage.id.in_(data.message_ids))
+    else:
+        q = q.where(EmailMessage.is_read == False)  # noqa: E712
+        if data.action_needed_only:
+            q = q.where(EmailMessage.ai_action_needed == True)  # noqa: E712
+        if data.days:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=data.days)
+            q = q.where(EmailMessage.sent_at >= cutoff)
+        q = q.order_by(EmailMessage.sent_at.desc()).limit(data.limit)
+    msgs = (await session.execute(q)).scalars().all()
+    gmail_ids = [m.gmail_message_id for m in msgs if m.gmail_message_id]
+
+    res = await mark_read(gmail_ids)
+    if gmail_ids and not res.get("ok"):
+        raise HTTPException(
+            status_code=502, detail=f"Gmail mark-read failed: {res.get('error')}"
+        )
+    for m in msgs:
+        m.is_read = True
+        if m.gmail_labels:
+            m.gmail_labels = [l for l in m.gmail_labels if l != "UNREAD"]
+    await session.commit()
+    return {"status": "ok", "selected": len(msgs), "marked": res.get("marked", 0)}
 
 
 @router.get("/{message_id}", response_model=MessageOut)
