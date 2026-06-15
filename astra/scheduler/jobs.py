@@ -215,6 +215,27 @@ async def betterstack_heartbeat() -> dict:
     if not url:
         return {"status": "skipped", "reason": "BETTERSTACK_HEARTBEAT_URL not set"}
 
+    # GATE THE PING ON REAL SYSTEM HEALTH, not just "this process is alive".
+    # On 2026-06-15 Postgres died (disk-full → read-only) for ~11h, but this
+    # job kept pinging BetterStack — the GET touches no DB — so BetterStack
+    # saw a healthy heartbeat and never alerted. A liveness ping is not a
+    # health check. Now: prove the DB is reachable (SELECT 1) FIRST; if it
+    # isn't, DON'T ping, so the missed heartbeat makes BetterStack page Kunal.
+    try:
+        from sqlalchemy import text as _t
+
+        from astra.db.engine import async_session
+
+        async with async_session() as s:
+            await s.execute(_t("SELECT 1"))
+    except Exception as e:
+        logger.error(
+            "[heartbeat] DB unreachable — SUPPRESSING ping so BetterStack "
+            "alerts on the missed heartbeat: %s",
+            e,
+        )
+        return {"status": "suppressed-db-down", "error": str(e)[:200]}
+
     try:
         import httpx
 

@@ -1,0 +1,124 @@
+name: db-watchdog
+
+# OUT-OF-BAND watchdog. Runs on GitHub's infrastructure — independent of
+# Railway and of Astra's own services/DB — so it can detect and report a
+# failure that takes the whole fleet down (as on 2026-06-15, when Postgres
+# crashed disk-full → read-only and stayed dead ~11h with no alert, because
+# every in-band alarm depends on the same DB).
+#
+# What it does, every ~5 min:
+#   1. Hits stream /health/db (a REAL `SELECT 1`, not an env-var check).
+#   2. If the DB is down: restarts Postgres via the Railway API (self-heal —
+#      the exact manual recovery, automated → 11h outage becomes ~2min).
+#   3. Re-checks; on recovery, pings Kunal on WhatsApp (best-effort, via the
+#      now-recovered gateway). If it can't recover, the job FAILS, which makes
+#      GitHub email the repo owner — an alert path that needs neither the DB
+#      nor the gateway.
+#
+# Layered with the DB-gated BetterStack heartbeat (primary, vendor-grade
+# paging) — this is the self-healing + WhatsApp layer.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes (GitHub cron is best-effort)
+  workflow_dispatch: {}      # manual run for testing
+
+concurrency:
+  group: db-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe DB health, auto-heal, alert
+        env:
+          STREAM_URL: ${{ secrets.WATCHDOG_STREAM_URL }}
+          GATEWAY_URL: ${{ secrets.WATCHDOG_GATEWAY_URL }}
+          AGENT_SHARED_SECRET: ${{ secrets.WATCHDOG_AGENT_SECRET }}
+          RAILWAY_API_TOKEN: ${{ secrets.WATCHDOG_RAILWAY_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import os, json, time, urllib.request, urllib.error
+
+          STREAM = (os.environ.get("STREAM_URL") or "").rstrip("/")
+          GW = (os.environ.get("GATEWAY_URL") or "").rstrip("/")
+          SECRET = os.environ.get("AGENT_SHARED_SECRET") or ""
+          RW = os.environ.get("RAILWAY_API_TOKEN") or ""
+          GQL = "https://backboard.railway.com/graphql/v2"
+
+          if not STREAM:
+              print("WATCHDOG_STREAM_URL not set — nothing to check"); raise SystemExit(0)
+
+          def http(url, method="GET", data=None, headers=None, timeout=25):
+              body = json.dumps(data).encode() if data is not None else None
+              req = urllib.request.Request(url, method=method, data=body)
+              if data is not None:
+                  req.add_header("content-type", "application/json")
+              for k, v in (headers or {}).items():
+                  req.add_header(k, v)
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      return r.status, r.read().decode()
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()
+              except Exception as e:
+                  return 0, str(e)
+
+          def db_ok():
+              code, _ = http(f"{STREAM}/health/db")
+              return code == 200
+
+          def gql(q, v=None):
+              code, body = http(GQL, "POST", {"query": q, "variables": v or {}},
+                                {"authorization": f"Bearer {RW}"})
+              try:
+                  return json.loads(body)
+              except Exception:
+                  return {"errors": [body]}
+
+          def find_pg():
+              d = gql("query{projects{edges{node{id name environments{edges{node{id name}}}services{edges{node{id name}}}}}}}")
+              for pe in d.get("data", {}).get("projects", {}).get("edges", []):
+                  p = pe["node"]
+                  if p["name"] != "astra":
+                      continue
+                  envs = [e["node"] for e in p["environments"]["edges"]]
+                  env = next((e for e in envs if e["name"].lower() == "production"), envs[0])
+                  for se in p["services"]["edges"]:
+                      if se["node"]["name"].lower() == "postgres":
+                          return se["node"]["id"], env["id"]
+              return None, None
+
+          def notify(text):
+              if GW and SECRET:
+                  http(f"{GW}/api/v1/notify/owner", "POST", {"text": text},
+                       {"x-astra-secret": SECRET})
+
+          if db_ok():
+              print("DB healthy ✓"); raise SystemExit(0)
+
+          print("DB DOWN — attempting auto-recovery")
+          if RW:
+              sid, eid = find_pg()
+              if sid:
+                  gql("mutation($s:String!,$e:String!){serviceInstanceRedeploy(serviceId:$s,environmentId:$e)}",
+                      {"s": sid, "e": eid})
+                  print("Postgres restart triggered via Railway API")
+              else:
+                  print("could not resolve Postgres service")
+          else:
+              print("WATCHDOG_RAILWAY_TOKEN not set — cannot auto-restart")
+
+          for _ in range(20):          # up to ~5 min
+              time.sleep(15)
+              if db_ok():
+                  print("DB recovered ✓")
+                  notify("Astra watchdog: the database went DOWN and I auto-restarted Postgres — it's back up now.")
+                  raise SystemExit(0)
+
+          notify("Astra watchdog: database is DOWN and an auto-restart did NOT recover it — needs manual help.")
+          print("DB still down after restart")
+          raise SystemExit(1)   # non-zero → GitHub emails the repo owner (out-of-band alert)
+          PY

@@ -80,6 +80,31 @@ async def health() -> dict[str, object]:
     }
 
 
+@app.get("/health/db")
+async def health_db():
+    """REAL database-connectivity probe (SELECT 1) for out-of-band
+    watchdogs. /health/deep only checks that env vars are SET, not that
+    the DB is reachable — so it reported 'ok' while Postgres was dead on
+    2026-06-15. This does a live query: 200 = DB reachable, 503 = down.
+    Unauthenticated + data-free on purpose so an external monitor can hit
+    it without a secret."""
+    from sqlalchemy import text as _t
+
+    try:
+        from astra.db.engine import async_session
+
+        async with async_session() as s:
+            await s.execute(_t("SELECT 1"))
+        return {"status": "ok", "db": "reachable"}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=503,
+            content={"status": "down", "db": "unreachable", "error": str(e)[:200]},
+        )
+
+
 @app.get("/health/deep")
 async def health_deep() -> dict[str, object]:
     """Deep system health for the stream service. Probed by
