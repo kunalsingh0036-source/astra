@@ -203,6 +203,7 @@ async def run_lean_turn(
     tool_namespaces: list[str] | None = None,
     turn_id: int | None = None,
     load_history: bool = True,
+    history_limit: int | None = None,
     attachments: list[str] | None = None,
 ) -> AsyncIterator[bytes]:
     """Run one user turn against Anthropic + dispatch tools via the
@@ -266,7 +267,7 @@ async def run_lean_turn(
     history: list[dict[str, Any]] = []
     if load_history and session_id:
         try:
-            history = await load_session_messages(session_id)
+            history = await load_session_messages(session_id, limit=history_limit)
             if history:
                 logger.info(
                     "[lean-runtime] rehydrated %d messages from session %s",

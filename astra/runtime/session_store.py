@@ -35,7 +35,9 @@ from astra.db.engine import async_session
 logger = logging.getLogger(__name__)
 
 
-async def load_session_messages(session_id: str) -> list[dict[str, Any]]:
+async def load_session_messages(
+    session_id: str, limit: int | None = None
+) -> list[dict[str, Any]]:
     """Stitch the message history of a session from prior completed turns.
 
     Each row in `turns` carries that turn's final messages JSONB. We
@@ -47,22 +49,38 @@ async def load_session_messages(session_id: str) -> list[dict[str, Any]]:
     """
     if not session_id:
         return []
+    # When `limit` is set (WhatsApp passes a small bound) fetch only the
+    # most recent N completed turns — newest-first via DESC+LIMIT, then
+    # restored to chronological order below. This stops an hours-old,
+    # unrelated topic from earlier in the same per-day session bleeding
+    # into a fresh question. Unbounded (web) keeps full context.
+    bounded = isinstance(limit, int) and limit > 0
+    params: dict[str, Any] = {"sid": session_id}
+    order = "ASC"
+    lim_clause = ""
+    if bounded:
+        order = "DESC"
+        lim_clause = "LIMIT :n"
+        params["n"] = limit
     try:
         async with async_session() as s:
             r = await s.execute(
                 text(
-                    """
+                    f"""
                     SELECT messages
                     FROM turns
                     WHERE session_id = :sid
                       AND status = 'complete'
                       AND messages IS NOT NULL
-                    ORDER BY started_at ASC
+                    ORDER BY started_at {order}
+                    {lim_clause}
                     """
                 ),
-                {"sid": session_id},
+                params,
             )
             rows = r.all()
+        if bounded:
+            rows = list(reversed(rows))  # newest-first → chronological
     except Exception:
         logger.exception("[session-store] load failed for session=%s", session_id)
         return []

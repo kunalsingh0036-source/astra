@@ -405,8 +405,12 @@ _CHANNEL_ADDENDA: dict[str, str] = {
         "- Artifacts (tables, palettes, previews) don't render here. "
         "Describe the result in words, or note it's viewable in the web "
         "app, instead of calling an emit_* tool expecting it to show.\n"
-        "- This is a phone conversation: answer THIS message, don't "
-        "recap the thread."
+        "- STANDALONE QUESTION: treat the latest message as fresh and "
+        "self-contained. Do NOT continue, summarise, or bring up topics "
+        "from earlier in this conversation unless THIS message explicitly "
+        "refers to them — if asked for the fleet status, answer ONLY about "
+        "the fleet, not whatever was discussed before. Obey explicit length "
+        "asks literally ('in short lines' = a few lines, nothing more)."
     ),
 }
 
@@ -417,6 +421,19 @@ def _channel_addendum(channel: str | None) -> str:
     if not channel:
         return ""
     return _CHANNEL_ADDENDA.get(channel.strip().lower(), "")
+
+
+# Per-channel history bound. WhatsApp is quick, topic-hopping phone chat:
+# loading the whole per-day session let an hours-old topic bleed into an
+# unrelated question. Bound it to the last few turns (immediate follow-ups
+# like "approve that" still work). Web/unknown = full history (None).
+_CHANNEL_HISTORY_LIMIT = {"whatsapp": 5}
+
+
+def _channel_history_limit(channel: str | None) -> int | None:
+    if not channel:
+        return None
+    return _CHANNEL_HISTORY_LIMIT.get(channel.strip().lower())
 
 
 def _check_secret(request: Request) -> None:
@@ -863,6 +880,7 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
                 system_prompt=get_system_prompt() + _channel_addendum(req.channel),
                 turn_id=turn_id,
                 load_history=True,
+                history_limit=_channel_history_limit(req.channel),
                 attachments=req.attachments,
             ).__aiter__()
             while True:
