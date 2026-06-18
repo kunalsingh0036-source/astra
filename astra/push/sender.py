@@ -227,6 +227,43 @@ async def _send_one(
     return "failed"
 
 
+_PRIV_KEY_PATH_CACHE: str | None = None
+
+
+def _vapid_private_key_path() -> str:
+    """Resolve a filesystem PATH to the VAPID private-key PEM.
+
+    pywebpush needs a path, not a string. On Railway we only have env
+    vars, so if VAPID_PRIVATE_KEY holds the PEM CONTENT, materialize it
+    to a temp file once and cache the path (the env→file pattern, same as
+    Gmail creds). An explicit VAPID_PRIVATE_KEY_PATH still wins if set.
+    Returns "" when no key is configured (push then no-ops, never crashes).
+    """
+    global _PRIV_KEY_PATH_CACHE
+    import os
+    import tempfile
+
+    from astra.config import settings
+
+    if settings.vapid_private_key_path:
+        return settings.vapid_private_key_path
+    if _PRIV_KEY_PATH_CACHE and os.path.exists(_PRIV_KEY_PATH_CACHE):
+        return _PRIV_KEY_PATH_CACHE
+    pem = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+    if not pem:
+        return ""
+    # Railway env vars sometimes store newlines as the literal two chars
+    # backslash-n; normalize so the PEM parses.
+    pem = pem.replace("\\n", "\n")
+    if not pem.endswith("\n"):
+        pem += "\n"
+    fd, path = tempfile.mkstemp(prefix="vapid_", suffix=".pem")
+    with os.fdopen(fd, "w") as f:
+        f.write(pem)
+    _PRIV_KEY_PATH_CACHE = path
+    return path
+
+
 def _sync_send(
     endpoint: str, p256dh: str, auth: str, payload: str,
 ) -> tuple[int, str | None]:
@@ -240,8 +277,10 @@ def _sync_send(
 
     from astra.config import settings
 
-    priv_path = settings.vapid_private_key_path
+    priv_path = _vapid_private_key_path()
     contact = settings.vapid_contact or "mailto:astra@localhost"
+    if not priv_path:
+        return 0, "VAPID private key not configured"
 
     subscription_info = {
         "endpoint": endpoint,
