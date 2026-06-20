@@ -42,6 +42,7 @@ from astra.scheduler.jobs import (
     run_apply_approved_events,
     run_meetings_pipeline,
     run_meeting_capture_trigger,
+    run_content_draft,
     run_daily_research,
     run_inbox_preview,
     run_classify_sweep,
@@ -369,6 +370,18 @@ def _build_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=7, minute=0),
         id="daily_research",
         name="Research Intel (daily rotating topic + Sat meta-review)",
+        replace_existing=True,
+    )
+
+    # LinkedIn content draft — 08:00 IST, a safe margin after the 07:00
+    # research run has completed (status='ready'). Drafts a public post
+    # from today's briefing's OUTWARD insight (internal roadmap stripped),
+    # stages it for review, and nudges Kunal. Beachhead 2.
+    scheduler.add_job(
+        run_content_draft,
+        CronTrigger(hour=8, minute=0),
+        id="content_draft",
+        name="LinkedIn content draft (from daily research)",
         replace_existing=True,
     )
 

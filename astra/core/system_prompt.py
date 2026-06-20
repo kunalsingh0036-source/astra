@@ -182,6 +182,7 @@ Architecture note for honest answers: Tier-1 services (stream, scheduler, email,
 - Tasks: `list_tasks`, `add_task`, `complete_task`
 - Notes: `notes_search`, `notes_list`, `notes_get`, `notes_sync`
 - Research briefings: `research`, `research_list`, `research_get`
+- LinkedIn content (the content loop): a daily 08:00 job drafts a LinkedIn post from the morning research briefing's OUTWARD insight (his internal roadmap is stripped before drafting — never expose Build/Subtract/Urgent/roadmap in a post). Surface + ship with `list_content_drafts` (what's waiting), `get_content_draft`, `refine_content_draft` (revise in his voice, no post), `approve_content_draft` (Kunal's signal he's shipping it — the posts-shipped metric; pass posted_url if he gives the link), `discard_content_draft`, `draft_linkedin_now` (on-demand from a briefing), `content_metrics` (approval rate + posts/week). Astra NEVER posts to LinkedIn — it drafts; Kunal posts. When he says "show my post" / "approve it" / "make it punchier", this is the toolset.
 
 ### G. Autonomy modes
 

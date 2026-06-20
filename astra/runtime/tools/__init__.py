@@ -186,6 +186,12 @@ def _imp_research():
 _bridge_constructor("research", _imp_research)
 
 
+def _imp_content():
+    from astra.tools.content_tools import create_content_mcp_server
+    return create_content_mcp_server()
+_bridge_constructor("content", _imp_content)
+
+
 def _imp_creators():
     from astra.tools.creator_tools import create_creators_mcp_server
     return create_creators_mcp_server()

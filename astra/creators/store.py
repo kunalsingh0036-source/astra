@@ -198,6 +198,73 @@ async def list_artifacts(
     ]
 
 
+async def set_artifact_status(
+    artifact_id: int,
+    *,
+    status: str,
+    merge_content: dict[str, Any] | None = None,
+) -> bool:
+    """Set an artifact's status without replacing its content.
+
+    Used by the content (LinkedIn) review loop: approve / reject /
+    mark-posted. `merge_content` JSONB-concats extra keys onto content
+    (e.g. {"posted_url": "..."}) without rewriting the post body.
+    """
+    sets: list[str] = ["status = :st", "updated_at = now()"]
+    params: dict[str, Any] = {"id": int(artifact_id), "st": status[:15]}
+    if merge_content:
+        sets.append("content = COALESCE(content, '{}'::jsonb) || CAST(:mc AS JSONB)")
+        params["mc"] = json.dumps(merge_content)
+    async with async_session() as s:
+        r = await s.execute(
+            text(f"UPDATE creator_artifacts SET {', '.join(sets)} WHERE id = :id"),
+            params,
+        )
+        await s.commit()
+        return (r.rowcount or 0) > 0
+
+
+async def list_content_artifacts(
+    *,
+    kind: str = "linkedin_post",
+    status: str | None = None,
+    limit: int = 25,
+) -> list[dict[str, Any]]:
+    """Newest-first listing WITH content + status — for the content
+    review loop (chat tools). The generic list_artifacts() omits both."""
+    where: list[str] = ["kind = :k"]
+    params: dict[str, Any] = {"k": kind, "lim": max(1, min(100, limit))}
+    if status:
+        where.append("status = :st")
+        params["st"] = status
+    clause = "WHERE " + " AND ".join(where)
+    async with async_session() as s:
+        r = await s.execute(
+            text(
+                f"""
+                SELECT id, business_slug, kind, audience_slug, title, ask,
+                       content, status, created_at, updated_at
+                FROM creator_artifacts
+                {clause}
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            params,
+        )
+        rows = r.all()
+    return [
+        {
+            "id": row[0], "business_slug": row[1], "kind": row[2],
+            "audience_slug": row[3], "title": row[4], "ask": row[5],
+            "content": row[6] or {}, "status": row[7],
+            "created_at": row[8].isoformat() if row[8] else None,
+            "updated_at": row[9].isoformat() if row[9] else None,
+        }
+        for row in rows
+    ]
+
+
 async def update_artifact_render_key(
     artifact_id: int, *, kind: str, key: str
 ) -> bool:

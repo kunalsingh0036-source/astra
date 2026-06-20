@@ -1105,6 +1105,14 @@ async def run_inbox_triage():
     return await _safe("inbox_triage", inbox_triage)
 
 
+async def run_content_draft():
+    """07:30 IST — draft a LinkedIn post from today's research briefing
+    and stage it for review (beachhead 2)."""
+    from astra.scheduler.content import content_draft
+
+    return await _safe("content_draft", content_draft)
+
+
 async def run_notes_sync():
     return await _safe("notes_sync", notes_sync)
 
