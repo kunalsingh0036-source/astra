@@ -138,6 +138,12 @@ def _imp_email():
 _bridge_constructor("email", _imp_email)
 
 
+def _imp_replies():
+    from astra.tools.reply_tools import create_reply_mcp_server
+    return create_reply_mcp_server()
+_bridge_constructor("replies", _imp_replies)
+
+
 def _imp_browser():
     from astra.tools.browser_tools import create_browser_mcp_server
     return create_browser_mcp_server()

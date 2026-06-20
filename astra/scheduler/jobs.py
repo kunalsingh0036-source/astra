@@ -1013,10 +1013,63 @@ async def run_evening_briefing():
     return await _safe("evening_briefing", evening_briefing_v2)
 
 
+async def _nudge_drafts_ready(n: int) -> None:
+    """Tell Kunal that N reply drafts are staged and waiting.
+
+    Triage is silent by design, but a draft nobody knows about is a
+    draft nobody sends — the open-loop failure this beachhead exists to
+    fix. So once drafts land, ping the two surfaces Kunal chose:
+    WhatsApp (gateway owner-notify) + Web Push/PWA (→ /replies). The
+    drafts themselves stay unsent; this is just the 'come look' tap.
+    Best-effort: a failed nudge must never fail the triage job."""
+    import os
+
+    import httpx
+
+    plural = "reply" if n == 1 else "replies"
+    text = (
+        f"📩 {n} {plural} drafted and waiting for you.\n"
+        f"Say “show my drafts” to review them here, or open Astra → Replies."
+    )
+
+    # WhatsApp via the gateway (Kunal's primary surface).
+    try:
+        base = os.environ.get(
+            "GATEWAY_URL", "http://whatsapp.railway.internal:8080"
+        ).rstrip("/")
+        headers = {
+            "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        }
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            await c.post(
+                f"{base}/api/v1/notify/owner", json={"text": text}, headers=headers
+            )
+    except Exception as e:
+        logger.info("[scheduler] draft nudge WA skipped: %s", e)
+
+    # Web Push to the PWA, deep-linking the Replies page.
+    try:
+        from astra.notifications import notify
+
+        notify(
+            title="Replies drafted",
+            body=f"{n} {plural} ready to review & send",
+            url="/replies",
+            tag="drafts-ready",
+            also_push=True,
+        )
+    except Exception as e:
+        logger.info("[scheduler] draft nudge push skipped: %s", e)
+
+
 async def inbox_triage() -> dict:
     """Silent triage before 13:00 — stage reply drafts for action-
     needed mail via the email agent (mesh HTTP). Operating-mode
-    contract: by the time Kunal looks up, replies are WAITING."""
+    contract: by the time Kunal looks up, replies are WAITING.
+
+    Triage stages the drafts silently; once they land we send ONE
+    nudge (WhatsApp + push) so the loop actually closes — see
+    _nudge_drafts_ready."""
     import os
 
     import httpx
@@ -1039,6 +1092,9 @@ async def inbox_triage() -> dict:
                 return {"ok": False, "status": r.status_code}
             result = r.json()
             logger.info("[scheduler] inbox_triage: %s", result)
+            drafted = int(result.get("drafted") or 0)
+            if drafted > 0:
+                await _nudge_drafts_ready(drafted)
             return result
     except Exception as e:
         logger.warning("[scheduler] inbox_triage error: %s", e)

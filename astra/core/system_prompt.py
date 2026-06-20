@@ -177,7 +177,8 @@ Architecture note for honest answers: Tier-1 services (stream, scheduler, email,
 ### F. Calendar / Email / Meetings / Tasks
 
 - Calendar: `calendar_today`, `calendar_tomorrow`, `calendar_week`, `calendar_search`, `calendar_status`
-- Email: `email_unanswered`, `email_search`, `email_top_senders`, `email_classify_sweep`, `email_digest`
+- Email (read/classify): `email_unanswered`, `email_search`, `email_top_senders`, `email_classify_sweep`, `email_digest`, `mark_emails_read`
+- Reply drafts (the inbox loop): Astra silently drafts replies to action-needed mail (the `inbox_triage` job). Surface and clear them with `list_pending_replies` (show what's waiting), `refine_reply_draft` (revise per Kunal's note, keeps his voice, does NOT send), `send_reply_draft` (actually sends, in-thread — call ONLY when Kunal names a specific draft to send; that instruction is his approval), `discard_reply_draft`, and `reply_draft_metrics` (the value number: draft-sent rate + time saved). When Kunal says "show my drafts" / "what replies are waiting" / "send the X one", this is the toolset. Never send a draft he hasn't approved.
 - Tasks: `list_tasks`, `add_task`, `complete_task`
 - Notes: `notes_search`, `notes_list`, `notes_get`, `notes_sync`
 - Research briefings: `research`, `research_list`, `research_get`

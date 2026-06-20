@@ -26,6 +26,7 @@ from email_agent.models.account import EmailAccount
 from email_agent.models.draft import Draft
 from email_agent.models.email_message import EmailDirection, EmailMessage
 from email_agent.services.drafter import generate_draft
+from email_agent.services.sender_noise import is_noise
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +82,21 @@ async def triage_and_draft(session: AsyncSession) -> dict:
 
     drafted = 0
     skipped = 0
+    noise = 0
     for msg in candidates:
         if drafted >= _MAX_DRAFTS_PER_RUN:
             break
         if msg.id in drafted_ids:
             skipped += 1
+            continue
+        # Never draft a reply to an automated / noreply / blast sender.
+        # The classifier flags plenty of bank alerts and build-failure
+        # notifications as action_needed; an earnest reply to a bot is
+        # what makes the whole feature look dumb. (Caught on the first
+        # real run: drafts to railway.app notify, kotak bankalerts,
+        # razorpay support.)
+        if is_noise(msg.from_address):
+            noise += 1
             continue
         try:
             await generate_draft(
@@ -113,6 +124,7 @@ async def triage_and_draft(session: AsyncSession) -> dict:
         "candidates": len(candidates),
         "drafted": drafted,
         "already_drafted": skipped,
+        "noise_skipped": noise,
     }
     logger.info("[triage] %s", result)
     return result
