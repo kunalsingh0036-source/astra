@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import text
@@ -82,6 +83,21 @@ HARD RULES (violating any one ruins the post)
 4. EARN THE STANCE. The post must contain one genuine insight or argument,
    not a summary of news. "Here's what happened" is weak; "here's what it
    means and why most people are reading it wrong" is the bar.
+5. ABSOLUTE — NO SELF-REFERENCE, NO PRIVATE METRICS. The market insight you
+   are given is extracted from Kunal's PRIVATE strategy brief. It may carry
+   numbers and status about HIS OWN systems, tools, training, tasks, or
+   usage. NONE of that is ever post content. The post is about the FIELD and
+   the MARKET — external developments only.
+   - NEVER write "my/our stack", "our system", "our agent layer", "looking
+     at our own X", "zero turns", "N overdue tasks", "N scheduler jobs",
+     "my training", "week-over-week", or ANY number describing Kunal's own
+     operations or progress.
+   - NEVER name or imply his internal tools, agent, or system.
+   - NEVER make the post a confession about his own usage, backlog, or pace.
+   BAD — absolutely forbidden: "Meanwhile I'm looking at our own stack: 22
+   jobs, zero agent turns this week, 84 overdue tasks." That leaks private
+   state. GOOD: a sharp external read on what the developments mean for
+   anyone building in the space.
 
 FORMAT
 - hook: the first line. <=120 chars. A claim, a tension, a contrarian read,
@@ -116,6 +132,75 @@ def _post_text_blob(d: dict[str, Any]) -> str:
     parts.extend(str(h) for h in (d.get("hashtags") or []))
     parts.append(str(d.get("engagement_prompt", "")))
     return "\n".join(parts)
+
+
+# ── Internal-state leak guard ──────────────────────────────────────
+#
+# The research briefing is compass + telemetry aware: even its outward
+# sections can carry numbers about Kunal's OWN systems, training, tasks,
+# and usage. Stripping internal SECTIONS isn't enough — a leak can ride
+# inside a finding. So we scan the GENERATED post and regenerate (then
+# suppress) if it self-references. Verify the output, not just the input
+# — same discipline as the brief fact-guard. Found on the first real
+# prod run: a post that broadcast "22 jobs, zero agent turns this week,
+# 84 overdue tasks, training flat."
+_LEAK_SUBSTRINGS = (
+    "our stack", "my stack", "our own stack", "our system", "my system",
+    "our agent", "my agent layer", "our agent layer", "our codebase",
+    "looking at our own", "our own system", "our own infra",
+    "agent turns", "scheduler jobs", "episodic memories", "overdue tasks",
+    "catchup approval", "catch-up approval", "catchup approvals",
+    "training data is flat", "my training", "training catchup", "betterstack",
+    "week-over-week", "week over week", "astra",
+)
+_LEAK_REGEX = (
+    re.compile(r"\b\d+\s+(?:overdue\s+)?(?:tasks|jobs|turns|memories|approvals|sessions)\b", re.I),
+    re.compile(r"\bzero\s+(?:agent\s+)?(?:turns|tasks|approvals|sessions)\b", re.I),
+)
+
+
+def _leaks_internal(text_blob: str) -> list[str]:
+    """Return the internal-state markers a drafted post leaked, if any."""
+    low = (text_blob or "").lower()
+    hits = [s for s in _LEAK_SUBSTRINGS if s in low]
+    for rx in _LEAK_REGEX:
+        m = rx.search(text_blob or "")
+        if m:
+            hits.append(m.group(0))
+    return hits
+
+
+async def _generate_guarded(
+    *, user: str, forbidden: list[str]
+) -> tuple[dict[str, Any], list[str]]:
+    """Draft via generate_json, scan for an internal-state leak, and
+    regenerate ONCE with a hard warning if it leaked. Returns
+    (post, residual_leaks) — residual_leaks non-empty means even the
+    retry leaked and the caller must NOT stage it."""
+    post = await generate_json(
+        system=_LINKEDIN_VOICE,
+        user=user,
+        forbidden=forbidden,
+        text_blob_fn=_post_text_blob,
+    )
+    leaks = _leaks_internal(_post_text_blob(post))
+    if not leaks:
+        return post, []
+    logger.warning("[linkedin] internal-state leak, regenerating: %s", leaks[:6])
+    warn = (
+        "\n\n<leak-warning>\nYour previous draft LEAKED private internal "
+        f"state: {leaks[:8]}. This is forbidden. Rewrite as a take on the "
+        "MARKET / FIELD only — ZERO references to Kunal's own systems, "
+        "tools, metrics, training, tasks, backlog, usage, or any number "
+        "about his operations. Same JSON schema.\n</leak-warning>"
+    )
+    post = await generate_json(
+        system=_LINKEDIN_VOICE,
+        user=user + warn,
+        forbidden=forbidden,
+        text_blob_fn=_post_text_blob,
+    )
+    return post, _leaks_internal(_post_text_blob(post))
 
 
 def _extract_outward(body_md: str) -> str:
@@ -266,15 +351,25 @@ async def draft_linkedin_post(
     )
 
     try:
-        post = await generate_json(
-            system=_LINKEDIN_VOICE,
+        post, residual_leaks = await _generate_guarded(
             user=user_prompt,
             forbidden=_kit_forbidden(briefing["business_tags"]),
-            text_blob_fn=_post_text_blob,
         )
     except Exception as e:
         logger.exception("[linkedin] draft failed for briefing %s", briefing["id"])
         return {"ok": False, "status": "error", "reason": str(e)[:300]}
+
+    if residual_leaks:
+        # Even the retry leaked private state — suppress rather than risk
+        # publishing his internal metrics. Better no post than that one.
+        logger.error(
+            "[linkedin] suppressed leaking post for briefing %s: %s",
+            briefing["id"], residual_leaks[:6],
+        )
+        return {
+            "ok": True, "status": "not_postable",
+            "reason": f"suppressed — could not remove internal-state leak ({residual_leaks[:3]})",
+        }
 
     if not post.get("worth_posting", False):
         return {
@@ -335,12 +430,15 @@ async def refine_linkedin_post(
         "hard rules (public take, no résumé-dropping, no fabrication, no "
         "internal/status content). Set worth_posting=true. Return JSON only."
     )
-    post = await generate_json(
-        system=_LINKEDIN_VOICE,
+    post, residual_leaks = await _generate_guarded(
         user=user,
         forbidden=_kit_forbidden(content.get("business_tags", "")),
-        text_blob_fn=_post_text_blob,
     )
+    if residual_leaks:
+        raise RuntimeError(
+            f"refine produced an internal-state leak ({residual_leaks[:3]}); "
+            "not saving"
+        )
     # Preserve provenance keys; overlay the revised post fields.
     new_content = {**content, **post}
     new_content["worth_posting"] = True
