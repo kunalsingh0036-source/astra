@@ -166,13 +166,35 @@ async def _inbox_state() -> tuple[str, dict]:
                 "for review on /email"
             )
 
-        lines = [f"{total} synced · {unread} unread · {action} action-needed"]
+        # Gmail-auth liveness — a dead OAuth token freezes the counts
+        # above at the last good sync. Without this, a DISCONNECTED inbox
+        # reports as "quiet" (the Jun-2026 blackout: 8 days dark, read as
+        # calm). Probe the real getProfile health and lead with it.
+        gmail_ok: bool | None = True
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as c:
+                gr = await c.get(f"{BASE_URL}/health/gmail")
+                gmail_ok = gr.status_code == 200 and bool(
+                    (gr.json() or {}).get("ok")
+                )
+        except Exception:
+            gmail_ok = None  # unknown — don't cry wolf
+
+        lines: list[str] = []
+        if gmail_ok is False:
+            lines.append(
+                "🔴 EMAIL DISCONNECTED — Gmail auth expired; no mail is being "
+                "ingested and the counts below are STALE. Fix: run "
+                "scripts/gmail_reauth.py."
+            )
+        lines.append(f"{total} synced · {unread} unread · {action} action-needed")
         lines += heads
         facts = {
             "action_needed": int(action),
             "unread": int(unread),
             "total": int(total),
             "drafts_ready": drafts_ready,
+            "gmail_connected": gmail_ok,
         }
         return "\n".join(lines) + drafts_line, facts
     except Exception as e:

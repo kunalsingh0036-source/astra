@@ -1412,6 +1412,77 @@ async def run_email_sync():
     return await _safe("email_sync", email_sync)
 
 
+async def gmail_auth_check() -> dict:
+    """Probe the email agent's REAL Gmail-auth liveness and alarm LOUD if
+    it's dead. The Jun-2026 blackout (refresh token expired → 8 days
+    dark, no read OR send) was reported to Kunal as 'inbox quiet'. This
+    makes a dead inbox scream instead — WhatsApp + push, with the fix."""
+    import os
+
+    import httpx
+
+    base = os.environ.get(
+        "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
+    ).rstrip("/")
+    ok = False
+    reason = "unknown"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.get(f"{base}/health/gmail")
+        body = {}
+        try:
+            body = r.json()
+        except Exception:
+            pass
+        ok = r.status_code == 200 and bool(body.get("ok"))
+        reason = "" if ok else str(body.get("reason") or f"status {r.status_code}")
+    except Exception as e:
+        ok = False
+        reason = f"probe failed: {e}"
+
+    if ok:
+        logger.info("[scheduler] gmail_auth_check: OK")
+        return {"ok": True}
+
+    logger.error("[scheduler] gmail_auth_check: GMAIL AUTH DEAD — %s", reason)
+    msg = (
+        "🔴 Gmail auth is DOWN — Astra can't read or send your email.\n"
+        f"Reason: {reason}\n"
+        "Fix: run  python3 scripts/gmail_reauth.py  (re-auth + redeploy), "
+        "then publish the GCP OAuth app to stop the weekly expiry."
+    )
+    try:
+        gw = os.environ.get(
+            "GATEWAY_URL", "http://whatsapp.railway.internal:8080"
+        ).rstrip("/")
+        headers = {
+            "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        }
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            await c.post(
+                f"{gw}/api/v1/notify/owner", json={"text": msg}, headers=headers
+            )
+    except Exception as e:
+        logger.info("[scheduler] gmail alarm WA skipped: %s", e)
+    try:
+        from astra.notifications import notify
+
+        notify(
+            title="🔴 Gmail auth DOWN",
+            body="Astra can't read/send email — re-auth needed",
+            url="/email",
+            tag="gmail-auth-dead",
+            also_push=True,
+        )
+    except Exception as e:
+        logger.info("[scheduler] gmail alarm push skipped: %s", e)
+    return {"ok": False, "reason": reason}
+
+
+async def run_gmail_auth_check():
+    return await _safe("gmail_auth_check", gmail_auth_check)
+
+
 async def wa_dispatch() -> dict:
     """Drain the WhatsApp gateway's outbound queue (mesh-auth HTTP).
 

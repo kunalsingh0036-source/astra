@@ -122,7 +122,7 @@ app.add_middleware(
 # Exact paths only — /api/v1/webhook/gmail/diag and /gmail/watch are
 # operator endpoints and stay protected; only Google's push target is
 # open.
-_PUBLIC_EXACT = {"/", "/health", "/api/v1/webhook/gmail"}
+_PUBLIC_EXACT = {"/", "/health", "/health/gmail", "/api/v1/webhook/gmail"}
 
 
 @app.middleware("http")
@@ -156,6 +156,49 @@ for route_module in [
 @app.get("/health")
 async def health():
     return {"status": "healthy", "service": "email-agent", "port": settings.port}
+
+
+@app.get("/health/gmail")
+async def health_gmail():
+    """Real Gmail-auth liveness — builds the service and calls getProfile.
+
+    Returns 503 when the OAuth token is dead (the invalid_grant blackout:
+    refresh token expired/revoked, classically because the GCP OAuth app
+    is in 'Testing' status → 7-day token expiry). 200 only when Astra can
+    actually read mail. The scheduler's gmail_auth_check probes this and
+    alarms loudly so a dead inbox never again reads as 'quiet'. External
+    monitors can probe it too (it's auth-exempt, like /health)."""
+    import asyncio
+
+    from fastapi.responses import JSONResponse
+
+    from email_agent.services.gmail_client import _get_gmail_service
+
+    def _probe() -> dict:
+        svc = _get_gmail_service()
+        if not svc:
+            return {"ok": False, "reason": "gmail service unavailable (token dead/missing)"}
+        prof = svc.users().getProfile(userId="me").execute()
+        return {
+            "ok": True,
+            "email": prof.get("emailAddress"),
+            "history_id": str(prof.get("historyId") or ""),
+        }
+
+    try:
+        result = await asyncio.to_thread(_probe)
+    except Exception as e:
+        msg = str(e)
+        reason = (
+            "invalid_grant: refresh token expired/revoked — re-auth needed"
+            if "invalid_grant" in msg.lower()
+            else msg[:200]
+        )
+        return JSONResponse({"ok": False, "reason": reason}, status_code=503)
+
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 @app.get("/")

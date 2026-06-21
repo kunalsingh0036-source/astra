@@ -51,6 +51,7 @@ from astra.scheduler.jobs import (
     run_scheduler_self_check,
     run_betterstack_heartbeat,
     run_email_sync,
+    run_gmail_auth_check,
     run_retention_sweep,
     run_wa_dispatch,
     run_inbox_triage,
@@ -137,6 +138,18 @@ def _build_scheduler() -> AsyncIOScheduler:
         IntervalTrigger(minutes=5),
         id="email_sync",
         name="Gmail ingestion (via email agent)",
+        replace_existing=True,
+    )
+
+    # Gmail auth liveness — every 3h. Probes the email agent's real
+    # getProfile and alarms LOUD (WhatsApp + push) if the OAuth token is
+    # dead. Exists because the Jun-2026 refresh-token expiry went dark
+    # for 8 days and was reported as "inbox quiet" — never again silent.
+    scheduler.add_job(
+        run_gmail_auth_check,
+        IntervalTrigger(hours=3),
+        id="gmail_auth_check",
+        name="Gmail auth liveness alarm",
         replace_existing=True,
     )
 
