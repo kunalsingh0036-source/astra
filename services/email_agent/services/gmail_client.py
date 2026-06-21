@@ -239,8 +239,60 @@ async def sync_incremental(
         await session.commit()
         return (synced, new_history_id)
     except Exception as e:
-        logger.error("Incremental sync failed: %s", e)
-        return (0, history_id)
+        # A stale startHistoryId — the push watch lapsed beyond Gmail's
+        # ~7-day history retention — makes history().list 404. The old
+        # code swallowed EVERY error and returned the SAME dead
+        # history_id, so every later sync 404'd too and ingestion froze
+        # silently (ok=true / 0 msgs for days while real mail piled up).
+        # Recover: full-backfill the recent window via messages.list and
+        # reset history_id to the live profile so incremental resumes.
+        msg = str(e).lower()
+        status = getattr(getattr(e, "resp", None), "status", None)
+        is_stale = status == 404 or "not found" in msg or "starthistoryid" in msg
+        if not is_stale:
+            logger.error("Incremental sync failed: %s", e)
+            return (0, history_id)
+        logger.warning(
+            "[sync] stale startHistoryId=%s (status=%s) — full-backfill recovery",
+            history_id, status,
+        )
+        try:
+            parsed_msgs = await fetch_messages(
+                max_results=200, query="newer_than:14d"
+            )
+            synced = 0
+            for parsed in parsed_msgs:
+                existing = await session.execute(
+                    select(EmailMessage).where(
+                        EmailMessage.gmail_message_id == parsed["gmail_message_id"]
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    continue
+                thread = await _get_or_create_thread(
+                    account_id, parsed["gmail_thread_id"], parsed["subject"],
+                    parsed["from_address"], parsed["sent_at"], session,
+                )
+                session.add(
+                    EmailMessage(
+                        account_id=account_id, thread_id=thread.id, **parsed
+                    )
+                )
+                synced += 1
+            try:
+                profile = service.users().getProfile(userId="me").execute()
+                fresh = str(profile.get("historyId") or history_id)
+            except Exception:
+                fresh = history_id
+            await session.commit()
+            logger.info(
+                "[sync] recovery backfill: %d new msg(s), history_id %s→%s",
+                synced, history_id, fresh,
+            )
+            return (synced, fresh)
+        except Exception as e2:
+            logger.error("[sync] recovery backfill failed: %s", e2)
+            return (0, history_id)
 
 
 async def get_labels() -> list[dict]:
