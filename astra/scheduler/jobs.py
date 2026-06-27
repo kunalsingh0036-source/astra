@@ -283,6 +283,10 @@ async def _cloud_fleet_probe() -> list[dict]:
             "email": "http://email.railway.internal:8080/health",
             "whatsapp": "http://whatsapp.railway.internal:8080/health",
             "finance": "http://finance.railway.internal:8080/health",
+            # bridge (A2A) was NOT probed — so when its build failed and it
+            # went down for days, nothing alerted, while transient blips on
+            # the others cried wolf. The real failure must be in the probe.
+            "bridge": "http://bridge.railway.internal:8080/health",
         }
 
     results: list[dict] = []
@@ -301,54 +305,129 @@ async def _cloud_fleet_probe() -> list[dict]:
     return results
 
 
+# ── Fleet health monitor state ──────────────────────────────────────
+# In-process (resets on scheduler restart — fine, a restart re-evaluates).
+# Tracks consecutive failures per service and which we've already alerted
+# on, so we ping ONCE on a sustained transition to down and ONCE on
+# recovery — never every cycle (the cry-wolf bug).
+_FLEET_FAILS: dict[str, int] = {}
+_FLEET_ALERTED: set[str] = set()
+_FLEET_SUSTAINED = 2  # consecutive unhealthy probes before it's "real"
+_FLEET_PURGED = False  # one-shot stale-telemetry purge guard
+
+
+async def _notify_owner_fleet(text: str) -> None:
+    """Loud owner ping for a REAL fleet transition (down/recovery).
+    WhatsApp + push; best-effort. The ONLY channel fleet health uses —
+    no memory writes (see fleet_health_check)."""
+    import os
+
+    import httpx
+
+    try:
+        gw = os.environ.get(
+            "GATEWAY_URL", "http://whatsapp.railway.internal:8080"
+        ).rstrip("/")
+        headers = {
+            "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        }
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            await c.post(
+                f"{gw}/api/v1/notify/owner", json={"text": text}, headers=headers
+            )
+    except Exception as e:
+        logger.info("[fleet_health] WA notify skipped: %s", e)
+    try:
+        from astra.notifications import notify
+
+        notify(title="astra · fleet", body=text[:120], url="/today",
+               tag="fleet-health", also_push=True)
+    except Exception as e:
+        logger.info("[fleet_health] push skipped: %s", e)
+
+
 async def fleet_health_check() -> dict:
-    """Probe every service; log and remember any unhealthy ones."""
+    """Probe the deployed fleet; alert ONLY on a sustained, NEW failure
+    (and on recovery). Silent when healthy.
+
+    Critically, NEVER writes memory. Health is LIVE state, not knowledge —
+    the old version stored 'X unhealthy' as importance-0.7 episodic memory
+    every cycle, which got recalled into briefs/chat and replayed transient
+    blips (deploys, the bridge build outage) as a standing 'X down' crisis
+    long after recovery. That's the SAME confabulation bug scheduler_self_
+    check was already fixed for (2026-06-13); fleet_health_check was the
+    missed instance. Brief/chat read fleet health LIVE via _fleet_line."""
     import sys as _sys
 
-    from astra.memory.store import store_memory
-    from astra.memory.models import MemoryType
-    from astra.db.engine import async_session
+    global _FLEET_PURGED
 
     if _sys.platform == "darwin":
-        # Laptop topology — pid files + localhost ports.
         from astra.services.manager import service_manager
 
         results = await service_manager.health_check_all()
     else:
         results = await _cloud_fleet_probe()
-    healthy = [r for r in results if r["status"] == "healthy"]
-    unhealthy = [r for r in results if r["status"] == "unhealthy"]
-    stopped = [r for r in results if r["status"] == "stopped"]
 
-    summary = {
+    # One-shot: purge the stale fleet/scheduler telemetry memories that have
+    # been polluting briefs as phantom "down" pings. Pure telemetry, never
+    # knowledge — safe to delete. After this runs once the table stays clean
+    # because we no longer write them.
+    if not _FLEET_PURGED:
+        try:
+            from sqlalchemy import text as _text
+
+            from astra.db.engine import async_session
+
+            async with async_session() as s:
+                r = await s.execute(
+                    _text(
+                        "DELETE FROM memories WHERE source = 'scheduler' "
+                        "AND (tags LIKE '%fleet%' OR tags LIKE '%alert%')"
+                    )
+                )
+                await s.commit()
+                logger.info(
+                    "[fleet_health] purged %s stale telemetry memories",
+                    r.rowcount,
+                )
+        except Exception as e:
+            logger.warning("[fleet_health] telemetry purge skipped: %s", e)
+        _FLEET_PURGED = True
+
+    healthy = {r["service"] for r in results if r["status"] == "healthy"}
+    unhealthy = {r["service"] for r in results if r["status"] == "unhealthy"}
+    for svc in healthy:
+        _FLEET_FAILS[svc] = 0
+    for svc in unhealthy:
+        _FLEET_FAILS[svc] = _FLEET_FAILS.get(svc, 0) + 1
+
+    sustained = {s for s in unhealthy if _FLEET_FAILS[s] >= _FLEET_SUSTAINED}
+    new_down = sustained - _FLEET_ALERTED
+    recovered = {s for s in _FLEET_ALERTED if _FLEET_FAILS.get(s, 0) == 0}
+
+    if new_down:
+        names = ", ".join(sorted(new_down))
+        logger.error("[fleet_health] SUSTAINED DOWN → %s", names)
+        await _notify_owner_fleet(
+            f"🔴 Service down: {names} — unreachable {_FLEET_SUSTAINED}+ checks. "
+            "Astra ops degraded; check /today."
+        )
+        _FLEET_ALERTED |= new_down
+    if recovered:
+        names = ", ".join(sorted(recovered))
+        logger.info("[fleet_health] recovered → %s", names)
+        await _notify_owner_fleet(f"✅ Recovered: {names}.")
+        _FLEET_ALERTED -= recovered
+
+    if not unhealthy:
+        logger.info("[fleet_health] all %d healthy", len(healthy))
+
+    return {
         "healthy": len(healthy),
         "unhealthy": len(unhealthy),
-        "stopped": len(stopped),
         "total": len(results),
+        "alerted": sorted(_FLEET_ALERTED),
     }
-
-    if unhealthy:
-        names = ", ".join(r["service"] for r in unhealthy)
-        logger.warning("[scheduler] fleet_health: unhealthy → %s", names)
-        async with async_session() as session:
-            await store_memory(
-                session=session,
-                content=(
-                    f"Fleet health issue: {names} unhealthy at "
-                    f"{datetime.now(timezone.utc).isoformat()}"
-                ),
-                memory_type=MemoryType.EPISODIC,
-                source="scheduler",
-                tags="health,alert,fleet",
-                importance=0.7,
-            )
-    else:
-        logger.info(
-            "[scheduler] fleet_health: %d healthy, %d stopped, all OK",
-            len(healthy), len(stopped),
-        )
-
-    return summary
 
 
 async def memory_consolidation() -> dict:
