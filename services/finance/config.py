@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 """Centralized configuration. All settings from .env."""
 
 from pathlib import Path
@@ -11,8 +11,12 @@ _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 class Settings(BaseSettings):
     model_config = {"env_file": str(_ENV_FILE), "env_file_encoding": "utf-8"}
 
-    # Database
-    database_url: str = "postgresql+asyncpg://astra:astra_dev@localhost:5433/finance_db"
+    # Database. Service-specific alias first (for a consolidated process),
+    # DATABASE_URL fallback for standalone. See email_agent/config.py.
+    database_url: str = Field(
+        default="postgresql+asyncpg://astra:astra_dev@localhost:5433/finance_db",
+        validation_alias=AliasChoices("FINANCE_DATABASE_URL", "DATABASE_URL"),
+    )
 
     @field_validator("database_url", mode="after")
     @classmethod

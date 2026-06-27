@@ -2,7 +2,7 @@
 Centralized configuration. All settings from .env, single source of truth.
 """
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -22,8 +22,12 @@ class Settings(BaseSettings):
         "extra": "ignore",
     }
 
-    # Database
-    database_url: str = "postgresql+asyncpg://astra:astra_dev@localhost:5433/whatsapp_gateway"
+    # Database. Service-specific alias first (for a consolidated process),
+    # DATABASE_URL fallback for standalone. See email_agent/config.py.
+    database_url: str = Field(
+        default="postgresql+asyncpg://astra:astra_dev@localhost:5433/whatsapp_gateway",
+        validation_alias=AliasChoices("WHATSAPP_DATABASE_URL", "DATABASE_URL"),
+    )
 
     @field_validator("database_url", mode="after")
     @classmethod

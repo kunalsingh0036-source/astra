@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 
 # Project root = parent of this package (…/email-agent/)
@@ -13,8 +13,15 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 class Settings(BaseSettings):
     model_config = {"env_file": str(_ENV_FILE), "env_file_encoding": "utf-8"}
 
-    # Database
-    database_url: str = "postgresql+asyncpg://astra:astra_dev@localhost:5433/email_db"
+    # Database. Reads EMAIL_DATABASE_URL first so this service can run in a
+    # CONSOLIDATED process alongside other agents (each on its own DB);
+    # falls back to DATABASE_URL when running standalone. Without the
+    # service-specific alias, a merged process would give every sub-app the
+    # same DATABASE_URL and cross-wire the databases.
+    database_url: str = Field(
+        default="postgresql+asyncpg://astra:astra_dev@localhost:5433/email_db",
+        validation_alias=AliasChoices("EMAIL_DATABASE_URL", "DATABASE_URL"),
+    )
 
     @field_validator("database_url", mode="after")
     @classmethod
