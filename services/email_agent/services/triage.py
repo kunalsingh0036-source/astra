@@ -33,6 +33,35 @@ logger = logging.getLogger(__name__)
 _WINDOW_HOURS = 36
 _MAX_DRAFTS_PER_RUN = 5
 
+# Classifier categories that are NEVER worth an auto-drafted reply
+# (automated / marketing / bank-alert mail). Gating on the AI category —
+# not just the hardcoded sender list — is what stops CRED / BillDesk /
+# RentoMojo / Kotak etc. leaking through; a static sender list can't keep
+# up with every fintech that emails Kunal. The sender list stays as a
+# fast backstop for misclassified or not-yet-classified mail.
+_JUNK_CATEGORIES = {"newsletter", "notification", "spam", "financial"}
+
+
+async def _kunal_participated(
+    session: AsyncSession, gmail_thread_id: str | None
+) -> bool:
+    """True if Kunal has an OUTBOUND message in this thread — i.e. it's a
+    conversation he's actively in. Such threads are always reply-worthy,
+    even from a support@/sales@ sender or a 'financial'-classified message
+    (rescues the real Razorpay international-activation thread that the
+    sender-list buried as noise)."""
+    if not gmail_thread_id:
+        return False
+    r = await session.execute(
+        select(EmailMessage.id)
+        .where(
+            EmailMessage.gmail_thread_id == gmail_thread_id,
+            EmailMessage.direction == EmailDirection.OUTBOUND,
+        )
+        .limit(1)
+    )
+    return r.first() is not None
+
 
 async def triage_and_draft(session: AsyncSession) -> dict:
     """Generate reply drafts for recent action-needed inbound mail."""
@@ -89,13 +118,19 @@ async def triage_and_draft(session: AsyncSession) -> dict:
         if msg.id in drafted_ids:
             skipped += 1
             continue
-        # Never draft a reply to an automated / noreply / blast sender.
-        # The classifier flags plenty of bank alerts and build-failure
-        # notifications as action_needed; an earnest reply to a bot is
-        # what makes the whole feature look dumb. (Caught on the first
-        # real run: drafts to railway.app notify, kotak bankalerts,
-        # razorpay support.)
-        if is_noise(msg.from_address):
+        # Reply-worthiness gate: classifier category (primary) + hardcoded
+        # sender list (backstop), with an active-thread rescue.
+        #   • An auto-drafted reply to a bank alert / newsletter / bot is
+        #     what makes the feature look dumb — so skip junk CATEGORIES
+        #     and noise SENDERS.
+        #   • BUT if Kunal already has an outbound message in the thread,
+        #     it's a live conversation he started — always draft (this is
+        #     how the real Razorpay support@ thread gets rescued).
+        cat = (msg.ai_category or "").lower()
+        in_thread = await _kunal_participated(session, msg.gmail_thread_id)
+        if not in_thread and (
+            cat in _JUNK_CATEGORIES or is_noise(msg.from_address)
+        ):
             noise += 1
             continue
         try:
