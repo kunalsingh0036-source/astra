@@ -41,7 +41,7 @@ async def health() -> dict:
     return {
         "status": "healthy",
         "service": "agents",
-        "mounts": ["/email", "/finance", "/whatsapp", "/a2a"],
+        "mounts": ["/finance", "/a2a"],
     }
 
 
@@ -49,13 +49,20 @@ async def health() -> dict:
 # Mounted under a path prefix; mounted sub-apps run their own lifespan and
 # middleware for requests under their mount, so behaviour is unchanged —
 # only the base URL moves (host:port → host:port/<prefix>).
-from services.email_agent.main import app as _email_app  # noqa: E402
 from services.finance.main import app as _finance_app  # noqa: E402
-from services.gateway.main import app as _gateway_app  # noqa: E402
 
 from astra.agents.external.bridge_server import app as _bridge_app  # noqa: E402
 
-app.mount("/email", _email_app)
 app.mount("/finance", _finance_app)
-app.mount("/whatsapp", _gateway_app)
 app.mount("/a2a", _bridge_app)
+
+# email + whatsapp are NOT folded here yet. Each has an EXTERNAL inbound
+# webhook bound to its public domain (Gmail Pub/Sub → email.thearrogant
+# club.com/api/v1/webhook/gmail; Meta → whatsapp.thearrogantclub.com).
+# A prefixed sub-app (/email, /whatsapp) moves those paths, breaking
+# inbound mail + WhatsApp until the Pub/Sub push URL and the Meta webhook
+# are reconfigured (Kunal's console actions). Fold them in a follow-up:
+#   from services.email_agent.main import app as _email_app
+#   from services.gateway.main import app as _gateway_app
+#   app.mount("/email", _email_app); app.mount("/whatsapp", _gateway_app)
+# then repoint EMAIL_AGENT_URL/EMAIL_URL/GATEWAY_URL + the external webhooks.
