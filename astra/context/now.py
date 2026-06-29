@@ -159,7 +159,25 @@ async def _training_line() -> str:
 
     tr = await trend(14)
     if not tr or tr.get("today") is None:
-        return "🏋 Training — log STALE (no recent entry; needs the Mac/bridge)."
+        return "🏋 Training — no log yet. Text me what you did/missed to start it."
+
+    # Freshness is keyed on the cloud counter's AGE, not just snapshot
+    # presence — the daily snapshot job re-writes today's row from a frozen
+    # cloud value forever, so a stale-but-present counter must be flagged
+    # (the confabulation/stale-data lesson).
+    stale = ""
+    try:
+        from astra.notes.training_state import cloud_meta
+
+        meta = await cloud_meta()
+        ua = meta.get("updated_at")
+        if ua is not None and hasattr(ua, "astimezone"):
+            age = (datetime.now(timezone.utc) - ua.astimezone(timezone.utc)).days
+            if age >= 4:
+                stale = f" (last logged {age}d ago — getting stale)"
+    except Exception:
+        pass
+
     direction = tr.get("direction") or {}
     # surface only the notable movers (closing/growing), keep it terse
     closing = [k for k, v in direction.items() if "closed" in str(v)]
@@ -169,7 +187,7 @@ async def _training_line() -> str:
         bits.append("recovering: " + ", ".join(closing[:3]))
     if growing:
         bits.append("slipping: " + ", ".join(growing[:3]))
-    return "🏋 Training — " + ("; ".join(bits) if bits else "flat week-over-week") + "."
+    return "🏋 Training — " + ("; ".join(bits) if bits else "flat week-over-week") + stale + "."
 
 
 async def _focus_lines() -> str:

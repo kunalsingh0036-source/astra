@@ -93,8 +93,9 @@ async def log_training_tool(args: dict) -> dict:
         delta_map[t] = delta_map.get(t, 0) + 1
 
     try:
-        new = await apply_update(set_map=set_map, delta_map=delta_map,
-                                 via="whatsapp", note=note)
+        new, no_baseline = await apply_update(
+            set_map=set_map, delta_map=delta_map, via="whatsapp", note=note
+        )
         # Refresh today's snapshot now so trend() + "Kunal Now" reflect this
         # immediately instead of waiting for the 21:30 job.
         await snapshot_today(force=True)
@@ -103,16 +104,26 @@ async def log_training_tool(args: dict) -> dict:
 
     bits = []
     if done:
-        bits.append("did " + ", ".join(done))
+        bits.append("did " + ", ".join(t for t in done if t not in no_baseline))
     if missed:
-        bits.append("missed " + ", ".join(missed))
+        bits.append("missed " + ", ".join(t for t in missed if t not in no_baseline))
     if set_map:
         bits.append("set " + ", ".join(f"{k}={v}" for k, v in set_map.items()))
-    changed = "; ".join(bits)
-    warn = ""
+    bits = [b for b in bits if not b.endswith(" ")]  # drop empties
+    changed = "; ".join(bits) or "no change"
+
+    notes = []
+    if no_baseline:
+        # We refuse to invent a baseline — ask Kunal for the real count.
+        notes.append(
+            "I don't have a baseline yet for: " + ", ".join(no_baseline) +
+            ". Tell me the current count to start it, e.g. "
+            f"\"set {no_baseline[0]}=178\"."
+        )
     skipped = unk1 + unk2 + bad_sets
     if skipped:
-        warn = f"\n(ignored unrecognized: {', '.join(skipped)})"
+        notes.append("ignored unrecognized: " + ", ".join(skipped))
+    warn = ("\n" + "\n".join(notes)) if notes else ""
     return _ok(f"Logged ({changed}).\nCurrent debt — {_fmt_counters(new)}.{warn}")
 
 
@@ -156,8 +167,14 @@ async def training_status_tool(args: dict) -> dict:
     try:
         meta = await cloud_meta()
         if meta.get("updated_at"):
+            from datetime import timedelta, timezone
+
             ts = meta["updated_at"]
-            lines.append(f"Last updated: {ts:%a %d %b %H:%M} via {meta.get('updated_via') or '—'}")
+            if hasattr(ts, "astimezone"):
+                ts = ts.astimezone(timezone(timedelta(hours=5, minutes=30)))
+            lines.append(
+                f"Last updated: {ts:%a %d %b %H:%M} IST via {meta.get('updated_via') or '—'}"
+            )
     except Exception:
         pass
 

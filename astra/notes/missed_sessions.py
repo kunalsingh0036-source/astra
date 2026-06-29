@@ -151,8 +151,14 @@ async def snapshot_today(*, force: bool = False) -> dict[str, Any]:
 
     counters = await current_counters()
     if counters is None:
-        logger.warning("[missed] snapshot_today: no 'Kunal' note found")
-        return {"status": "skipped", "reason": "no Kunal note"}
+        # Cloud-first now: None means the cloud row is unseeded AND no
+        # parseable "Kunal" note — seed via log_training, not the bridge.
+        logger.warning(
+            "[missed] snapshot_today: no training counters "
+            "(cloud row unseeded and no parseable 'Kunal' note)"
+        )
+        return {"status": "skipped",
+                "reason": "no training counters (cloud unseeded + no note)"}
 
     today_utc = datetime.now(timezone.utc).date()
 

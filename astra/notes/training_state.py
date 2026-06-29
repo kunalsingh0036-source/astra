@@ -111,35 +111,50 @@ async def apply_update(
     delta_map: dict[str, int] | None = None,
     via: str = "chat",
     note: str = "",
-) -> Counters:
+) -> tuple[Counters, list[str]]:
     """Apply absolute sets and/or relative deltas to the cloud counters and
-    return the new state. Seeds the row from the Apple Note on first write so
-    we don't start from zero. Counters floor at 0 (no negative debt)."""
+    return (new_state, skipped_unknown).
+
+    Hard rule (mirrors writeback.py's "a partial parse would corrupt the
+    ledger"): an UNKNOWN counter is NULL, never 0. We never overwrite a known
+    cumulative debt with a fabricated zero, and a relative delta against an
+    unknown baseline is REFUSED (returned in skipped_unknown) rather than
+    silently started from 0. Absolute sets and known-base deltas floor at 0.
+    """
     set_map = set_map or {}
     delta_map = delta_map or {}
     await ensure_training_table()
 
     # Base = current cloud state, or the note's last-known values on first
-    # write (bootstrap), or zeros if neither is available.
+    # write (bootstrap). Either may be PARTIAL — missing types stay None.
     base = await get_cloud_counters()
     if base is None:
         from astra.notes.missed_sessions import current_counters
 
-        base = await current_counters()  # note fallback; may be None
-    vals: dict[str, int] = {}
+        base = await current_counters()  # note fallback; may be None/partial
+    vals: dict[str, int | None] = {}
     for t in TYPES:
         cur = getattr(base, t, None) if base else None
-        vals[t] = int(cur) if cur is not None else 0
+        vals[t] = int(cur) if cur is not None else None  # None = unknown
 
     for t, v in set_map.items():
         if t in vals and v is not None:
             vals[t] = max(0, int(v))
+
+    skipped_unknown: list[str] = []
     for t, d in delta_map.items():
-        if t in vals and d is not None:
-            vals[t] = max(0, vals[t] + int(d))
+        if t not in vals or d is None:
+            continue
+        if vals[t] is None:
+            # no baseline → can't apply a relative change; surface it
+            skipped_unknown.append(t)
+            continue
+        vals[t] = max(0, vals[t] + int(d))
 
     async with async_session() as s:
         await s.execute(_ENSURE)
+        # COALESCE so a NULL (unknown) parameter never clobbers an existing
+        # non-NULL column on the update path.
         await s.execute(
             text(
                 "INSERT INTO training_counters "
@@ -148,13 +163,21 @@ async def apply_update(
                 "VALUES (1, :stretch, :meditate, :breathe, :movement, :skill, "
                 " :workout, :via, :note, now()) "
                 "ON CONFLICT (id) DO UPDATE SET "
-                "stretch=:stretch, meditate=:meditate, breathe=:breathe, "
-                "movement=:movement, skill=:skill, workout=:workout, "
+                "stretch=COALESCE(:stretch, training_counters.stretch), "
+                "meditate=COALESCE(:meditate, training_counters.meditate), "
+                "breathe=COALESCE(:breathe, training_counters.breathe), "
+                "movement=COALESCE(:movement, training_counters.movement), "
+                "skill=COALESCE(:skill, training_counters.skill), "
+                "workout=COALESCE(:workout, training_counters.workout), "
                 "updated_via=:via, last_note=:note, updated_at=now()"
             ),
             {**vals, "via": via[:40], "note": (note or "")[:500]},
         )
         await s.commit()
 
-    logger.info("[training_state] updated counters via %s: %s", via, vals)
-    return Counters(**vals)
+    logger.info("[training_state] updated via %s: %s (skipped=%s)",
+                via, vals, skipped_unknown)
+    # Re-read so the echo reflects the true stored row (COALESCE may have kept
+    # prior values where we passed NULL).
+    new = await get_cloud_counters()
+    return (new or Counters(**{t: vals[t] for t in TYPES})), skipped_unknown
