@@ -139,8 +139,13 @@ async def _inbox_line() -> str:
     def _nm(addr: str) -> str:
         import re as _re
 
-        m = _re.match(r'\s*"?([^"<]+?)"?\s*<', addr or "")
-        return (m.group(1).strip() if m else (addr or "").split("@")[0])[:28]
+        a = (addr or "").strip()
+        m = _re.match(r'\s*"?([^"<]+?)"?\s*<', a)
+        if m and m.group(1).strip():
+            return m.group(1).strip()[:28]
+        # bare or bracketed-bare address → local part, no stray "<"/spaces
+        a = a.strip("<> ").strip()
+        return ((a.split("@")[0] if "@" in a else a) or a)[:28]
 
     top = "; ".join(
         f"{_nm(r.get('from', ''))} ({(r.get('age_hours', 0) or 0) / 24:.0f}d)"

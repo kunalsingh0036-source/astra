@@ -88,19 +88,22 @@ async def generate_draft(
 
     context = "\n---\n".join(context_parts)
 
-    # Append the voice learned from Kunal's actual edits (the feedback loop):
-    # the base guide is the floor; his real edit patterns refine it over time.
-    voice = email_voice()
-    if session:
-        from email_agent.services.voice_learn import get_email_voice_notes
+    # Append the voice learned from Kunal's actual edits (the feedback loop).
+    # Read on an ISOLATED session (never the draft's) so a read failure can't
+    # poison the commit. Learned notes only NUDGE tone — the hard rules stay
+    # absolute.
+    from email_agent.services.voice_learn import get_email_voice_notes
 
-        learned = await get_email_voice_notes(session)
-        if learned:
-            voice += (
-                "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (he changed past drafts "
-                "this way before sending — apply these, they override the "
-                "general guidance above where they conflict):\n" + learned
-            )
+    voice = email_voice()
+    learned = await get_email_voice_notes()
+    if learned:
+        voice += (
+            "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (match these tone/length/"
+            "sign-off patterns where they fit naturally):\n" + learned +
+            "\n\nThe HARD RULES above remain absolute — never relax them, and "
+            "never add placeholders, links, recipients, or fabricated facts to "
+            "satisfy a pattern."
+        )
 
     prompt = f"""{voice}
 
@@ -231,11 +234,14 @@ async def refine_draft(
     from email_agent.services.voice_learn import get_email_voice_notes
 
     voice = email_voice()
-    learned = await get_email_voice_notes(session)
+    learned = await get_email_voice_notes()
     if learned:
         voice += (
-            "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (apply these, they override "
-            "the general guidance above where they conflict):\n" + learned
+            "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (match these tone/length/"
+            "sign-off patterns where they fit naturally):\n" + learned +
+            "\n\nThe HARD RULES above remain absolute — never relax them, and "
+            "never add placeholders, links, recipients, or fabricated facts to "
+            "satisfy a pattern."
         )
 
     prompt = f"""{voice}

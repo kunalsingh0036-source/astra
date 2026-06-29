@@ -224,6 +224,8 @@ async def learn_my_voice_tool(args: dict) -> dict:
         d = r.json() or {}
     except Exception as e:
         return _err(f"learn-voice error: {e}")
+    if d.get("ok") is False and d.get("error"):
+        return _err(f"voice-learn failed: {d.get('error')}")
     if not d.get("learned"):
         return _ok(
             "Not enough signal yet — " + (d.get("reason") or "no edited drafts") +

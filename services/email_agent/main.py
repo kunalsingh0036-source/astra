@@ -62,6 +62,13 @@ async def lifespan(app: FastAPI):
     # Gmail OAuth material from env → files, BEFORE anything can
     # touch gmail_client.
     _materialize_gmail_creds()
+    # Ensure the voice_profile table exists so the drafter's best-effort read
+    # never hits a missing table (which would abort the draft's transaction).
+    try:
+        from email_agent.services.voice_learn import ensure_voice_table
+        await ensure_voice_table()
+    except Exception:
+        pass  # never block startup
     # Detect ngrok URL on startup
     await _detect_ngrok_url()
     yield
