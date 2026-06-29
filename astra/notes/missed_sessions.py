@@ -115,7 +115,22 @@ def parse_counters(note_body_text: str) -> Counters:
 
 
 async def current_counters() -> Counters | None:
-    """Read the latest "Kunal" note from the DB mirror and parse it."""
+    """Current counters. The cloud `training_counters` row is the source of
+    truth (updatable over WhatsApp); the "Kunal" Apple Note is a bootstrap/
+    fallback for before that row is seeded.
+
+    Cloud-first is what keeps training context LIVE when the Mac/bridge is
+    down (the macOS fault-line). See astra/notes/training_state.py.
+    """
+    try:
+        from astra.notes.training_state import get_cloud_counters
+
+        cloud = await get_cloud_counters()
+        if cloud is not None:
+            return cloud
+    except Exception:
+        pass  # fall back to the note below
+
     from astra.notes.store import search_notes
 
     rows = await search_notes("Kunal", limit=1)

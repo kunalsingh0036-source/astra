@@ -144,6 +144,12 @@ def _imp_replies():
 _bridge_constructor("replies", _imp_replies)
 
 
+def _imp_training():
+    from astra.tools.training_tools import create_training_mcp_server
+    return create_training_mcp_server()
+_bridge_constructor("training", _imp_training)
+
+
 def _imp_browser():
     from astra.tools.browser_tools import create_browser_mcp_server
     return create_browser_mcp_server()
