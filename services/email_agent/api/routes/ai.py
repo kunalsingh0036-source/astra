@@ -86,3 +86,13 @@ async def triage(session: AsyncSession = Depends(get_session)) -> dict:
     from email_agent.services.triage import triage_and_draft
 
     return await triage_and_draft(session)
+
+
+@router.post("/learn-voice")
+async def learn_voice(session: AsyncSession = Depends(get_session)) -> dict:
+    """Distill Kunal's voice from how he's edited drafts before sending,
+    and store it for the drafter to apply. Called weekly by the scheduler's
+    voice_learning job (mesh-auth via /api/v1 middleware)."""
+    from email_agent.services.voice_learn import learn_email_voice
+
+    return await learn_email_voice(session)

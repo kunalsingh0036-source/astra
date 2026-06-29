@@ -88,7 +88,21 @@ async def generate_draft(
 
     context = "\n---\n".join(context_parts)
 
-    prompt = f"""{email_voice()}
+    # Append the voice learned from Kunal's actual edits (the feedback loop):
+    # the base guide is the floor; his real edit patterns refine it over time.
+    voice = email_voice()
+    if session:
+        from email_agent.services.voice_learn import get_email_voice_notes
+
+        learned = await get_email_voice_notes(session)
+        if learned:
+            voice += (
+                "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (he changed past drafts "
+                "this way before sending — apply these, they override the "
+                "general guidance above where they conflict):\n" + learned
+            )
+
+    prompt = f"""{voice}
 
 ---
 TASK
@@ -214,7 +228,17 @@ async def refine_draft(
     if not draft:
         raise ValueError("Draft not found")
 
-    prompt = f"""{email_voice()}
+    from email_agent.services.voice_learn import get_email_voice_notes
+
+    voice = email_voice()
+    learned = await get_email_voice_notes(session)
+    if learned:
+        voice += (
+            "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (apply these, they override "
+            "the general guidance above where they conflict):\n" + learned
+        )
+
+    prompt = f"""{voice}
 
 ---
 TASK

@@ -109,7 +109,7 @@ async def _calendar_line() -> str:
 
 
 async def _inbox_line() -> str:
-    from astra.email.client import BASE_URL, get_summary, mesh_headers
+    from astra.email.client import BASE_URL, mesh_headers
 
     # Gmail liveness first — a dead token freezes the counts (the blackout
     # lesson). If auth is down, say DISCONNECTED, don't quote stale numbers.
@@ -126,13 +126,27 @@ async def _inbox_line() -> str:
     if gmail_ok is False:
         return "📧 Inbox — 🔴 EMAIL DISCONNECTED (Gmail auth down; not syncing). Run scripts/gmail_reauth.py."
 
-    summary = await get_summary()
-    if not summary:
-        return ""
-    unread = summary.get("unread", 0)
-    action = summary.get("action_needed", 0)
+    # Use the noise-filtered "real humans awaiting a reply" signal, NOT the
+    # raw ai_action_needed count (which over-flags — it surfaced "140",
+    # which is true-but-useless). This is who's actually owed a reply.
+    from astra.email.signals import unanswered_incoming
+
+    rows = await unanswered_incoming(days=14)
     suffix = "" if gmail_ok else " (liveness unverified)"
-    return f"📧 Inbox — {unread} unread, {action} action-needed{suffix}."
+    if not rows:
+        return f"📧 Inbox — nobody awaiting a reply (last 14d){suffix}."
+
+    def _nm(addr: str) -> str:
+        import re as _re
+
+        m = _re.match(r'\s*"?([^"<]+?)"?\s*<', addr or "")
+        return (m.group(1).strip() if m else (addr or "").split("@")[0])[:28]
+
+    top = "; ".join(
+        f"{_nm(r.get('from', ''))} ({(r.get('age_hours', 0) or 0) / 24:.0f}d)"
+        for r in rows[:3]
+    )
+    return f"📧 Inbox — {len(rows)} awaiting your reply: {top}{suffix}."
 
 
 async def _training_line() -> str:

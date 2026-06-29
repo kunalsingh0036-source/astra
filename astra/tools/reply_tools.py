@@ -202,6 +202,40 @@ async def reply_draft_metrics_tool(args: dict) -> dict:
     return _ok(text)
 
 
+@tool(
+    "learn_my_voice",
+    "Run the voice-feedback loop now: distill how Kunal edited his email "
+    "drafts before sending into voice-correction notes the drafter applies "
+    "going forward, and show what was learned. Use when Kunal asks to "
+    "update/refresh how Astra writes in his voice, or to see the current "
+    "learned voice profile. No-op (reports it) until there are enough "
+    "edited samples to learn from.",
+    {},
+)
+async def learn_my_voice_tool(args: dict) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/ai/learn-voice",
+                headers=mesh_headers(),
+            )
+        if r.status_code != 200:
+            return _err(f"learn-voice failed ({r.status_code}): {r.text[:200]}")
+        d = r.json() or {}
+    except Exception as e:
+        return _err(f"learn-voice error: {e}")
+    if not d.get("learned"):
+        return _ok(
+            "Not enough signal yet — " + (d.get("reason") or "no edited drafts") +
+            ". The loop activates as you edit drafts before sending; each edit "
+            "becomes training for how Astra writes as you."
+        )
+    return _ok(
+        f"Learned your voice from {d.get('samples')} edited drafts. "
+        f"The drafter now applies:\n\n{d.get('notes', '').strip()}"
+    )
+
+
 def _ok(text: str) -> dict:
     return {"content": [{"type": "text", "text": text}]}
 
@@ -220,5 +254,6 @@ def create_reply_mcp_server():
             refine_reply_draft_tool,
             discard_reply_draft_tool,
             reply_draft_metrics_tool,
+            learn_my_voice_tool,
         ],
     )

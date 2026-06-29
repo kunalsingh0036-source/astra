@@ -55,6 +55,7 @@ from astra.scheduler.jobs import (
     run_retention_sweep,
     run_wa_dispatch,
     run_inbox_triage,
+    run_voice_learning,
     run_weekly_review,
     run_self_improve_scan,
 )
@@ -184,6 +185,18 @@ def _build_scheduler() -> AsyncIOScheduler:
         CronTrigger(hour=12, minute=15),
         id="inbox_triage",
         name="Silent inbox triage (staged drafts)",
+        replace_existing=True,
+    )
+
+    # Voice-feedback loop — Saturday 19:00 IST. Distill how Kunal edited
+    # his drafts this week into stored voice notes the drafter applies, so
+    # "sounds like me" COMPOUNDS instead of staying frozen at the hand-
+    # written guide. No-op until there are enough edited samples.
+    scheduler.add_job(
+        run_voice_learning,
+        CronTrigger(day_of_week="sat", hour=19, minute=0),
+        id="voice_learning",
+        name="Learn Kunal's voice from draft edits",
         replace_existing=True,
     )
 

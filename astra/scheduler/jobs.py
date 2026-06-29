@@ -1184,6 +1184,38 @@ async def run_inbox_triage():
     return await _safe("inbox_triage", inbox_triage)
 
 
+async def voice_learning() -> dict:
+    """Weekly: distill Kunal's voice from how he edited drafts before
+    sending (the feedback loop), so the drafter compounds toward how he
+    actually writes. No-op until there are enough edited samples."""
+    import os
+
+    import httpx
+
+    base = os.environ.get(
+        "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
+    ).rstrip("/")
+    headers = {"x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()}
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as c:
+            r = await c.post(f"{base}/api/v1/ai/learn-voice", headers=headers)
+            if r.status_code != 200:
+                logger.warning(
+                    "[scheduler] voice_learning → %s: %s", r.status_code, r.text[:200]
+                )
+                return {"ok": False, "status": r.status_code}
+            result = r.json()
+            logger.info("[scheduler] voice_learning: %s", result)
+            return result
+    except Exception as e:
+        logger.warning("[scheduler] voice_learning error: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+async def run_voice_learning():
+    return await _safe("voice_learning", voice_learning)
+
+
 async def run_content_draft():
     """07:30 IST — draft a LinkedIn post from today's research briefing
     and stage it for review (beachhead 2)."""
