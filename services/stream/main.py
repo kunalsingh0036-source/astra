@@ -883,6 +883,7 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
         from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
         from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
         from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]
+        from astra.context.now import build_kunal_now  # type: ignore[import-not-found]
     except Exception as e:
         raise HTTPException(500, f"runtime load failed: {e}")
 
@@ -899,10 +900,21 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
     # client; the browser polls turn_events.
     async def _drive() -> None:
         try:
+            # Push a live, verified-fresh "Kunal Now" block into the system
+            # prompt so EVERY response is grounded in what's happening today —
+            # not only when the model remembers to call recall/email/calendar.
+            # Best-effort: a failure just omits the block, never fails the turn.
+            try:
+                _now = await build_kunal_now()
+            except Exception:
+                _now = ""
+            _sys = get_system_prompt() + _channel_addendum(req.channel)
+            if _now:
+                _sys = f"{_sys}\n\n{_now}"
             agen = run_lean_turn(
                 req.prompt,
                 session_id=req.session_id,
-                system_prompt=get_system_prompt() + _channel_addendum(req.channel),
+                system_prompt=_sys,
                 turn_id=turn_id,
                 load_history=True,
                 history_limit=_channel_history_limit(req.channel),
