@@ -62,6 +62,21 @@ from astra.scheduler.jobs import (
 
 logger = logging.getLogger(__name__)
 
+
+def _ist_cron(**kwargs) -> CronTrigger:
+    """CronTrigger pinned to IST. NEVER use bare CronTrigger(...) here.
+
+    An explicit trigger instance captures the CONSTRUCTING process's
+    local timezone — not the scheduler's timezone= — at __init__ time.
+    On 2026-06-30 a UTC container (the backup cron service booting this
+    module via the image's default CMD) re-registered every job in the
+    SHARED Postgres jobstore with UTC triggers, shifting the whole day
+    +5h30 (morning brief at 13:00 IST) for three days. Pinning the tz
+    here makes that class of poisoning structurally impossible, no
+    matter which process runs the registration."""
+    return CronTrigger(timezone="Asia/Kolkata", **kwargs)
+
+
 # Single module-level scheduler so the same instance is reused across
 # import points. `start_scheduler` is idempotent.
 _scheduler: Optional[AsyncIOScheduler] = None
@@ -100,7 +115,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Morning briefing — daily at the configured time (default 7:30 IST)
     scheduler.add_job(
         run_morning_briefing,
-        CronTrigger(
+        _ist_cron(
             hour=settings.briefing_hour,
             minute=settings.briefing_minute,
         ),
@@ -115,7 +130,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Emailed to kunalsingh0036@gmail.com and filed as episodic memory.
     scheduler.add_job(
         run_evening_briefing,
-        CronTrigger(hour=22, minute=0),
+        _ist_cron(hour=22, minute=0),
         id="evening_briefing",
         name="Evening briefing",
         replace_existing=True,
@@ -159,7 +174,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # TTL (finally calling sweep_expired), turns.messages forever.
     scheduler.add_job(
         run_retention_sweep,
-        CronTrigger(hour=3, minute=30),
+        _ist_cron(hour=3, minute=30),
         id="retention_sweep",
         name="Retention sweep (turn_events/bridge_calls/previews)",
         replace_existing=True,
@@ -182,7 +197,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # yesterday's leftovers, this catches the morning's arrivals.
     scheduler.add_job(
         run_inbox_triage,
-        CronTrigger(hour=12, minute=15),
+        _ist_cron(hour=12, minute=15),
         id="inbox_triage",
         name="Silent inbox triage (staged drafts)",
         replace_existing=True,
@@ -194,7 +209,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # written guide. No-op until there are enough edited samples.
     scheduler.add_job(
         run_voice_learning,
-        CronTrigger(day_of_week="sat", hour=19, minute=0),
+        _ist_cron(day_of_week="sat", hour=19, minute=0),
         id="voice_learning",
         name="Learn Kunal's voice from draft edits",
         replace_existing=True,
@@ -205,7 +220,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # where is attention/money leaking across the four businesses.
     scheduler.add_job(
         run_weekly_review,
-        CronTrigger(day_of_week="sun", hour=21, minute=0),
+        _ist_cron(day_of_week="sun", hour=21, minute=0),
         id="weekly_review",
         name="Weekly cross-business review",
         replace_existing=True,
@@ -217,7 +232,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # since Layer 4; this is the first thing that proactively FEEDS it.
     scheduler.add_job(
         run_self_improve_scan,
-        CronTrigger(day_of_week="sat", hour=20, minute=0),
+        _ist_cron(day_of_week="sat", hour=20, minute=0),
         id="self_improve_scan",
         name="Weekly self-improvement scan",
         replace_existing=True,
@@ -250,7 +265,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Memory consolidation — nightly (default 03:00 IST)
     scheduler.add_job(
         run_memory_consolidation,
-        CronTrigger(hour=settings.consolidation_hour, minute=0),
+        _ist_cron(hour=settings.consolidation_hour, minute=0),
         id="memory_consolidation",
         name="Memory consolidation",
         replace_existing=True,
@@ -260,7 +275,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # dodge :00 congestion, 6d < 7d watch expiry)
     scheduler.add_job(
         run_gmail_watch_renew,
-        CronTrigger(hour=2, minute=17, day="*/6"),
+        _ist_cron(hour=2, minute=17, day="*/6"),
         id="gmail_watch_renew",
         name="Gmail watch renewal",
         replace_existing=True,
@@ -269,7 +284,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Cost report — weekly Monday 09:03 IST
     scheduler.add_job(
         run_cost_report,
-        CronTrigger(day_of_week="mon", hour=9, minute=3),
+        _ist_cron(day_of_week="mon", hour=9, minute=3),
         id="cost_report",
         name="Weekly cost report",
         replace_existing=True,
@@ -313,7 +328,7 @@ def _build_scheduler() -> AsyncIOScheduler:
         # snapshot. Requires the Apple Notes mirror.
         scheduler.add_job(
             run_missed_session_snapshot,
-            CronTrigger(hour=21, minute=30),
+            _ist_cron(hour=21, minute=30),
             id="missed_session_snapshot",
             name="Missed-session snapshot",
             replace_existing=True,
@@ -335,7 +350,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Apple-Note writeback (apply-worker above) is macOS-bound.
     scheduler.add_job(
         run_training_catchup_prompt,
-        CronTrigger(hour=21, minute=30),
+        _ist_cron(hour=21, minute=30),
         id="training_catchup_prompt",
         name="Training catch-up prompt",
         replace_existing=True,
@@ -393,7 +408,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # 07:30 morning briefing so the briefing can fold in the top line.
     scheduler.add_job(
         run_daily_research,
-        CronTrigger(hour=7, minute=0),
+        _ist_cron(hour=7, minute=0),
         id="daily_research",
         name="Research Intel (daily rotating topic + Sat meta-review)",
         replace_existing=True,
@@ -405,7 +420,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # stages it for review, and nudges Kunal. Beachhead 2.
     scheduler.add_job(
         run_content_draft,
-        CronTrigger(hour=8, minute=0),
+        _ist_cron(hour=8, minute=0),
         id="content_draft",
         name="LinkedIn content draft (from daily research)",
         replace_existing=True,
@@ -416,7 +431,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # and files the digest as a memory for the evening briefing.
     scheduler.add_job(
         run_inbox_preview,
-        CronTrigger(hour=12, minute=45),
+        _ist_cron(hour=12, minute=45),
         id="inbox_preview",
         name="Inbox preview (12:45 IST before work window)",
         replace_existing=True,
@@ -428,7 +443,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # lands with a clean, categorised inbox.
     scheduler.add_job(
         run_classify_sweep,
-        CronTrigger(hour=12, minute=40),
+        _ist_cron(hour=12, minute=40),
         id="classify_sweep",
         name="Email classifier sweep (pre-inbox-preview)",
         replace_existing=True,
@@ -440,7 +455,7 @@ def _build_scheduler() -> AsyncIOScheduler:
     # once (those get picked up only by the big 12:40 sweep).
     scheduler.add_job(
         run_classify_sweep_light,
-        CronTrigger(minute="7,37"),
+        _ist_cron(minute="7,37"),
         id="classify_sweep_light",
         name="Email classifier backstop (every 30 min)",
         replace_existing=True,

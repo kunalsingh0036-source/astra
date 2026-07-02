@@ -359,7 +359,11 @@ async def fleet_health_check() -> dict:
     missed instance. Brief/chat read fleet health LIVE via _fleet_line."""
     import sys as _sys
 
-    global _FLEET_PURGED
+    # _FLEET_ALERTED is REBOUND below (|= / -=), so it must be declared
+    # global or Python treats it as local and the first read raises
+    # UnboundLocalError — which killed every fleet_health_check run
+    # (silently, inside _safe) from Jun 29 to Jul 2: down-alerts dead.
+    global _FLEET_PURGED, _FLEET_ALERTED
 
     if _sys.platform == "darwin":
         from astra.services.manager import service_manager
@@ -1093,23 +1097,73 @@ async def run_evening_briefing():
 
 
 async def _nudge_drafts_ready(n: int) -> None:
-    """Tell Kunal that N reply drafts are staged and waiting.
+    """Deliver staged reply drafts INTO WhatsApp — content, not a link.
 
-    Triage is silent by design, but a draft nobody knows about is a
-    draft nobody sends — the open-loop failure this beachhead exists to
-    fix. So once drafts land, ping the two surfaces Kunal chose:
-    WhatsApp (gateway owner-notify) + Web Push/PWA (→ /replies). The
-    drafts themselves stay unsent; this is just the 'come look' tap.
+    The Jul-02 audit verdict: 0 of 18 drafts ever sent, because the
+    nudge pointed at a web queue Kunal never visits. The consumption
+    fix: put the draft text itself in the WhatsApp message so he can
+    act by replying ("send the X one" / "edit ...: shorter" / "skip").
+    Nothing sends without his explicit say-so — the gate is unchanged,
+    only the review surface moved to where he already lives.
     Best-effort: a failed nudge must never fail the triage job."""
     import os
 
     import httpx
 
+    def _name(addr: str) -> str:
+        import re as _re
+
+        m = _re.match(r'\s*"?([^"<]+?)"?\s*<', (addr or "").strip())
+        if m and m.group(1).strip():
+            return m.group(1).strip()[:30]
+        a = (addr or "").strip().strip("<> ")
+        return (a.split("@")[0] if "@" in a else a)[:30]
+
+    # Pull the actual pending drafts so the message carries content.
+    drafts: list[dict] = []
+    try:
+        base = os.environ.get(
+            "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
+        ).rstrip("/")
+        headers = {
+            "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        }
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            r = await c.get(
+                f"{base}/api/v1/drafts/",
+                params={"status": "ready", "limit": 3},
+                headers=headers,
+            )
+        if r.status_code == 200:
+            drafts = r.json() or []
+    except Exception as e:
+        logger.info("[scheduler] draft-content fetch skipped: %s", e)
+
     plural = "reply" if n == 1 else "replies"
-    text = (
-        f"📩 {n} {plural} drafted and waiting for you.\n"
-        f"Say “show my drafts” to review them here, or open Astra → Replies."
-    )
+    if drafts:
+        blocks = []
+        for d in drafts[:2]:
+            to = _name((d.get("to_addresses") or [""])[0])
+            subj = (d.get("subject") or "").strip()[:70]
+            body = (d.get("body_text") or "").strip()
+            if len(body) > 450:
+                body = body[:450].rstrip() + "…"
+            blocks.append(f"→ *To {to}* — {subj}\n{body}")
+        more = len(drafts) - len(blocks)
+        text = (
+            f"📩 {n} {plural} drafted, waiting on you.\n\n"
+            + "\n\n".join(blocks)
+            + (f"\n\n(+{more} more — say “show my drafts”)" if more > 0 else "")
+            + "\n\nReply to act: “send the <name> one”, "
+            "“edit the <name> one: <how>”, or “skip it”. "
+            "Nothing sends without you."
+        )
+    else:
+        # Fetch failed — fall back to the old come-look tap.
+        text = (
+            f"📩 {n} {plural} drafted and waiting for you.\n"
+            f"Say “show my drafts” to review them here, or open Astra → Replies."
+        )
 
     # WhatsApp via the gateway (Kunal's primary surface).
     try:

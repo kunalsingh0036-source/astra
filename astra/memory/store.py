@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
+
 from astra.memory.embeddings import embed_text
 from astra.memory.models import Memory, MemoryType
 
@@ -34,7 +36,9 @@ async def store_memory(
     Returns:
         The created Memory object.
     """
-    embedding = embed_text(content)
+    # Off the event loop: the model load/encode is synchronous and
+    # a cold load froze the whole stream service (Jun-29 incident).
+    embedding = await asyncio.to_thread(embed_text, content)
 
     memory = Memory(
         content=content,
@@ -78,7 +82,7 @@ async def update_memory(
 
     if content is not None and content != memory.content:
         memory.content = content
-        memory.embedding = embed_text(content)
+        memory.embedding = await asyncio.to_thread(embed_text, content)
 
     if tags is not None:
         memory.tags = tags

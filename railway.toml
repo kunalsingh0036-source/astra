@@ -30,18 +30,20 @@ restartPolicyMaxRetries = 10
 
 # ── Per-service overrides ─────────────────────────────────────
 #
-# Railway honors [services.<name>] blocks so two services in the same
-# repo can use different Dockerfiles. Without these the stream
-# service would silently use Dockerfile.scheduler and fail to bind
-# the HTTP port.
+# CAUTION (verified 2026-06 + audit 2026-07-02): Railway SILENTLY
+# IGNORES [services.<name>] blocks in this file — real per-service
+# config lives in each service's dashboard settings / env
+# (RAILWAY_DOCKERFILE_PATH, Custom Start Command). Every prod service
+# builds from Dockerfile.scheduler; role is chosen by start command:
+#   scheduler → default CMD (scheduler-entrypoint.sh: migrate + boot)
+#   stream    → uvicorn stream.main:app
+#   backup    → python /app/scripts/backup-postgres.py (cron 03:00 UTC)
+# The old [services.stream.build] here pointed at a Dockerfile.stream
+# that never existed — dead config, removed so nobody trusts it again.
 
 [services.scheduler.build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile.scheduler"
-
-[services.stream.build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.stream"
 
 [services.stream.deploy]
 # Stream serves HTTP — Railway needs to know the listen port for

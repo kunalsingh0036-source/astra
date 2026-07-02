@@ -20,16 +20,23 @@ FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TZ=Asia/Kolkata
+# TZ pinned image-wide: on 2026-06-30 a UTC container running this
+# image's default CMD re-registered every cron job in the shared
+# jobstore with UTC triggers (+5h30 brief shift for 3 days). Triggers
+# are now ALSO pinned in code (_ist_cron); this is belt to suspender.
 
-# System deps: psql client (for dump-restore-debug only), build tools
-# for asyncpg/sentence-transformers wheels that don't ship arm64 wheels
-# for every Python version.
+# System deps: psql client (for the backup pg_dump + debug), tzdata
+# (so TZ above resolves on slim), build tools for asyncpg/
+# sentence-transformers wheels that don't ship arm64 wheels for every
+# Python version.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         ca-certificates \
         postgresql-client \
+        tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -38,6 +45,14 @@ WORKDIR /app
 COPY pyproject.toml /app/pyproject.toml
 RUN pip install --upgrade pip setuptools wheel \
  && pip install -e .
+
+# Bake the embedding model into the image so runtime NEVER downloads
+# from HuggingFace. The lazy in-process download stalled and froze the
+# whole stream service on 2026-06-29 (event loop blocked mid-turn,
+# manual restart needed). Baked = prewarm loads from disk in seconds,
+# works even if HF is down, deploys reproducible. Layer-cached: only
+# re-runs when pyproject changes.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Now copy the source. We copy both the astra/ package AND services/
 # (which holds vendored stream code) so the SAME image can serve as
@@ -63,6 +78,13 @@ ENV BUSINESS_KITS_DIR=/app/business-kits
 # should hold the migration lock at a time).
 COPY scripts/scheduler-entrypoint.sh /app/scheduler-entrypoint.sh
 RUN chmod +x /app/scheduler-entrypoint.sh
+
+# Ops scripts — the backup cron service runs
+# `python /app/scripts/backup-postgres.py` as its start command.
+# Without this COPY the script isn't in the image at all, which is
+# half of how the 2026-06-30 incident happened: the backup service
+# had nothing to run except the default CMD — a full second scheduler.
+COPY scripts /app/scripts
 
 ENV PYTHONPATH=/app:/app/services
 

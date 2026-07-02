@@ -8,6 +8,8 @@ Results are re-ranked using the importance scoring system which combines
 vector similarity with recency and access frequency.
 """
 
+import asyncio
+
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +44,7 @@ async def search_memories(
     top_k = top_k or settings.memory_top_k
     relevance_threshold = relevance_threshold or settings.memory_relevance_threshold
 
-    query_embedding = embed_text(query)
+    query_embedding = await asyncio.to_thread(embed_text, query)
 
     # Fetch more candidates than needed for re-ranking
     candidate_limit = top_k * 3

@@ -10,6 +10,7 @@ Over time, memories accumulate. Consolidation:
 This runs as a scheduled task via Celery, not on every query.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from itertools import groupby
@@ -309,7 +310,7 @@ async def summarize_old_episodic_clusters(
             all_tags.add(week_label)
 
             # Store as a new semantic memory
-            embedding = embed_text(summary_text)
+            embedding = await asyncio.to_thread(embed_text, summary_text)
             summary_memory = Memory(
                 content=f"[Week {week_label} Summary] {summary_text}",
                 memory_type=MemoryType.SEMANTIC,
