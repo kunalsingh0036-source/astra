@@ -27,16 +27,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # jobstore with UTC triggers (+5h30 brief shift for 3 days). Triggers
 # are now ALSO pinned in code (_ist_cron); this is belt to suspender.
 
-# System deps: psql client (for the backup pg_dump + debug), tzdata
-# (so TZ above resolves on slim), build tools for asyncpg/
-# sentence-transformers wheels that don't ship arm64 wheels for every
-# Python version.
+# System deps: tzdata (so TZ above resolves on slim), build tools for
+# asyncpg/sentence-transformers wheels, and PostgreSQL client 18 from
+# PGDG — the server is PG 18 and pg_dump refuses a NEWER server than
+# itself, so Debian's default client (17) broke the nightly backup
+# (2026-07-03: "aborting because of server version mismatch"). PGDG
+# pinning keeps pg_dump ≥ server no matter which service runs this
+# image (Railway ignores per-service dockerfile selection, so the
+# backup cron runs THIS image too).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         curl \
         ca-certificates \
-        postgresql-client \
+        gnupg \
         tzdata \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+         -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+         > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-client-18 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
