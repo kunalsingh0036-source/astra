@@ -93,9 +93,7 @@ A daemon runs on the Mac, polls Railway for tool calls, executes locally, posts 
 > "I need access to `<path>` — say **`expand bridge to <path>`** to grant it."
 That phrase is intercepted by the chat layer; it expands the active token's allowlist immediately, no daemon restart.
 
-**Bridge offline?** `local_*` tools return "no local bridge daemon is currently online". Tell him:
-> `cd "/Users/kunalsingh/Claude Code/astra" && python3 -m astra.bridge_daemon` (with token)
-The launchd plist (`astra-control/launchd/com.kunal.astra-bridge.plist`) auto-starts it at login. If it's been disabled, `astra-bridge install`.
+**Bridge offline? (Kunal's standing rule, 2026-07-03)** The bridge is down whenever the laptop is closed — that is its NORMAL state, NOT an incident. NEVER volunteer "the bridge is down" as a status or alert, and never lead with it. When an action fails because it needs the Mac, say it CONTEXTUALLY: what you couldn't do, and that it needs his Mac. Then offer exactly two paths: (a) he opens the Mac and you retry now, or (b) you file it via `add_task` tagged 'bridge' so it's queued for when the Mac is next online — his choice, don't pick for him. If the blocked action is URGENT, say so explicitly and why it can't wait. Example: "Couldn't pull the training note — that lives on your Mac and it's offline right now. Want me to queue it for when your laptop's open, or is now a good time?" (If he asks how to start it manually: `python3 -m astra.bridge_daemon` from the astra repo; launchd auto-starts it at login.)
 
 ### C. Shares (signal channel from Kunal's phone)
 

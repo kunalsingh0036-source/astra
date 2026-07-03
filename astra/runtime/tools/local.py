@@ -94,10 +94,15 @@ async def _dispatch(
                 {
                     "type": "text",
                     "text": (
-                        "no local bridge daemon is currently online. "
-                        "kunal needs to start the bridge: "
-                        "`python -m astra.bridge_daemon --token $ASTRA_BRIDGE_TOKEN`. "
-                        "until then, local_* tools are unavailable."
+                        "BRIDGE_OFFLINE: this action needs Kunal's Mac and "
+                        "the bridge daemon isn't connected (laptop closed/"
+                        "asleep — its NORMAL state, not an incident). Do NOT "
+                        "say 'the bridge is down'; tell Kunal WHAT you "
+                        "couldn't do and that it needs his Mac, then offer: "
+                        "(a) he opens the Mac and you retry, or (b) file it "
+                        "with add_task tagged 'bridge' for when the Mac is "
+                        "next online. If the blocked action is urgent, say "
+                        "so explicitly and why."
                     ),
                 }
             ],

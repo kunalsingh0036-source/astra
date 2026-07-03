@@ -278,15 +278,19 @@ async def _cloud_fleet_probe() -> list[dict]:
             if name and url:
                 targets[name] = url
     else:
+        # Only ALWAYS-ON cloud services belong here. The old list probed
+        # finance.railway.internal + bridge.railway.internal — both DELETED
+        # in the R3 consolidation (folded into `agents`) — so the alerter
+        # paged on two permanently-dead hostnames the moment it was revived
+        # (2026-07-03). The Mac bridge daemon is deliberately NOT probed:
+        # laptop closed = its NORMAL state, not an incident (Kunal's rule:
+        # never ping "bridge is down"; explain at the point an action
+        # actually needs the Mac).
         targets = {
             "stream": "http://stream.railway.internal:8080/health",
             "email": "http://email.railway.internal:8080/health",
             "whatsapp": "http://whatsapp.railway.internal:8080/health",
-            "finance": "http://finance.railway.internal:8080/health",
-            # bridge (A2A) was NOT probed — so when its build failed and it
-            # went down for days, nothing alerted, while transient blips on
-            # the others cried wolf. The real failure must be in the probe.
-            "bridge": "http://bridge.railway.internal:8080/health",
+            "agents": "http://agents.railway.internal:8080/health",
         }
 
     results: list[dict] = []
