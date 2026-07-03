@@ -313,6 +313,15 @@ async def _handle_inbound_message(
             conversation.last_message_at = datetime.now(timezone.utc)
             conversation.message_count += 1
             await session.commit()
+            # The owner just messaged us → Meta's 24h window is OPEN.
+            # Deliver anything that queued while it was closed
+            # (briefings/nudges black-holed during the closure).
+            try:
+                from gateway.services.owner_window import flush_pending
+
+                asyncio.create_task(flush_pending(phone))
+            except Exception:
+                pass  # flush is bonus; never block the chat turn
             # Mirror modality: a transcribed voice note gets a voice
             # reply (when TTS is configured and the answer is short
             # enough to speak); a typed message gets text.

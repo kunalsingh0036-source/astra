@@ -41,6 +41,11 @@ class OwnerNotifyRequest(BaseModel):
 async def notify_owner(req: OwnerNotifyRequest) -> dict:
     from gateway.services.astra_chat import _WA_TEXT_LIMIT, _chunks
     from gateway.services.meta_api import MetaAPIClient
+    from gateway.services.owner_window import (
+        maybe_send_reopener,
+        queue_pending,
+        window_open,
+    )
 
     owners = sorted(owner_numbers())
     target = (req.phone or (owners[0] if owners else "")).lstrip("+")
@@ -50,6 +55,26 @@ async def notify_owner(req: OwnerNotifyRequest) -> dict:
             "error": "no owner number configured (ASTRA_OWNER_NUMBERS) "
             "or target not in allowlist",
         }
+
+    # Meta's 24h rule: outside the session window the Graph API ACCEPTS
+    # a free-form send and silently drops it (the failure status lands
+    # on the shared number's other webhook). Found 2026-07-03 after 11
+    # days of black-holed briefings. So: window closed → queue the text
+    # (delivered the moment Kunal replies), knock once with an approved
+    # template, and report honestly instead of a fake ok.
+    is_open = await window_open(target)
+    if is_open is False:
+        try:
+            await queue_pending(target, req.text)
+            knocked = await maybe_send_reopener(target)
+        except Exception as e:
+            logger.warning("[notify/owner] window-closed queue failed: %s", e)
+            return {"ok": False, "window_closed": True, "error": str(e)[:200]}
+        logger.info(
+            "[notify/owner] window CLOSED — queued text, reopener_sent=%s", knocked
+        )
+        return {"ok": False, "window_closed": True, "queued": True,
+                "reopener_sent": knocked}
 
     client = MetaAPIClient()
     sent = 0
