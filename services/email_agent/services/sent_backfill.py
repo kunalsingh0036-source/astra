@@ -125,7 +125,9 @@ def start_backfill(max_messages: int = _DEFAULT_MAX, query: str = "in:sent") -> 
     state.update(running=True, fetched=0, stored=0, max=max_messages,
                  started_at=datetime.now(timezone.utc).isoformat(),
                  finished_at=None, error=None)
-    asyncio.get_event_loop().create_task(_run(max_messages, query))
+    # Keep a strong reference — an unreferenced task can be GC-cancelled
+    # mid-run. Stored on the module state dict for the process lifetime.
+    state["_task"] = asyncio.create_task(_run(max_messages, query))
     return {"ok": True, "started": True, **_progress()}
 
 
