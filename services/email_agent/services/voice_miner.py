@@ -41,6 +41,10 @@ from email_agent.db.engine import async_session
 logger = logging.getLogger(__name__)
 
 REGISTERS = ("formal_official", "business", "vendor_support", "personal")
+_FREEMAIL = {"gmail.com", "googlemail.com", "yahoo.com", "yahoo.in",
+             "yahoo.co.in", "outlook.com", "hotmail.com", "live.com",
+             "icloud.com", "me.com", "proton.me", "protonmail.com",
+             "rediffmail.com", "aol.com"}
 _MAX_SAMPLES_PER_REGISTER = 18
 _MIN_BODY = 25
 _LLM_TIMEOUT = 90.0
@@ -71,6 +75,8 @@ _EXCLUDE_RCPT = re.compile(
 
 _QUOTE_MARKERS = [
     re.compile(r"^On .{5,80} wrote:\s*$", re.MULTILINE),
+    # Gmail wraps long attributions across lines — match DOTALL-ish
+    re.compile(r"\nOn [^\n]{5,120}\n?[^\n]{0,120} wrote:\s*\n", re.DOTALL),
     re.compile(r"^-{2,}\s*Original Message\s*-{2,}", re.IGNORECASE | re.MULTILINE),
     re.compile(r"^-{2,}\s*Forwarded message\s*-{2,}", re.IGNORECASE | re.MULTILINE),
     re.compile(r"^From:\s.+\nSent:\s.+", re.MULTILINE),
@@ -78,24 +84,28 @@ _QUOTE_MARKERS = [
 
 _PROFILE_BANNED = re.compile(
     r"(https?://|www\.|[\w.+-]+@[\w-]+\.\w|\d{5,}|"
-    r"\b(ignore|disregard|override|bypass|system\s*prompt|bcc|"
+    r"\b[\w-]{2,}\.(com|net|org|io|ai|in|co|dev|app|me)\b|"
+    r"\b(ignore|disregard|override|bypass|system\s*prompt|bcc|cc|fwd|"
+    r"forward|attach|always include|must include|"
     r"api[_\s-]?key|password|secret|token)\b)",
     re.IGNORECASE,
 )
 
 
-async def _ensure() -> None:
+async def _ensure() -> bool:
     global _ensured
     if _ensured:
-        return
+        return True
     try:
         async with async_session() as s:
             for ddl in _ENSURE:
                 await s.execute(ddl)
             await s.commit()
         _ensured = True
+        return True
     except Exception as e:
         logger.warning("[voice_miner] ensure failed: %s", e)
+        return False
 
 
 async def ensure_voice_tables() -> None:
@@ -171,10 +181,17 @@ def _stats(samples: list[str]) -> dict:
 
 
 def _sanitize_profile(raw: str) -> str:
+    """Shape ALLOWLIST first (only '- rule' or 'EXEMPLAR:' lines — the
+    distiller's declared format), then the blocklist. Anything else the
+    model emitted (preamble, headings, smuggled prose) is dropped."""
     out = []
     for ln in (raw or "").splitlines():
         s = ln.strip()
-        if not s or _PROFILE_BANNED.search(s) or len(s) > 220:
+        if not s or len(s) > 220:
+            continue
+        if not (s.startswith("- ") or s.upper().startswith("EXEMPLAR")):
+            continue
+        if _PROFILE_BANNED.search(s):
             continue
         out.append(s)
     return "\n".join(out)[:_MAX_PROFILE_CHARS]
@@ -227,7 +244,8 @@ async def _distill(register: str, stats: dict, samples: list[str]) -> str:
 
 async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
     """Run the full mining pipeline. Never raises; returns a result dict."""
-    await _ensure()
+    if not await _ensure():
+        return {"ok": False, "error": "voice tables unavailable"}
     if not (settings.anthropic_api_key or "").strip():
         return {"ok": False, "error": "no llm key"}
 
@@ -277,7 +295,7 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
     mapping: dict[str, str] = {}
     try:
         resp = await _llm().messages.create(
-            model=settings.model_sonnet, max_tokens=800,
+            model=settings.model_sonnet, max_tokens=2000,
             system=_CLASSIFY_SYSTEM,
             messages=[{"role": "user", "content": listing}],
             timeout=_LLM_TIMEOUT,
@@ -329,7 +347,24 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
                 "reason": f"corpus too thin ({len(by_contact)} contacts) or "
                           "distillation produced nothing safe"}
 
-    # 5. Store (own session; upserts).
+    # 5. Store (own session; upserts). Wrapped: a store failure must
+    # return an error dict (never raise) — and not waste the LLM spend
+    # silently.
+    try:
+        await _store_profiles(profiles, mapping)
+    except Exception as e:
+        return {"ok": False, "error": f"store failed: {e}",
+                "profiles": {r: p["profile"] for r, p in profiles.items()}}
+
+    logger.info("[voice_miner] mined %s from %d contacts",
+                list(profiles), len(by_contact))
+    return {"ok": True, "mined": True,
+            "registers": {r: p["sample_count"] for r, p in profiles.items()},
+            "contacts_mapped": len(mapping),
+            "profiles": {r: p["profile"] for r, p in profiles.items()}}
+
+
+async def _store_profiles(profiles: dict, mapping: dict) -> None:
     async with async_session() as s:
         for reg, p in profiles.items():
             await s.execute(text(
@@ -347,13 +382,6 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
                 {"c": c, "r": reg})
         await s.commit()
 
-    logger.info("[voice_miner] mined %s from %d contacts",
-                list(profiles), len(by_contact))
-    return {"ok": True, "mined": True,
-            "registers": {r: p["sample_count"] for r, p in profiles.items()},
-            "contacts_mapped": len(mapping),
-            "profiles": {r: p["profile"] for r, p in profiles.items()}}
-
 
 async def get_register_profile(to_addresses: list[str] | None) -> tuple[str, str]:
     """(profile_text, register) for the primary recipient. Resolution:
@@ -370,11 +398,18 @@ async def get_register_profile(to_addresses: list[str] | None) -> tuple[str, str
                     {"c": rcpt})
                 reg = r.scalar()
                 if reg is None and "@" in rcpt:
-                    r = await s.execute(text(
-                        "SELECT register FROM voice_register_contacts "
-                        "WHERE contact LIKE :d LIMIT 1"),
-                        {"d": f"%@{rcpt.split('@',1)[1]}"})
-                    reg = r.scalar()
+                    # Domain fallback ONLY for corporate domains — a
+                    # freemail domain says nothing about the person, so
+                    # gmail/yahoo/etc fall straight through to 'general'.
+                    domain = rcpt.split("@", 1)[1]
+                    if domain not in _FREEMAIL:
+                        esc = domain.replace("%", r"\%").replace("_", r"\_")
+                        r = await s.execute(text(
+                            "SELECT register FROM voice_register_contacts "
+                            "WHERE contact LIKE :d GROUP BY register "
+                            "ORDER BY count(*) DESC LIMIT 1"),
+                            {"d": f"%@{esc}"})
+                        reg = r.scalar()
             for candidate in ([reg] if reg else []) + ["general"]:
                 r = await s.execute(text(
                     "SELECT profile FROM voice_registers WHERE register=:r"),
@@ -404,3 +439,38 @@ async def get_profile(register: str = "general") -> dict:
                 "updated_at": row[2].isoformat() if row[2] else None}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+# ── Background execution (timeout hierarchy: the /mine route returns
+# immediately; worst-case mining is classify + 5 distills ≈ many minutes,
+# far beyond mesh client timeouts) ─────────────────────────────────────
+import asyncio as _asyncio
+from datetime import datetime as _dt, timezone as _tz
+
+mine_state: dict = {"running": False, "started_at": None,
+                    "finished_at": None, "result": None}
+
+
+async def _mine_bg() -> None:
+    try:
+        result = await mine_voice()
+    except Exception as e:  # mine_voice shouldn't raise; belt+braces
+        result = {"ok": False, "error": str(e)[:300]}
+    mine_state["result"] = result
+    mine_state["running"] = False
+    mine_state["finished_at"] = _dt.now(_tz.utc).isoformat()
+
+
+def start_mine() -> dict:
+    if mine_state["running"]:
+        return {"ok": False, "error": "mine already running", **mine_status()}
+    mine_state.update(running=True, result=None, finished_at=None,
+                      started_at=_dt.now(_tz.utc).isoformat())
+    task = _asyncio.get_running_loop().create_task(_mine_bg())
+    mine_state["_task"] = task  # strong ref — GC-cancel guard
+    return {"ok": True, "started": True, **mine_status()}
+
+
+def mine_status() -> dict:
+    return {k: mine_state[k] for k in
+            ("running", "started_at", "finished_at", "result")}

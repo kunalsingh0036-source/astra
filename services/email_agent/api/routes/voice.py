@@ -35,13 +35,19 @@ async def backfill_sent_status() -> dict:
 
 @router.post("/mine")
 async def mine() -> dict:
-    from email_agent.services.voice_miner import mine_voice
+    """Start mining in the background — returns immediately (mining is
+    classify + up to 5 distills; way past any mesh client timeout).
+    Poll GET /voice/mine for the result."""
+    from email_agent.services.voice_miner import start_mine
 
-    result = await mine_voice()
-    logger.info("[voice] mine: ok=%s mined=%s registers=%s",
-                result.get("ok"), result.get("mined"),
-                list((result.get("registers") or {})))
-    return result
+    return start_mine()
+
+
+@router.get("/mine")
+async def mine_progress() -> dict:
+    from email_agent.services.voice_miner import mine_status
+
+    return {"ok": True, **mine_status()}
 
 
 @router.get("/profile")

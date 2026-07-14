@@ -1254,30 +1254,33 @@ async def voice_learning() -> dict:
         "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
     ).rstrip("/")
     headers = {"x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()}
+    learn: dict = {}
     try:
         async with httpx.AsyncClient(timeout=120.0) as c:
             r = await c.post(f"{base}/api/v1/ai/learn-voice", headers=headers)
-            if r.status_code != 200:
-                logger.warning(
-                    "[scheduler] voice_learning → %s: %s", r.status_code, r.text[:200]
-                )
-                return {"ok": False, "status": r.status_code}
-            result = r.json()
-            logger.info("[scheduler] voice_learning: %s", result)
+            learn = r.json() if r.status_code == 200 else {"ok": False,
+                                                           "status": r.status_code}
+            logger.info("[scheduler] voice_learning: %s", learn)
     except Exception as e:
         logger.warning("[scheduler] voice_learning error: %s", e)
-        return {"ok": False, "error": str(e)}
+        learn = {"ok": False, "error": str(e)[:200]}
 
-    # Weekly re-mine of the sent-mail voice registers (best-effort; the
-    # corpus grows as he sends, so the profiles keep converging on him).
+    # Weekly re-mine of the sent-mail registers — ISOLATED from the
+    # learn leg (a learn failure must not skip the mine). The endpoint
+    # starts a background task and returns immediately.
+    mine: dict = {}
     try:
-        async with httpx.AsyncClient(timeout=300.0) as c:
+        async with httpx.AsyncClient(timeout=30.0) as c:
             r = await c.post(f"{base}/api/v1/voice/mine", headers=headers)
-            logger.info("[scheduler] voice_mine: %s", r.text[:300])
+            mine = r.json() if r.status_code == 200 else {"ok": False,
+                                                          "status": r.status_code}
+            logger.info("[scheduler] voice_mine: %s", mine)
     except Exception as e:
         logger.warning("[scheduler] voice_mine error: %s", e)
+        mine = {"ok": False, "error": str(e)[:200]}
 
-    return result
+    return {"ok": bool(learn.get("ok")) or bool(mine.get("ok")),
+            "learn": learn, "mine": mine}
 
 
 async def run_voice_learning():

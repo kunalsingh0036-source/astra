@@ -360,15 +360,18 @@ def _parse_gmail_message(msg: dict) -> dict:
     label_ids = msg.get("labelIds", [])
     direction = EmailDirection.OUTBOUND if "SENT" in label_ids else EmailDirection.INBOUND
 
+    # Truncate to column limits — one historical message with a 600-char
+    # subject or a 300-char recipient would abort the whole storing
+    # transaction at flush (bit the sent backfill; latent in routine sync).
     return {
         "gmail_message_id": msg["id"],
         "gmail_thread_id": msg.get("threadId", ""),
         "direction": direction,
-        "from_address": from_addr,
-        "to_addresses": to_addrs,
-        "cc_addresses": cc_addrs,
+        "from_address": from_addr[:255],
+        "to_addresses": [a[:255] for a in to_addrs][:50],
+        "cc_addresses": [a[:255] for a in cc_addrs][:50],
         "bcc_addresses": [],
-        "subject": headers.get("subject", ""),
+        "subject": headers.get("subject", "")[:500],
         "body_text": body_text,
         "body_html": body_html,
         "snippet": msg.get("snippet", ""),
@@ -378,7 +381,7 @@ def _parse_gmail_message(msg: dict) -> dict:
         "is_draft": "DRAFT" in label_ids,
         "has_attachments": _has_attachments(msg.get("payload", {})),
         "gmail_labels": label_ids,
-        "in_reply_to": headers.get("in-reply-to"),
+        "in_reply_to": (headers.get("in-reply-to") or None) and headers.get("in-reply-to")[:255],
     }
 
 
@@ -445,7 +448,13 @@ async def _get_or_create_thread(
 
     if thread:
         thread.message_count += 1
-        thread.last_message_at = sent_at
+        # MONOTONIC — the sent-history backfill stores messages newest-
+        # first; a blind overwrite walked last_message_at BACKWARD and
+        # inverted first/last, scrambling thread ordering.
+        if thread.last_message_at is None or sent_at > thread.last_message_at:
+            thread.last_message_at = sent_at
+        if thread.first_message_at is None or sent_at < thread.first_message_at:
+            thread.first_message_at = sent_at
         if from_address not in thread.participants:
             thread.participants = [*thread.participants, from_address]
     else:
@@ -459,5 +468,9 @@ async def _get_or_create_thread(
             last_message_at=sent_at,
         )
         session.add(thread)
+        # Flush so thread.id is real before the caller copies it onto the
+        # message row — without this the FIRST message of every new thread
+        # stored thread_id=NULL (the uuid default only fires at flush).
+        await session.flush()
 
     return thread

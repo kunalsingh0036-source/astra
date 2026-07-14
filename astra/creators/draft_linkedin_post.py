@@ -173,14 +173,15 @@ def _leaks_internal(text_blob: str) -> list[str]:
 # Mined voice profile (from Kunal's real sent mail, via the email
 # agent's /voice/profile). Module-cached ~1h; a dead email agent or an
 # empty profile just means the hand-written voice stands alone.
-_mined_voice_cache: dict[str, Any] = {"text": "", "at": 0.0}
+_mined_voice_cache: dict[str, Any] = {"text": "", "at": None}
 
 
 async def _mined_voice_addendum() -> str:
     import os
     import time
 
-    if time.monotonic() - _mined_voice_cache["at"] < 3600:
+    if (_mined_voice_cache["at"] is not None
+            and time.monotonic() - _mined_voice_cache["at"] < 3600):
         return _mined_voice_cache["text"]
     text_out = ""
     try:
