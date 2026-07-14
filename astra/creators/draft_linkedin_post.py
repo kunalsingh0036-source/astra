@@ -170,6 +170,49 @@ def _leaks_internal(text_blob: str) -> list[str]:
     return hits
 
 
+# Mined voice profile (from Kunal's real sent mail, via the email
+# agent's /voice/profile). Module-cached ~1h; a dead email agent or an
+# empty profile just means the hand-written voice stands alone.
+_mined_voice_cache: dict[str, Any] = {"text": "", "at": 0.0}
+
+
+async def _mined_voice_addendum() -> str:
+    import os
+    import time
+
+    if time.monotonic() - _mined_voice_cache["at"] < 3600:
+        return _mined_voice_cache["text"]
+    text_out = ""
+    try:
+        import httpx
+
+        base = os.environ.get(
+            "EMAIL_AGENT_URL", "http://email.railway.internal:8080"
+        ).rstrip("/")
+        headers = {
+            "x-astra-secret": os.environ.get("AGENT_SHARED_SECRET", "").strip()
+        }
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(
+                f"{base}/api/v1/voice/profile",
+                params={"register": "general"},
+                headers=headers,
+            )
+        if r.status_code == 200:
+            profile = ((r.json() or {}).get("profile") or "").strip()
+            if profile:
+                text_out = (
+                    "\n\nHOW KUNAL ACTUALLY WRITES (mined from his real sent "
+                    "mail — let this shape sentence rhythm, directness and "
+                    "phrasing; the post format rules above still apply):\n"
+                    + profile[:1800]
+                )
+    except Exception as e:
+        logger.info("[linkedin] mined voice unavailable: %s", e)
+    _mined_voice_cache.update(text=text_out, at=time.monotonic())
+    return text_out
+
+
 async def _generate_guarded(
     *, user: str, forbidden: list[str]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -177,8 +220,9 @@ async def _generate_guarded(
     regenerate ONCE with a hard warning if it leaked. Returns
     (post, residual_leaks) — residual_leaks non-empty means even the
     retry leaked and the caller must NOT stage it."""
+    system = _LINKEDIN_VOICE + await _mined_voice_addendum()
     post = await generate_json(
-        system=_LINKEDIN_VOICE,
+        system=system,
         user=user,
         forbidden=forbidden,
         text_blob_fn=_post_text_blob,
@@ -195,7 +239,7 @@ async def _generate_guarded(
         "about his operations. Same JSON schema.\n</leak-warning>"
     )
     post = await generate_json(
-        system=_LINKEDIN_VOICE,
+        system=system,
         user=user + warn,
         forbidden=forbidden,
         text_blob_fn=_post_text_blob,

@@ -1264,10 +1264,20 @@ async def voice_learning() -> dict:
                 return {"ok": False, "status": r.status_code}
             result = r.json()
             logger.info("[scheduler] voice_learning: %s", result)
-            return result
     except Exception as e:
         logger.warning("[scheduler] voice_learning error: %s", e)
         return {"ok": False, "error": str(e)}
+
+    # Weekly re-mine of the sent-mail voice registers (best-effort; the
+    # corpus grows as he sends, so the profiles keep converging on him).
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as c:
+            r = await c.post(f"{base}/api/v1/voice/mine", headers=headers)
+            logger.info("[scheduler] voice_mine: %s", r.text[:300])
+    except Exception as e:
+        logger.warning("[scheduler] voice_mine error: %s", e)
+
+    return result
 
 
 async def run_voice_learning():

@@ -88,18 +88,30 @@ async def generate_draft(
 
     context = "\n---\n".join(context_parts)
 
-    # Append the voice learned from Kunal's actual edits (the feedback loop).
-    # Read on an ISOLATED session (never the draft's) so a read failure can't
-    # poison the commit. Learned notes only NUDGE tone — the hard rules stay
-    # absolute.
+    # Voice layering, weakest → strongest evidence, all isolated reads:
+    #   base guide (hand-written floor) → MINED register profile (how Kunal
+    #   actually writes to THIS kind of recipient, from his real sent mail)
+    #   → learned edit-corrections. Everything nudges style; the hard rules
+    #   (no placeholders/fabrication) stay absolute.
     from email_agent.services.voice_learn import get_email_voice_notes
+    from email_agent.services.voice_miner import get_register_profile
 
     voice = email_voice()
+    mined, register = await get_register_profile(to)
+    if mined:
+        voice += (
+            f"\n\nHOW KUNAL ACTUALLY WRITES ({register} register — mined from "
+            "his real sent mail; match THIS over the generic guidance above "
+            "when they differ):\n" + mined
+        )
     learned = await get_email_voice_notes()
     if learned:
         voice += (
             "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (match these tone/length/"
-            "sign-off patterns where they fit naturally):\n" + learned +
+            "sign-off patterns where they fit naturally):\n" + learned
+        )
+    if mined or learned:
+        voice += (
             "\n\nThe HARD RULES above remain absolute — never relax them, and "
             "never add placeholders, links, recipients, or fabricated facts to "
             "satisfy a pattern."
@@ -232,13 +244,24 @@ async def refine_draft(
         raise ValueError("Draft not found")
 
     from email_agent.services.voice_learn import get_email_voice_notes
+    from email_agent.services.voice_miner import get_register_profile
 
     voice = email_voice()
+    mined, register = await get_register_profile(list(draft.to_addresses or []))
+    if mined:
+        voice += (
+            f"\n\nHOW KUNAL ACTUALLY WRITES ({register} register — mined from "
+            "his real sent mail; match THIS over the generic guidance above "
+            "when they differ):\n" + mined
+        )
     learned = await get_email_voice_notes()
     if learned:
         voice += (
             "\n\nLEARNED FROM KUNAL'S ACTUAL EDITS (match these tone/length/"
-            "sign-off patterns where they fit naturally):\n" + learned +
+            "sign-off patterns where they fit naturally):\n" + learned
+        )
+    if mined or learned:
+        voice += (
             "\n\nThe HARD RULES above remain absolute — never relax them, and "
             "never add placeholders, links, recipients, or fabricated facts to "
             "satisfy a pattern."

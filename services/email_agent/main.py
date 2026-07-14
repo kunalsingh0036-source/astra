@@ -15,6 +15,7 @@ from email_agent.api.routes import (
     scheduled,
     sync,
     templates,
+    voice,
     threads,
     webhook,
 )
@@ -67,6 +68,8 @@ async def lifespan(app: FastAPI):
     try:
         from email_agent.services.voice_learn import ensure_voice_table
         await ensure_voice_table()
+        from email_agent.services.voice_miner import ensure_voice_tables
+        await ensure_voice_tables()
     except Exception:
         pass  # never block startup
     # Detect ngrok URL on startup
@@ -155,7 +158,7 @@ async def require_mesh_secret(request, call_next):
 # Mount all API routes under /api/v1
 for route_module in [
     accounts, messages, threads, contacts, templates, drafts, scheduled, ai,
-    sync, webhook,
+    sync, voice, webhook,
 ]:
     app.include_router(route_module.router, prefix="/api/v1")
 
