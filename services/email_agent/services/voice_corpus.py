@@ -74,36 +74,60 @@ async def ensure_corpus_table() -> bool:
 # ── WhatsApp .txt export ────────────────────────────────────────────
 # Android: "12/07/25, 9:14 pm - Kunal Singh: message"
 # iOS:     "[12/07/25, 9:14:33 PM] Kunal Singh: message"
-# Continuation lines (no timestamp prefix) belong to the previous
-# message. Locale variants tolerated: 24h times, dotted a.m./p.m.,
-# unicode LRM/RLM markers Apple loves to sprinkle in.
-_WA_ANDROID = re.compile(
-    r"^(\d{1,2}/\d{1,2}/\d{2,4}),?\s+(\d{1,2}:\d{2})(?:\s?[apAP]\.?[mM]\.?)?"
-    r"\s+-\s+([^:]{1,60}?):\s(.*)$"
+#
+# The hard rule (corpus-integrity, per adversarial review): ANY line
+# whose start looks like a WhatsApp timestamp is a NEW-message BOUNDARY,
+# even if we can't fully parse it. Only a boundary that STRICTLY matches
+# "<ts> ... <self_name>: <body>" is kept as Kunal's. Everything else —
+# other people's messages, system lines, unparsed headers — resets the
+# state to None. This makes it impossible for someone else's text to be
+# appended as a continuation of his message (the poisoning bug).
+
+# Loose: does this line START a new message? (date + time near the start)
+_WA_HEADER_START = re.compile(
+    r"^‎?‏?\[?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4},?\s+\d{1,2}[:.]\d{2}"
 )
-_WA_IOS = re.compile(
-    r"^\[(\d{1,2}/\d{1,2}/\d{2,4}),?\s+(\d{1,2}:\d{2})(?::\d{2})?(?:\s?[apAP][mM])?\]\s+"
-    r"([^:]{1,60}?):\s(.*)$"
+# Timestamp capture (shared by both platform shapes).
+_WA_TS = (
+    r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}),?\s+(\d{1,2}[:.]\d{2})(?:[:.]\d{2})?"
+    r"\s*([apAP]\.?[mM]\.?)?"
 )
-_WA_SKIP = re.compile(
-    r"(<media omitted>|image omitted|video omitted|audio omitted|"
+# Stub = the WHOLE message is a media/system placeholder. Anchored so a
+# real message merely CONTAINING these words is never dropped.
+_WA_STUB = re.compile(
+    r"^‎?\s*("
+    r"<media omitted>|image omitted|video omitted|audio omitted|"
     r"sticker omitted|gif omitted|document omitted|contact card omitted|"
-    r"this message was deleted|you deleted this message|"
-    r"messages and calls are end-to-end encrypted|"
-    r"missed voice call|missed video call|^null$|live location shared|"
-    r"created group|added you|changed the subject|changed this group)",
+    r"this message was deleted|you deleted this message|null|"
+    r"live location shared|missed voice call|missed video call|"
+    r"‎?document\b.*omitted"
+    r")\s*$",
     re.IGNORECASE,
 )
 
 
-def _wa_ts(d: str, t: str) -> datetime | None:
-    """Best-effort timestamp. WhatsApp exports don't disambiguate
-    dd/mm vs mm/dd — India exports are dd/mm; if the parse is
-    impossible either way we return None (mining doesn't need it)."""
-    for fmt in ("%d/%m/%y %H:%M", "%d/%m/%Y %H:%M", "%m/%d/%y %H:%M",
-                "%m/%d/%Y %H:%M"):
+def _wa_is_stub(body: str) -> bool:
+    return bool(_WA_STUB.match(body.strip()))
+
+
+def _wa_ts(d: str, t: str, ap: str | None) -> datetime | None:
+    """Best-effort timestamp (mining doesn't require it). Honors the
+    am/pm marker so PM messages aren't stored 12h early; tries dd/mm
+    (India) then mm/dd. Returns None if unparseable either way."""
+    d = d.replace("-", "/").replace(".", "/")   # normalize date separators
+    t = t.replace(".", ":")
+    ap = (ap or "").replace(".", "").upper().strip()
+    if ap in ("AM", "PM"):
+        stamp = f"{d} {t} {ap}"
+        fmts = ("%d/%m/%y %I:%M %p", "%d/%m/%Y %I:%M %p",
+                "%m/%d/%y %I:%M %p", "%m/%d/%Y %I:%M %p")
+    else:
+        stamp = f"{d} {t}"
+        fmts = ("%d/%m/%y %H:%M", "%d/%m/%Y %H:%M",
+                "%m/%d/%y %H:%M", "%m/%d/%Y %H:%M")
+    for fmt in fmts:
         try:
-            return datetime.strptime(f"{d} {t}", fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(stamp, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
     return None
@@ -111,38 +135,50 @@ def _wa_ts(d: str, t: str) -> datetime | None:
 
 def parse_whatsapp_txt(raw: str, self_name: str) -> list[dict]:
     """Extract KUNAL'S OWN messages from a WhatsApp chat export."""
-    want = (self_name or "").strip().lower()
+    want = (self_name or "").strip()
+    if not want:
+        return []
+    esc = re.escape(want)
+    # STRICT self-message headers, exact name + ':' (no colon-truncation).
+    self_android = re.compile(
+        r"^‎?‏?" + _WA_TS + r"\s+-\s+" + esc + r":\s?(.*)$", re.IGNORECASE
+    )
+    self_ios = re.compile(
+        r"^‎?‏?\[" + _WA_TS + r"\]\s+" + esc + r":\s?(.*)$", re.IGNORECASE
+    )
     out: list[dict] = []
     current: dict | None = None
-    for line in (raw or "").replace("\r\n", "\n").split("\n"):
-        line = line.strip("‎‏ \t")
-        m = _WA_ANDROID.match(line) or _WA_IOS.match(line)
-        if m:
-            # flush previous
+    for raw_line in (raw or "").replace("\r\n", "\n").split("\n"):
+        line = raw_line.lstrip("﻿").strip("‎‏ \t")
+        if _WA_HEADER_START.match(line):
+            # Message boundary — flush whatever we held, then decide anew.
             if current is not None:
                 out.append(current)
                 current = None
-            d, t, sender, body = m.group(1), m.group(2), m.group(3), m.group(4)
-            body = body.strip("‎‏ ").strip()
-            if sender.strip().lower() != want:
-                continue
-            if not body or _WA_SKIP.search(body):
-                continue
-            current = {"body": body, "sent_at": _wa_ts(d, t)}
+            m = self_android.match(line) or self_ios.match(line)
+            if m:
+                body = (m.group(4) or "").strip("‎‏ ").strip()
+                if body and not _wa_is_stub(body):
+                    current = {"body": body,
+                               "sent_at": _wa_ts(m.group(1), m.group(2), m.group(3))}
+            # not a self header → current stays None (someone else / system)
         elif current is not None:
-            # continuation line of a multiline message from self
-            if line and not _WA_SKIP.search(line):
+            # genuine continuation of HIS message (no header shape at all)
+            if line:
                 current["body"] += "\n" + line
     if current is not None:
         out.append(current)
-    return [m for m in out if len(m["body"].strip()) >= 2]
+    return [m for m in out if len(m["body"].strip()) >= 1]
 
 
 # ── Instagram JSON export ───────────────────────────────────────────
 _IG_SKIP = re.compile(
-    r"(^liked a message$|^reacted .{1,40} to your message$|"
-    r"sent an attachment|shared a story|shared a post|shared a reel|"
-    r"^you sent an attachment)",
+    r"^\s*("
+    r"liked a message|reacted .{1,40} to your message|"
+    r"you sent an attachment\.?|.{0,40} sent an attachment\.?|"
+    r"you shared (a story|a post|a reel|an? .{0,20})|"
+    r".{0,40} shared (a story|a post|a reel)"
+    r")\s*$",
     re.IGNORECASE,
 )
 
@@ -169,9 +205,16 @@ def parse_instagram_json(raw: str, self_name: str) -> list[dict]:
     threads = data if isinstance(data, list) else [data]
     out: list[dict] = []
     for th in threads:
-        for msg in (th or {}).get("messages", []) or []:
-            sender = _fix_ig_mojibake(str(msg.get("sender_name") or ""))
-            if sender.strip().lower() != want:
+        if not isinstance(th, dict):
+            continue
+        msgs = th.get("messages")
+        if not isinstance(msgs, list):
+            continue
+        for msg in msgs:
+            if not isinstance(msg, dict):
+                continue
+            sender = _fix_ig_mojibake(str(msg.get("sender_name") or "")).strip().lower()
+            if sender != want:
                 continue
             content = msg.get("content")
             if not content or not isinstance(content, str):
@@ -225,32 +268,43 @@ async def ingest_export(
     if not await ensure_corpus_table():
         return {"ok": False, "error": "corpus table unavailable"}
 
-    inserted = 0
-    async with async_session() as s:
-        for m in msgs:
-            h = hashlib.md5(m["body"].encode("utf-8")).hexdigest()
+    # De-dupe within THIS export by hash so the frequency signal survives
+    # (identical texts across different chats are kept via the per-message
+    # nature of exports, but an exact repeat inside one file is one row).
+    rows = []
+    seen: set = set()
+    for m in msgs:
+        body = m["body"][:8000]
+        h = hashlib.md5(body.encode("utf-8")).hexdigest()
+        if h in seen:
+            continue
+        seen.add(h)
+        rows.append({"c": channel, "ct": (contact or "")[:120],
+                     "b": body, "ts": m["sent_at"], "h": h})
+
+    async def _count() -> int:
+        async with async_session() as s:
             r = await s.execute(
+                text("SELECT count(*) FROM voice_corpus_messages WHERE channel=:c"),
+                {"c": channel})
+            return r.scalar() or 0
+
+    before = await _count()
+    if rows:
+        # ONE round-trip (executemany) instead of thousands.
+        async with async_session() as s:
+            await s.execute(
                 text(
                     "INSERT INTO voice_corpus_messages "
                     "(channel, contact, body, sent_at, content_hash) "
                     "VALUES (:c, :ct, :b, :ts, :h) "
                     "ON CONFLICT (channel, content_hash) DO NOTHING"
                 ),
-                {"c": channel, "ct": (contact or "")[:120],
-                 "b": m["body"][:8000], "ts": m["sent_at"], "h": h},
+                rows,
             )
-            inserted += r.rowcount or 0
-        await s.commit()
-
-    total = 0
-    try:
-        async with async_session() as s:
-            r = await s.execute(
-                text("SELECT count(*) FROM voice_corpus_messages WHERE channel=:c"),
-                {"c": channel})
-            total = r.scalar() or 0
-    except Exception:
-        pass
+            await s.commit()
+    total = await _count()
+    inserted = max(0, total - before)
     logger.info("[voice_corpus] ingested %s: parsed=%d new=%d total=%d",
                 channel, len(msgs), inserted, total)
     return {"ok": True, "parsed": len(msgs), "new": inserted,

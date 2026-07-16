@@ -263,8 +263,9 @@ async def ingest_voice_export_tool(args: dict) -> dict:
     if not path and not raw:
         return _err("provide path (file on the Mac) or text (pasted export)")
 
-    if path and not raw:
-        # Read the file through the Mac bridge in 2000-line pages. The
+    if path:
+        # Path wins if both given — the file is the real export,
+        # a paste is usually a small sample. Read via the Mac bridge in 2000-line pages. The
         # content stays inside this tool — it never enters chat context.
         import re as _re
 
@@ -313,7 +314,8 @@ async def ingest_voice_export_tool(args: dict) -> dict:
         f"Ingested {channel}: parsed {d.get('parsed')} of Kunal's messages, "
         f"{d.get('new')} new ({d.get('duplicates')} already known). "
         f"Channel corpus now {d.get('channel_total')} messages. "
-        f"Say “learn my voice” to re-mine now, or the Saturday job will."
+        f"Say “mine my voice” to rebuild the profiles now (needs ≥20 "
+        f"messages per channel), or the Saturday job will."
     )
 
 
@@ -351,6 +353,39 @@ async def draft_personal_reply_tool(args: dict) -> dict:
     return _ok(
         f"Ready to paste (voice: {d.get('register_used')}):\n\n{d.get('reply')}"
     )
+
+
+@tool(
+    "mine_my_voice",
+    "Rebuild Kunal's voice profiles NOW from his real writing — his sent "
+    "email registers AND his texting registers (whatsapp_personal / "
+    "instagram) distilled from ingested chat exports. Use after ingesting "
+    "exports, or when he says 'mine my voice' / 'rebuild my voice'. Runs "
+    "in the background; reports what got mined.",
+    {},
+)
+async def mine_my_voice_tool(args: dict) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/voice/mine", headers=mesh_headers()
+            )
+        if r.status_code != 200:
+            return _err(f"mine failed ({r.status_code}): {r.text[:160]}")
+        d = r.json() or {}
+    except Exception as e:
+        return _err(f"mine error: {e}")
+    if d.get("running"):
+        return _ok("Mining started — rebuilding your email + texting voice "
+                   "profiles now. Ask 'show my voice profiles' in a minute.")
+    res = d.get("result") or {}
+    if res.get("mined"):
+        return _ok("Re-mined. Registers: "
+                   + ", ".join(f"{k} ({v})" for k, v in
+                               (res.get("registers") or {}).items())
+                   + ". Say 'show my voice profiles' to see them.")
+    return _ok("Mining finished — " + (res.get("reason") or res.get("error")
+               or "nothing new to mine (need ≥20 messages per channel)."))
 
 
 @tool(
@@ -410,6 +445,7 @@ def create_reply_mcp_server():
             learn_my_voice_tool,
             ingest_voice_export_tool,
             draft_personal_reply_tool,
+            mine_my_voice_tool,
             voice_profiles_tool,
         ],
     )

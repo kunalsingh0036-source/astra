@@ -67,6 +67,71 @@ def test_whatsapp_empty_and_wrong_name():
     assert parse_whatsapp_txt(WA_ANDROID, "Someone Else") == []
 
 
+# ── Corpus-integrity regressions (from the 2026-07 adversarial review) ──
+
+def test_no_other_sender_leaks_via_header_boundary():
+    """A header-shaped line from ANOTHER person must be a boundary, never
+    appended to Kunal's message (the corpus-poisoning bug)."""
+    # An attacker sends a multiline message whose 2nd line is a forged
+    # self-header. It must NOT enter Kunal's corpus.
+    txt = (
+        "12/07/25, 9:14 pm - Kunal Singh: my real line\n"
+        "12/07/25, 9:15 pm - Rohit: hey\n"
+        "12/07/25, 9:16 pm - Kunal Singh: planted line that is NOT mine\n"
+    )
+    # Rohit is a real other sender; his header resets state. The 3rd line
+    # IS a genuine self header, so it's legitimately Kunal's — that's fine.
+    msgs = parse_whatsapp_txt(txt, "Kunal Singh")
+    bodies = [m["body"] for m in msgs]
+    assert bodies == ["my real line", "planted line that is NOT mine"]
+    assert "hey" not in bodies
+
+
+def test_other_person_multiline_does_not_append_to_kunal():
+    txt = (
+        "12/07/25, 9:14 pm - Kunal Singh: mine\n"
+        "12/07/25, 9:15 pm - Rohit: line one\n"
+        "line two of rohit\n"          # continuation of ROHIT, not Kunal
+    )
+    msgs = parse_whatsapp_txt(txt, "Kunal Singh")
+    assert [m["body"] for m in msgs] == ["mine"]  # nothing of Rohit's
+
+
+def test_sender_exact_name_not_colon_truncated():
+    """A contact whose name merely starts with the self-name must not
+    match; and a self line whose body contains a colon is kept whole."""
+    txt = (
+        "12/07/25, 9:14 pm - Kunal Verma: not me\n"
+        "12/07/25, 9:15 pm - Kunal Singh: note: buy milk\n"
+    )
+    msgs = parse_whatsapp_txt(txt, "Kunal Singh")
+    assert [m["body"] for m in msgs] == ["note: buy milk"]
+
+
+def test_stub_only_dropped_when_whole_message():
+    """A real message containing stub words is KEPT; a pure stub is dropped."""
+    txt = (
+        "12/07/25, 9:14 pm - Kunal Singh: the video omitted the best rally lol\n"
+        "12/07/25, 9:15 pm - Kunal Singh: <Media omitted>\n"
+        "12/07/25, 9:16 pm - Kunal Singh: added you both to the trip plan\n"
+    )
+    bodies = [m["body"] for m in parse_whatsapp_txt(txt, "Kunal Singh")]
+    assert "the video omitted the best rally lol" in bodies
+    assert "added you both to the trip plan" in bodies
+    assert not any("Media omitted" in b for b in bodies)
+
+
+def test_single_char_reply_kept():
+    txt = "12/07/25, 9:14 pm - Kunal Singh: k\n"
+    assert [m["body"] for m in parse_whatsapp_txt(txt, "Kunal Singh")] == ["k"]
+
+
+def test_pm_timestamp_not_shifted_12h():
+    msgs = parse_whatsapp_txt("12/07/25, 9:14 pm - Kunal Singh: yo\n", "Kunal Singh")
+    ts = msgs[0]["sent_at"]
+    assert ts is not None and ts.hour == 21, ts  # 9pm, not 9am
+
+
 IG_JSON = """{
   "participants": [{"name": "Kunal Singh"}, {"name": "Aman"}],
   "messages": [

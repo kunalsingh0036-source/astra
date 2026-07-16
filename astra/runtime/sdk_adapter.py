@@ -106,6 +106,15 @@ def _guess_timeout(tool_name: str, namespace: str) -> int:
     for prefix in SLOW:
         if tool_name.startswith(prefix):
             return 120
+    # Slow by exact name — their bodies own longer inner budgets (bridge
+    # reads / LLM distillation) that the 15s default would cancel.
+    SLOW_EXACT = {
+        "ingest_voice_export": 180,   # paged Mac-bridge reads + parse + POST
+        "learn_my_voice": 150,        # LLM distillation
+        "mine_my_voice": 300,         # kicks off background mine
+    }
+    if tool_name in SLOW_EXACT:
+        return SLOW_EXACT[tool_name]
     # Browser fetches — moderate
     if "browser" in tool_name or "fetch" in tool_name or "search" in tool_name:
         return 30

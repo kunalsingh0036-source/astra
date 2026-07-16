@@ -512,9 +512,14 @@ async def _mine_bg() -> None:
         result = await mine_voice()
     except Exception as e:  # mine_voice shouldn't raise; belt+braces
         result = {"ok": False, "error": str(e)[:300]}
-    mine_state["result"] = result
-    mine_state["running"] = False
-    mine_state["finished_at"] = _dt.now(_tz.utc).isoformat()
+        mine_state["result"] = result
+    else:
+        mine_state["result"] = result
+    finally:
+        # finally (not the try body) so a CancelledError can't wedge
+        # running=True forever, bricking future mines.
+        mine_state["running"] = False
+        mine_state["finished_at"] = _dt.now(_tz.utc).isoformat()
 
 
 def start_mine() -> dict:
