@@ -180,20 +180,30 @@ def _stats(samples: list[str]) -> dict:
     }
 
 
+_BULLET = re.compile(r"^\s*(?:[-*•–—·▪]|\d+[.)])\s+(.*)$")
+
+
 def _sanitize_profile(raw: str) -> str:
-    """Shape ALLOWLIST first (only '- rule' or 'EXEMPLAR:' lines — the
-    distiller's declared format), then the blocklist. Anything else the
-    model emitted (preamble, headings, smuggled prose) is dropped."""
+    """Shape ALLOWLIST first (rule-shaped bullets or 'EXEMPLAR' lines),
+    then the blocklist. Prose/headings/preamble are dropped, but ANY
+    bullet marker is accepted and normalized to '- ' — the distiller
+    (Kimi) emits •/*/1. inconsistently, and an over-strict '- ' check
+    silently stripped every profile (the 2026-07 empty-mine bug)."""
     out = []
     for ln in (raw or "").splitlines():
         s = ln.strip()
         if not s or len(s) > 220:
             continue
-        if not (s.startswith("- ") or s.upper().startswith("EXEMPLAR")):
+        if s.upper().startswith("EXEMPLAR"):
+            body = s
+        else:
+            m = _BULLET.match(s)
+            if not m or not m.group(1).strip():
+                continue  # not rule-shaped → drop
+            body = "- " + m.group(1).strip()
+        if _PROFILE_BANNED.search(body):
             continue
-        if _PROFILE_BANNED.search(s):
-            continue
-        out.append(s)
+        out.append(body)
     return "\n".join(out)[:_MAX_PROFILE_CHARS]
 
 
