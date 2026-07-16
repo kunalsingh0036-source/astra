@@ -347,6 +347,16 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
                 "reason": f"corpus too thin ({len(by_contact)} contacts) or "
                           "distillation produced nothing safe"}
 
+    # 4b. TEXTING profiles from the chat corpus (WhatsApp/Instagram
+    # exports ingested via voice_corpus). Same distill machinery; the
+    # register name carries the channel. Best-effort — a thin or absent
+    # corpus never fails the email mining.
+    try:
+        chat_profiles = await _mine_channel_profiles(max_samples=80)
+        profiles.update(chat_profiles)
+    except Exception as e:
+        logger.warning("[voice_miner] channel-corpus mining skipped: %s", e)
+
     # 5. Store (own session; upserts). Wrapped: a store failure must
     # return an error dict (never raise) — and not waste the LLM spend
     # silently.
@@ -362,6 +372,52 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
             "registers": {r: p["sample_count"] for r, p in profiles.items()},
             "contacts_mapped": len(mapping),
             "profiles": {r: p["profile"] for r, p in profiles.items()}}
+
+
+_MIN_CHAT_SAMPLES = 20  # short texts need more samples than emails
+
+
+async def _mine_channel_profiles(max_samples: int = 80) -> dict:
+    """Distill a texting profile per corpus channel (whatsapp_personal /
+    instagram) from the ingested exports. >= _MIN_CHAT_SAMPLES messages
+    required per channel — no fabricated voice from a thin corpus."""
+    from email_agent.services.voice_corpus import CORPUS_CHANNELS
+
+    out: dict = {}
+    for channel in CORPUS_CHANNELS:
+        try:
+            async with async_session() as s:
+                r = await s.execute(text(
+                    "SELECT body FROM voice_corpus_messages WHERE channel=:c "
+                    "ORDER BY sent_at DESC NULLS LAST, id DESC LIMIT :n"),
+                    {"c": channel, "n": max_samples * 3})
+                bodies = [row[0] for row in r.all()]
+        except Exception as e:
+            logger.info("[voice_miner] corpus read %s skipped: %s", channel, e)
+            continue
+        if len(bodies) < _MIN_CHAT_SAMPLES:
+            if bodies:
+                logger.info("[voice_miner] %s corpus too thin (%d < %d)",
+                            channel, len(bodies), _MIN_CHAT_SAMPLES)
+            continue
+        samples = bodies[:max_samples]
+        st = _stats(samples)
+        st["kind"] = "chat_messages"
+        try:
+            raw = await _distill(
+                f"{channel} (SHORT CHAT MESSAGES, not emails — capture his "
+                "texting voice: language mix, punctuation habits, message "
+                "length, how he opens/closes a text)",
+                st, samples,
+            )
+            profile = _sanitize_profile(raw)
+        except Exception as e:
+            logger.warning("[voice_miner] distill %s failed: %s", channel, e)
+            continue
+        if profile:
+            out[channel] = {"profile": profile, "stats": st,
+                            "sample_count": len(samples)}
+    return out
 
 
 async def _store_profiles(profiles: dict, mapping: dict) -> None:

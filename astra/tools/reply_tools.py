@@ -238,6 +238,157 @@ async def learn_my_voice_tool(args: dict) -> dict:
     )
 
 
+@tool(
+    "ingest_voice_export",
+    "Ingest a WhatsApp chat export (.txt) or Instagram DM export (JSON) "
+    "into Kunal's voice corpus so the miner learns his TEXTING voice. "
+    "channel: whatsapp_personal | instagram. Provide path (file on his "
+    "Mac — read via the bridge) OR raw text for small pastes. self_name "
+    "= his display name exactly as it appears in the export (WhatsApp: "
+    "his profile name; Instagram: his account display name). Keeps ONLY "
+    "his own messages; deduped, re-runnable. After ingesting exports, "
+    "run learn_my_voice or wait for the weekly re-mine.",
+    {"channel": str, "path": str, "text": str, "self_name": str},
+)
+async def ingest_voice_export_tool(args: dict) -> dict:
+    channel = (args.get("channel") or "").strip().lower()
+    self_name = (args.get("self_name") or "").strip()
+    path = (args.get("path") or "").strip()
+    raw = (args.get("text") or "").strip()
+    if channel not in ("whatsapp_personal", "instagram"):
+        return _err("channel must be whatsapp_personal or instagram")
+    if not self_name:
+        return _err("self_name required — Kunal's display name exactly as "
+                    "it appears inside the export file")
+    if not path and not raw:
+        return _err("provide path (file on the Mac) or text (pasted export)")
+
+    if path and not raw:
+        # Read the file through the Mac bridge in 2000-line pages. The
+        # content stays inside this tool — it never enters chat context.
+        import re as _re
+
+        from astra.runtime.tools.local import _dispatch
+
+        parts: list[str] = []
+        offset, total = 1, None
+        for _ in range(200):  # hard cap ~400k lines
+            res = await _dispatch(
+                "local_read", {"path": path, "offset": offset, "limit": 2000},
+                timeout_sec=30.0,
+            )
+            txt = (res.get("content") or [{}])[0].get("text", "")
+            if res.get("is_error"):
+                return _err(txt)  # incl. the contextual bridge-offline message
+            m = _re.match(r"# .*? \((\d+) lines, showing (\d+)[–-](\d+)\)\n?", txt)
+            if not m:
+                parts.append(txt)
+                break
+            total, end = int(m.group(1)), int(m.group(3))
+            parts.append(txt[m.end():])
+            if end >= total:
+                break
+            offset = end + 1
+        raw = "".join(parts)
+        if not raw.strip():
+            return _err(f"file at {path} read empty — check the path")
+
+    fmt = "instagram_json" if channel == "instagram" else "whatsapp_txt"
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/voice/corpus",
+                json={"channel": channel, "format": fmt, "content": raw,
+                      "self_name": self_name},
+                headers=mesh_headers(),
+            )
+        if r.status_code != 200:
+            return _err(f"ingest failed ({r.status_code}): {r.text[:200]}")
+        d = r.json() or {}
+    except Exception as e:
+        return _err(f"ingest error: {e}")
+    if not d.get("ok"):
+        return _err(f"ingest failed: {d.get('error')}")
+    return _ok(
+        f"Ingested {channel}: parsed {d.get('parsed')} of Kunal's messages, "
+        f"{d.get('new')} new ({d.get('duplicates')} already known). "
+        f"Channel corpus now {d.get('channel_total')} messages. "
+        f"Say “learn my voice” to re-mine now, or the Saturday job will."
+    )
+
+
+@tool(
+    "draft_personal_reply",
+    "Draft a reply IN KUNAL'S OWN TEXTING VOICE to a message someone sent "
+    "him on a personal channel (WhatsApp/Instagram). Use when he pastes or "
+    "forwards a message and wants a reply. Returns copy-paste-ready text — "
+    "Astra CANNOT send from his personal accounts and must never claim to; "
+    "he pastes it himself. channel: whatsapp | instagram. instruction = "
+    "optional steer ('decline politely', 'say yes for Sunday').",
+    {"channel": str, "their_message": str, "contact": str, "instruction": str},
+)
+async def draft_personal_reply_tool(args: dict) -> dict:
+    msg = (args.get("their_message") or "").strip()
+    if not msg:
+        return _err("their_message required — paste what they sent")
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as c:
+            r = await c.post(
+                f"{BASE_URL}/api/v1/voice/draft-reply",
+                json={"channel": (args.get("channel") or "whatsapp").strip(),
+                      "their_message": msg[:4000],
+                      "contact": (args.get("contact") or "")[:120],
+                      "instruction": (args.get("instruction") or "")[:400]},
+                headers=mesh_headers(),
+            )
+        if r.status_code != 200:
+            return _err(f"draft failed ({r.status_code}): {r.text[:200]}")
+        d = r.json() or {}
+    except Exception as e:
+        return _err(f"draft error: {e}")
+    if not d.get("ok"):
+        return _err(f"draft failed: {d.get('error')}")
+    return _ok(
+        f"Ready to paste (voice: {d.get('register_used')}):\n\n{d.get('reply')}"
+    )
+
+
+@tool(
+    "voice_profiles",
+    "Show what Astra has learned of Kunal's voice: mined registers (email "
+    "+ texting channels), sample counts, corpus sizes, last update. Use "
+    "when he asks what you know about how he writes.",
+    {},
+)
+async def voice_profiles_tool(args: dict) -> dict:
+    regs = ["general", "business", "vendor_support", "personal",
+            "formal_official", "whatsapp_personal", "instagram"]
+    lines = ["Voice profiles (mined from Kunal's real writing):"]
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            for reg in regs:
+                r = await c.get(
+                    f"{BASE_URL}/api/v1/voice/profile",
+                    params={"register": reg}, headers=mesh_headers(),
+                )
+                d = r.json() if r.status_code == 200 else {}
+                if (d.get("profile") or "").strip():
+                    n = d.get("sample_count", "?")
+                    ts = (d.get("updated_at") or "")[:10]
+                    lines.append(f"  • {reg}: {n} samples, updated {ts}")
+            r = await c.get(f"{BASE_URL}/api/v1/voice/corpus",
+                            headers=mesh_headers())
+            counts = (r.json() or {}).get("counts") or {}
+            if counts:
+                lines.append("Corpus: " + ", ".join(
+                    f"{k} {v} msgs" for k, v in counts.items()))
+    except Exception as e:
+        return _err(f"voice status error: {e}")
+    if len(lines) == 1:
+        lines.append("  (nothing mined yet — ingest exports, then learn)")
+    return _ok("\n".join(lines))
+
+
 def _ok(text: str) -> dict:
     return {"content": [{"type": "text", "text": text}]}
 
@@ -257,5 +408,8 @@ def create_reply_mcp_server():
             discard_reply_draft_tool,
             reply_draft_metrics_tool,
             learn_my_voice_tool,
+            ingest_voice_export_tool,
+            draft_personal_reply_tool,
+            voice_profiles_tool,
         ],
     )

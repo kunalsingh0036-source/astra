@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -55,3 +56,53 @@ async def profile(register: str = Query("general", max_length=40)) -> dict:
     from email_agent.services.voice_miner import get_profile
 
     return await get_profile(register)
+
+
+class CorpusIngestRequest(BaseModel):
+    channel: str = Field(max_length=40, description="whatsapp_personal | instagram")
+    format: str = Field(max_length=40, description="whatsapp_txt | instagram_json")
+    self_name: str = Field(max_length=120)
+    content: str = Field(min_length=1, max_length=10_000_000)
+    contact: str = Field(default="", max_length=120)
+    dry_run: bool = False
+
+
+@router.post("/corpus")
+async def ingest_corpus(req: CorpusIngestRequest) -> dict:
+    """Ingest a WhatsApp .txt / Instagram JSON export into the voice
+    corpus (keeps only Kunal's own messages; hash-deduped; dry_run
+    parses without writing)."""
+    from email_agent.services.voice_corpus import ingest_export
+
+    return await ingest_export(
+        channel=req.channel.strip(), fmt=req.format.strip(),
+        content=req.content, self_name=req.self_name,
+        contact=req.contact, dry_run=req.dry_run,
+    )
+
+
+@router.get("/corpus")
+async def corpus_status() -> dict:
+    from email_agent.services.voice_corpus import corpus_counts
+
+    return {"ok": True, "counts": await corpus_counts()}
+
+
+class DraftReplyRequest(BaseModel):
+    channel: str = Field(default="whatsapp", max_length=40)
+    their_message: str = Field(min_length=1, max_length=4000)
+    contact: str = Field(default="", max_length=120)
+    context: str = Field(default="", max_length=2000)
+    instruction: str = Field(default="", max_length=400)
+
+
+@router.post("/draft-reply")
+async def draft_reply(req: DraftReplyRequest) -> dict:
+    """Draft a copy-paste-ready personal reply in Kunal's mined texting
+    voice. NEVER sends anything — he pastes it himself."""
+    from email_agent.services.voice_reply import draft_personal_reply
+
+    return await draft_personal_reply(
+        channel=req.channel, their_message=req.their_message,
+        contact=req.contact, context=req.context, instruction=req.instruction,
+    )
