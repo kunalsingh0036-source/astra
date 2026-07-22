@@ -124,7 +124,11 @@ async def generate_json(
     text_out = strip_code_fences(text_out)
 
     try:
-        parsed = json.loads(text_out)
+        # strict=False: Claude emits literal newlines/control chars inside
+        # long JSON string values (post bodies); the default parser rejects
+        # them ("Invalid control character"). Kimi escaped these — another
+        # lax-provider habit that broke on the switch.
+        parsed = json.loads(text_out, strict=False)
     except json.JSONDecodeError as e:
         logger.error("[creator] JSON parse failed: %s", e)
         logger.error("[creator] raw response head: %s", text_out[:500])

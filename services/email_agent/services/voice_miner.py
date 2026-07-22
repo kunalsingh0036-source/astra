@@ -329,7 +329,9 @@ async def mine_voice(max_samples: int = _MAX_SAMPLES_PER_REGISTER) -> dict:
     try:
         raw = await _llm_text(_CLASSIFY_SYSTEM, listing, max_tokens=2000)
         m = re.search(r"\{.*\}", raw, re.DOTALL)
-        parsed = json.loads(m.group(0)) if m else {}
+        # strict=False: model output may carry literal control chars in
+        # string values (Claude does; Kimi escaped them).
+        parsed = json.loads(m.group(0), strict=False) if m else {}
         mapping = {c: (v if v in REGISTERS else "business")
                    for c, v in parsed.items() if c in by_contact}
     except Exception as e:
