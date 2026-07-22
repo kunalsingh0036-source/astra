@@ -108,10 +108,12 @@ async def get_content_draft_tool(args: dict) -> dict:
 
 @tool(
     "approve_content_draft",
-    "Approve a staged LinkedIn post — Kunal's signal that he's shipping it "
-    "(this is the posts-shipped metric). Pass the draft id. If he gives the "
-    "LinkedIn URL after posting, pass posted_url to record a confirmed post. "
-    "Astra does NOT post to LinkedIn; Kunal pastes it himself.",
+    "Approve a staged post — Kunal's signal to publish it. This moves it "
+    "into the publish QUEUE (status approved); it is NOT yet shipped. He "
+    "then publishes via the Sidecar: focus the LinkedIn/X composer, ⌥⌘L to "
+    "paste, ⌥⌘K once live. Only actually posting counts as shipped. Pass the "
+    "draft id. If he gives the post URL, pass posted_url to mark it posted "
+    "immediately. Astra never clicks Post; his finger is the gate.",
     {"artifact_id": int, "posted_url": str},
 )
 async def approve_content_draft_tool(args: dict) -> dict:
@@ -128,11 +130,44 @@ async def approve_content_draft_tool(args: dict) -> dict:
     except Exception as e:
         return _err(f"approve failed: {e}")
     if not ok:
-        return _err(f"no LinkedIn draft with id {aid}")
+        return _err(f"no content draft with id {aid}")
     if url:
         return _ok(f"Marked posted ✓ (recorded {url}).")
-    return _ok("Approved — counts as shipped. Paste it into LinkedIn when ready; "
-               "send me the URL after and I'll mark it posted.")
+    return _ok("Approved — it's in the publish queue. On LinkedIn/X, click the "
+               "composer and hit ⌥⌘L to paste it, then ⌥⌘K once it's live. "
+               "(Approving isn't shipping — only posted counts.)")
+
+
+@tool(
+    "edit_content_draft",
+    "Save Kunal's OWN final wording of a staged post and approve it for "
+    "publish. Use when he rewrites the post himself or gives the exact text "
+    "he wants (NOT 'make it punchier' — that's refine_content_draft). Pass "
+    "the draft id and his final_text verbatim. Captures the edit (AI draft → "
+    "his wording) so Astra learns his public voice over time, and queues it "
+    "for publish via the Sidecar (⌥⌘L to paste, ⌥⌘K when live).",
+    {"artifact_id": int, "final_text": str},
+)
+async def edit_content_draft_tool(args: dict) -> dict:
+    from astra.creators.store import get_artifact, set_artifact_status
+
+    aid = _to_int(args.get("artifact_id"))
+    final_text = (args.get("final_text") or "").strip()
+    if aid is None or not final_text:
+        return _err("edit_content_draft: artifact_id and final_text required")
+    art = await get_artifact(aid)
+    if not art or art.get("kind") not in ("linkedin_post", "x_post"):
+        return _err(f"no content draft with id {aid}")
+    try:
+        ok = await set_artifact_status(
+            aid, status="approved", merge_content={"edited_text": final_text}
+        )
+    except Exception as e:
+        return _err(f"edit failed: {e}")
+    if not ok:
+        return _err(f"no content draft with id {aid}")
+    return _ok("Saved your wording ✓ and queued it. On LinkedIn/X, focus the "
+               "composer and hit ⌥⌘L to paste, then ⌥⌘K once it's live.")
 
 
 @tool(
@@ -229,14 +264,14 @@ async def content_metrics_tool(args: dict) -> dict:
     rate = m.get("approval_rate")
     rate_txt = f"{rate:.0%}" if isinstance(rate, (int, float)) else "n/a"
     text = (
-        f"LinkedIn content · last {m.get('window_days', days)}d\n"
-        f"  drafted:   {m.get('drafted', 0)}\n"
-        f"  approved:  {m.get('approved', 0)} (shipped)\n"
-        f"  posted:    {m.get('posted', 0)} (URL confirmed)\n"
-        f"  rejected:  {m.get('rejected', 0)}\n"
-        f"  pending:   {m.get('pending', 0)}\n"
-        f"  approval rate: {rate_txt}\n"
-        f"  pace: ~{m.get('posts_per_week', 0)} posts/week"
+        f"Public content · last {m.get('window_days', days)}d\n"
+        f"  drafted:          {m.get('drafted', 0)}\n"
+        f"  posted (shipped): {m.get('posted', 0)}\n"
+        f"  awaiting publish: {m.get('awaiting_publish', 0)} (approved, not live)\n"
+        f"  rejected:         {m.get('rejected', 0)}\n"
+        f"  pending review:   {m.get('pending', 0)}\n"
+        f"  approval rate:    {rate_txt}\n"
+        f"  ship rate: ~{m.get('posts_per_week', 0)} posts/week (posted only)"
     )
     return _ok(text)
 
@@ -249,6 +284,7 @@ def create_content_mcp_server():
             list_content_drafts_tool,
             get_content_draft_tool,
             approve_content_draft_tool,
+            edit_content_draft_tool,
             refine_content_draft_tool,
             discard_content_draft_tool,
             draft_linkedin_now_tool,

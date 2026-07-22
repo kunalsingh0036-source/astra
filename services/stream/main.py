@@ -485,6 +485,62 @@ def _check_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
+# ── Content publish executor (the Sidecar's publish queue) ──────────
+#
+# The 0-of-12-published failure had one root cause: "approve" was a DB
+# UPDATE and nothing more — there was no code path from approved → live.
+# These two mesh-authed endpoints ARE that path. The Sidecar drains the
+# approved queue (next-approved), pastes each into the focused LinkedIn/X
+# composer, Kunal clicks Post, and the Sidecar confirms the real ship
+# (posted). Astra never clicks Post — his finger is the gate.
+@app.get("/content/next-approved")
+async def content_next_approved(request: Request) -> dict[str, object]:
+    """Oldest APPROVED public post awaiting publish, ready to paste.
+
+    Optional ?platform=linkedin|x filter. Returns {ok, post?, remaining}
+    where post = {id, platform, title, paste_text}. FIFO so the queue
+    drains in the order Kunal approved."""
+    _check_secret(request)
+    platform = (request.query_params.get("platform") or "").strip() or None
+
+    from astra.creators.store import next_approved_content  # type: ignore
+
+    queue = await next_approved_content(platform=platform, limit=50)
+    if not queue:
+        return {"ok": True, "post": None, "remaining": 0}
+    return {"ok": True, "post": queue[0], "remaining": len(queue)}
+
+
+@app.post("/content/{artifact_id}/posted")
+async def content_mark_posted(
+    artifact_id: int, request: Request
+) -> dict[str, object]:
+    """Mark an approved public post as actually PUBLISHED — the real ship
+    signal, sent by the Sidecar the moment Kunal confirms he posted. Sets
+    status='posted' + posted_at so content_metrics counts it as shipped.
+    Optional body {posted_url} records the live URL."""
+    _check_secret(request)
+    try:
+        raw = await request.json()
+    except Exception:
+        raw = {}
+    posted_url = str((raw or {}).get("posted_url") or "").strip()
+
+    from datetime import datetime, timezone
+
+    from astra.creators.store import set_artifact_status  # type: ignore
+
+    merge: dict[str, str] = {"posted_at": datetime.now(timezone.utc).isoformat()}
+    if posted_url:
+        merge["posted_url"] = posted_url
+    ok = await set_artifact_status(
+        int(artifact_id), status="posted", merge_content=merge
+    )
+    if not ok:
+        raise HTTPException(404, f"no content artifact {artifact_id}")
+    return {"ok": True, "status": "posted", "id": int(artifact_id)}
+
+
 @app.post("/api/share")
 async def share_receive(request: Request) -> dict[str, object]:
     """Accept a payload from the iOS Share Sheet extension.

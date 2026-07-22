@@ -265,6 +265,69 @@ async def list_content_artifacts(
     ]
 
 
+def content_paste_text(content: dict[str, Any]) -> str:
+    """The exact text to paste into the LinkedIn/X composer.
+
+    Prefers Kunal's verbatim `edited_text` (what he actually approved,
+    captured from the web/chat edit) over the model's `body` — so the
+    published post is always his final wording, not the AI draft. Falls
+    back to body + hashtags, matching the content tools' _post_display.
+    """
+    edited = (content.get("edited_text") or "").strip()
+    if edited:
+        return edited
+    body = (content.get("body") or "").strip()
+    tags = content.get("hashtags") or []
+    tail = ("\n\n" + " ".join(str(t) for t in tags)) if tags else ""
+    return body + tail
+
+
+async def next_approved_content(
+    *, platform: str | None = None, limit: int = 20
+) -> list[dict[str, Any]]:
+    """Oldest-first APPROVED public posts awaiting publish — the Sidecar's
+    publish queue. FIFO so approvals drain in the order Kunal made them.
+
+    kind ∈ ('linkedin_post', 'x_post'); optional `platform` filter on
+    content->>'platform'. Each row carries a ready-to-paste `paste_text`.
+    """
+    where = ["status = 'approved'", "kind IN ('linkedin_post', 'x_post')"]
+    params: dict[str, Any] = {"lim": max(1, min(50, limit))}
+    if platform:
+        where.append("content->>'platform' = :plat")
+        params["plat"] = platform
+    clause = "WHERE " + " AND ".join(where)
+    async with async_session() as s:
+        r = await s.execute(
+            text(
+                f"""
+                SELECT id, kind, title, content, created_at
+                FROM creator_artifacts
+                {clause}
+                ORDER BY created_at ASC
+                LIMIT :lim
+                """
+            ),
+            params,
+        )
+        rows = r.all()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        c = row[3] or {}
+        out.append(
+            {
+                "id": row[0],
+                "kind": row[1],
+                "platform": c.get("platform")
+                or ("x" if row[1] == "x_post" else "linkedin"),
+                "title": row[2],
+                "paste_text": content_paste_text(c),
+                "created_at": row[4].isoformat() if row[4] else None,
+            }
+        )
+    return out
+
+
 async def update_artifact_render_key(
     artifact_id: int, *, kind: str, key: str
 ) -> bool:

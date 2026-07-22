@@ -495,16 +495,21 @@ async def refine_linkedin_post(
 
 
 async def content_metrics(days: int = 7) -> dict[str, Any]:
-    """The Friday number for the content beachhead: over the window, how
-    many posts were drafted, approved (=shipped intent), posted (with a
-    URL), rejected, still pending — plus approval rate + posts/week."""
+    """The Friday number for the content beachhead.
+
+    SHIPPED = `posted` only. Approving a draft ships nothing until it's
+    actually published — the old metric put `approved` in posts/week and
+    hid a 0-posted stall (12 drafted, 0 live) behind a healthy-looking
+    number. Now `posts_per_week` is posted/week, and `awaiting_publish`
+    surfaces approved-but-not-yet-live drafts so a backlog is visible.
+    Public posts span both platforms: kind ∈ (linkedin_post, x_post)."""
     async with async_session() as s:
         r = await s.execute(
             text(
                 """
                 SELECT status, COUNT(*)
                 FROM creator_artifacts
-                WHERE kind = 'linkedin_post'
+                WHERE kind IN ('linkedin_post', 'x_post')
                   AND created_at >= now() - (:days || ' days')::interval
                 GROUP BY status
                 """
@@ -514,16 +519,20 @@ async def content_metrics(days: int = 7) -> dict[str, Any]:
         counts = {row[0]: int(row[1]) for row in r.all()}
     drafted = sum(counts.values())
     posted = counts.get("posted", 0)
-    approved = counts.get("approved", 0) + posted  # posted implies approved
+    awaiting_publish = counts.get("approved", 0)  # approved, NOT yet live
+    approved_intent = awaiting_publish + posted   # ever chose to ship
     rejected = counts.get("rejected", 0)
     pending = counts.get("pending_review", 0)
-    decided = approved + rejected
-    rate = round(approved / decided, 3) if decided else None
-    posts_per_week = round(approved / max(1, days) * 7, 1)
+    decided = approved_intent + rejected
+    rate = round(approved_intent / decided, 3) if decided else None
+    # The honest ship rate: only posted posts count. Approving without
+    # publishing is not shipping.
+    posts_per_week = round(posted / max(1, days) * 7, 1)
     return {
         "window_days": days,
         "drafted": drafted,
-        "approved": approved,
+        "approved": approved_intent,
+        "awaiting_publish": awaiting_publish,
         "posted": posted,
         "rejected": rejected,
         "pending": pending,
