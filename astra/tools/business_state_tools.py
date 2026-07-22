@@ -261,7 +261,6 @@ _TIER2 = {
     "helmtech": "HELMTECH_URL|https://helm-sales-production.up.railway.app",
     "apex-sales": "APEX_URL|https://apex-sales-team-production-2c45.up.railway.app",
     "apex-experimental": "APEX_EXPERIMENTAL_URL|https://apex-experimental-production.up.railway.app",
-    "linkedin": "LINKEDIN_URL|https://backend-production-a2994.up.railway.app",
     "bookkeeper": "BOOKKEEPER_URL|",  # not deployed; honest 'not deployed'
 }
 
@@ -303,7 +302,7 @@ async def _probe(name: str, spec: str | None) -> tuple[str, str]:
     "Astra. Use for 'how is everything', 'is anything down', 'fleet "
     "status', or any whole-system health question. Covers Tier-1 "
     "direct children (stream/scheduler/email/finance/whatsapp/bridge) "
-    "and Tier-2 federated agents (helmtech/apex/linkedin/bookkeeper). "
+    "and Tier-2 federated agents (helmtech/apex/bookkeeper). "
     "Prefer this over any service_* / agent_status / fleet_summary "
     "tool — those probe a decommissioned laptop topology and lie.",
     {},

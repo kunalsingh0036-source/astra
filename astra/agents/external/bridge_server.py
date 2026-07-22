@@ -5,7 +5,6 @@ Instead of 4 separate processes, this mounts all bridge routers on one
 FastAPI instance with path-based routing:
 
     /bookkeeper/a2a/...        → Bookkeeper bridge
-    /linkedin/a2a/...          → LinkedIn bridge
     /helmtech/a2a/...          → HelmTech bridge
     /apex/a2a/...              → Apex bridge
 
@@ -25,7 +24,6 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from astra.agents.external.bookkeeper import BookkeeperBridge
-from astra.agents.external.linkedin import LinkedInBridge
 from astra.agents.external.helmtech import HelmTechBridge
 from astra.agents.external.apex import ApexBridge
 from astra.agents.external.whatsapp import WhatsAppGatewayBridge
@@ -80,7 +78,6 @@ def create_bridge_app() -> FastAPI:
 
     # Initialize bridges
     bookkeeper = BookkeeperBridge()
-    linkedin = LinkedInBridge()
     helmtech = HelmTechBridge()
     apex = ApexBridge()
     whatsapp = WhatsAppGatewayBridge()
@@ -91,9 +88,6 @@ def create_bridge_app() -> FastAPI:
     # The A2A endpoints become: /{name}/a2a/tasks, /{name}/a2a/health, etc.
     app.include_router(bookkeeper.router, prefix="/bookkeeper")
     app.include_router(bookkeeper.well_known_router, prefix="/bookkeeper")
-
-    app.include_router(linkedin.router, prefix="/linkedin")
-    app.include_router(linkedin.well_known_router, prefix="/linkedin")
 
     app.include_router(helmtech.router, prefix="/helmtech")
     app.include_router(helmtech.well_known_router, prefix="/helmtech")
@@ -119,7 +113,7 @@ def create_bridge_app() -> FastAPI:
         return {
             "status": "healthy",
             "service": "astra-a2a-bridge-server",
-            "agents": ["bookkeeper", "linkedin", "helmtech", "apex", "whatsapp", "finance", "email"],
+            "agents": ["bookkeeper", "helmtech", "apex", "whatsapp", "finance", "email"],
             "port": BRIDGE_PORT,
         }
 
@@ -177,7 +171,6 @@ def main():
     """Run the bridge server."""
     print(f"\n🌉 Astra A2A Bridge Server starting on port {BRIDGE_PORT}")
     print(f"   Bookkeeper: http://localhost:{BRIDGE_PORT}/bookkeeper/a2a/health")
-    print(f"   LinkedIn:   http://localhost:{BRIDGE_PORT}/linkedin/a2a/health")
     print(f"   HelmTech:   http://localhost:{BRIDGE_PORT}/helmtech/a2a/health")
     print(f"   Apex:       http://localhost:{BRIDGE_PORT}/apex/a2a/health")
     print(f"   WhatsApp:   http://localhost:{BRIDGE_PORT}/whatsapp/a2a/health")

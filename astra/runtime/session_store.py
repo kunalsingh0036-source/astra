@@ -98,6 +98,47 @@ async def load_session_messages(
                 continue
         if isinstance(msgs, list):
             out.extend(m for m in msgs if isinstance(m, dict))
+    return _strip_thinking_blocks(out)
+
+
+def _strip_thinking_blocks(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop thinking/redacted_thinking blocks from REHYDRATED history.
+
+    Why at the load boundary: the Anthropic API requires a `signature`
+    on any thinking block it is sent, and turns saved before the
+    signature fix (and every turn from the Kimi era) persisted unsigned
+    thinking blocks — replaying one 400s the whole turn
+    ("thinking.signature: Field required"), permanently poisoning the
+    session. Prior-turn thinking is ignored by the API even when valid,
+    so stripping is both the repair and a token saving. Within the
+    LIVE turn's tool loop thinking blocks are kept intact (with
+    signature) by _block_to_dict — this only touches loaded history.
+
+    A message whose content was ONLY thinking (no text/tool_use) is
+    dropped entirely rather than sent with an empty content array; such
+    a message has no tool_use, so no tool_result pairing can break.
+    """
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        content = m.get("content")
+        if not isinstance(content, list):
+            out.append(m)
+            continue
+        kept = [
+            b
+            for b in content
+            if not (
+                isinstance(b, dict)
+                and b.get("type") in ("thinking", "redacted_thinking")
+            )
+        ]
+        if len(kept) != len(content):
+            if not kept:
+                continue  # thinking-only message — drop whole message
+            m = {**m, "content": kept}
+        out.append(m)
     return out
 
 

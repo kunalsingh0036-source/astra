@@ -1409,10 +1409,21 @@ def _block_to_dict(block: Any) -> dict[str, Any]:
             "input": getattr(block, "input", {}) or {},
         }
     if btype == "thinking":
-        # Forward-compat — extended thinking blocks if we ever enable them
+        # Extended thinking. The `signature` field is REQUIRED when a
+        # thinking block is replayed to the real Anthropic API — dropping
+        # it 400s the next call ("thinking.signature: Field required").
+        # Kimi's anthropic-compat endpoint tolerated unsigned replays,
+        # which is how this survived until the Claude switch.
         return {
             "type": "thinking",
             "thinking": getattr(block, "thinking", "") or "",
+            "signature": getattr(block, "signature", "") or "",
+        }
+    if btype == "redacted_thinking":
+        # Same replay contract as thinking: `data` must round-trip intact.
+        return {
+            "type": "redacted_thinking",
+            "data": getattr(block, "data", "") or "",
         }
     # Unknown block — preserve type marker so the API doesn't reject
     # the message; content empty so the model doesn't act on it.

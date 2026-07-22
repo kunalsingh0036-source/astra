@@ -14,7 +14,6 @@ from astra.a2a.discovery import agent_discovery
 from astra.agents.registry import AgentDefinitionRecord, AgentStatus, agent_registry
 
 from astra.agents.external.bookkeeper import CARD as BOOKKEEPER_CARD
-from astra.agents.external.linkedin import CARD as LINKEDIN_CARD
 from astra.agents.external.helmtech import CARD as HELMTECH_CARD
 from astra.agents.external.apex import CARD as APEX_CARD
 from astra.agents.external.whatsapp import CARD as WHATSAPP_CARD
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 # All external agent cards
 EXTERNAL_AGENTS = [
     BOOKKEEPER_CARD,
-    LINKEDIN_CARD,
     HELMTECH_CARD,
     APEX_CARD,
     WHATSAPP_CARD,

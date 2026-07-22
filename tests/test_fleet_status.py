@@ -60,7 +60,6 @@ async def test_fleet_status_degrades_to_honest_lines(monkeypatch):
     monkeypatch.setenv("HELMTECH_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("APEX_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("APEX_EXPERIMENTAL_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("LINKEDIN_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("BOOKKEEPER_URL", "")
 
     from astra.tools.business_state_tools import fleet_status_tool
