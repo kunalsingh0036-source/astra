@@ -512,9 +512,11 @@ def _safe_json(text: str) -> dict[str, Any] | None:
     if first < 0 or last <= first:
         return None
 
-    # Happy path — complete, valid JSON
+    # Happy path — complete, valid JSON. strict=False: Claude emits
+    # literal control chars inside long string values (Kimi escaped
+    # them) — same class as the creators' generate_json fix.
     try:
-        return json.loads(s[first : last + 1])
+        return json.loads(s[first : last + 1], strict=False)
     except Exception as e:
         logger.warning("[research] primary JSON parse failed: %s", e)
 
@@ -534,7 +536,7 @@ def _safe_json(text: str) -> dict[str, Any] | None:
         candidate = head.rstrip().rstrip(",")
         candidate += "]" * max(0, opens_sq) + "}" * max(0, opens)
         try:
-            parsed = json.loads(candidate)
+            parsed = json.loads(candidate, strict=False)
             logger.info(
                 "[research] recovered JSON by trimming %d chars + appending closers",
                 _trim,
