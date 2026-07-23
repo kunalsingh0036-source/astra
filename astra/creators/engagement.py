@@ -241,7 +241,8 @@ async def build_slate(*, limit: int = 6, notify: bool = True) -> dict[str, Any]:
             status="pending_review",
         )
         staged.append({"artifact_id": art["id"], "author": author or handle,
-                       "platform": platform, "comment": comment})
+                       "platform": platform, "comment": comment,
+                       "target_url": url, "target_text": body[:200]})
         async with async_session() as s:
             await s.execute(
                 text("UPDATE engagement_feed SET status='slated' WHERE id=:i"),
@@ -268,9 +269,13 @@ async def _notify_slate(staged: list[dict[str, Any]]) -> None:
     secret = os.environ.get("AGENT_SHARED_SECRET", "").strip()
     lines = [f"Engagement slate — {len(staged)} comment(s) ready:"]
     for s_item in staged:
+        snippet = (s_item.get("target_text") or "").replace("\n", " ")[:120]
         lines.append(
             f"\n#{s_item['artifact_id']} → {s_item['author']} "
-            f"({s_item['platform']}):\n\"{s_item['comment']}\""
+            f"({s_item['platform']})\n"
+            f"THEIR POST: {snippet}…\n"
+            f"{s_item.get('target_url', '')}\n"
+            f"COMMENT: \"{s_item['comment']}\""
         )
     lines.append(
         "\nReply: approve <id> / refine <id> <note> / skip <id>. "
