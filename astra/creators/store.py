@@ -291,7 +291,8 @@ async def next_approved_content(
     kind ∈ ('linkedin_post', 'x_post'); optional `platform` filter on
     content->>'platform'. Each row carries a ready-to-paste `paste_text`.
     """
-    where = ["status = 'approved'", "kind IN ('linkedin_post', 'x_post')"]
+    where = ["status = 'approved'",
+             "kind IN ('linkedin_post', 'x_post', 'engagement_comment')"]
     params: dict[str, Any] = {"lim": max(1, min(50, limit))}
     if platform:
         where.append("content->>'platform' = :plat")

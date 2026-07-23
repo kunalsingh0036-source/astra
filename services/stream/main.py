@@ -493,6 +493,41 @@ def _check_secret(request: Request) -> None:
 # approved queue (next-approved), pastes each into the focused LinkedIn/X
 # composer, Kunal clicks Post, and the Sidecar confirms the real ship
 # (posted). Astra never clicks Post — his finger is the gate.
+@app.post("/engagement/ingest")
+async def engagement_ingest(request: Request) -> dict[str, object]:
+    """Feed batch from the Mac-side reader (E1). Body: {batch_id,
+    items:[{platform, post_url, author, author_handle, text, metrics}]}.
+    ?build_slate=true chains selection + comment drafting + WhatsApp
+    slate right after ingest (the morning one-shot)."""
+    _check_secret(request)
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(400, "JSON body required")
+    items = (raw or {}).get("items") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(400, "items[] required")
+
+    from astra.creators.engagement import build_slate, ingest_feed  # type: ignore
+
+    counts = await ingest_feed(items[:200], batch_id=str((raw or {}).get("batch_id") or ""))
+    out: dict[str, object] = {"ok": True, **counts}
+    if (request.query_params.get("build_slate") or "").lower() == "true":
+        out["slate"] = await build_slate()
+    return out
+
+
+@app.post("/engagement/build-slate")
+async def engagement_build_slate(request: Request) -> dict[str, object]:
+    """Select candidates from fresh feed rows, draft comments in Kunal's
+    voice, stage for approval, WhatsApp the slate."""
+    _check_secret(request)
+
+    from astra.creators.engagement import build_slate  # type: ignore
+
+    return await build_slate()
+
+
 @app.get("/content/next-approved")
 async def content_next_approved(request: Request) -> dict[str, object]:
     """Oldest APPROVED public post awaiting publish, ready to paste.

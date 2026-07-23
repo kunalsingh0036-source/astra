@@ -10,7 +10,11 @@ Three tools:
 
 from __future__ import annotations
 
+import logging
+
 from astra.runtime.sdk_compat import create_sdk_mcp_server, tool
+
+logger = logging.getLogger(__name__)
 
 
 @tool(
@@ -40,9 +44,29 @@ async def research_tool(args: dict) -> dict:
         depth = "standard"
     tags = (args.get("business_tags") or "").strip()[:255]
 
-    result = await run_topic_on_demand(
-        topic=q, depth=depth, business_tags=tags,
+    # Shield the pipeline from caller cancellation: if the chat-side
+    # tool timeout fires, the research RUN keeps going and the briefing
+    # still lands (retrievable via research_get) instead of dying
+    # mid-flight and leaving the row stuck 'pending' forever (briefing
+    # #144, 2026-07-23). The registry timeout only abandons the wait.
+    import asyncio
+
+    run = asyncio.create_task(
+        run_topic_on_demand(topic=q, depth=depth, business_tags=tags)
     )
+    try:
+        result = await asyncio.shield(run)
+    except asyncio.CancelledError:
+        def _log_done(t: asyncio.Task) -> None:
+            try:
+                r = t.result()
+                logger.info("[research] shielded run finished after "
+                            "caller cancel: %s", r.get("id"))
+            except Exception:
+                logger.exception("[research] shielded run failed after "
+                                 "caller cancel")
+        run.add_done_callback(_log_done)
+        raise
     if result.get("status") == "ready":
         text_out = (
             f"research #{result['id']} ready — {q}\n\n"
