@@ -44,46 +44,67 @@ async def research_tool(args: dict) -> dict:
         depth = "standard"
     tags = (args.get("business_tags") or "").strip()[:255]
 
-    # Shield the pipeline from caller cancellation: if the chat-side
-    # tool timeout fires, the research RUN keeps going and the briefing
-    # still lands (retrievable via research_get) instead of dying
-    # mid-flight and leaving the row stuck 'pending' forever (briefing
-    # #144, 2026-07-23). The registry timeout only abandons the wait.
+    # FIRE-AND-NOTIFY: the agent pipeline takes 3-6+ minutes, which no
+    # chat turn can contain (the 240s turn hard cap serves Vercel's
+    # 300s limit — turns #696/#697 died waiting). So the tool starts
+    # the run as a shielded background task and returns the briefing id
+    # IMMEDIATELY; when the run lands, the owner gets a WhatsApp ping
+    # with the gist (never a silent drop). Check anytime: research_get.
     import asyncio
 
-    run = asyncio.create_task(
-        run_topic_on_demand(topic=q, depth=depth, business_tags=tags)
+    async def _run_and_notify() -> None:
+        try:
+            result = await run_topic_on_demand(
+                topic=q, depth=depth, business_tags=tags
+            )
+        except Exception:
+            logger.exception("[research] background run crashed for %r", q)
+            return
+        status = result.get("status")
+        rid = result.get("id", "?")
+        if status == "ready":
+            msg = (f"Research #{rid} ready — {q}\n"
+                   f"{result.get('gist','')}\n"
+                   f"Open: /research/{rid}")
+        else:
+            msg = (f"Research #{rid} failed — {q}\n"
+                   f"{str(result.get('error',''))[:200]}")
+        await _notify_owner(msg)
+
+    asyncio.get_running_loop().create_task(_run_and_notify())
+    text_out = (
+        f"research started ({depth}) — {q}\n"
+        "The agent pipeline (plan → parallel sourced searches → verify → "
+        "synthesize) takes ~3-6 minutes. Kunal gets a WhatsApp ping with "
+        "the gist when it lands; use research_list/research_get to read "
+        "it. Tell Kunal it's running — do NOT wait or poll in this turn."
     )
-    try:
-        result = await asyncio.shield(run)
-    except asyncio.CancelledError:
-        def _log_done(t: asyncio.Task) -> None:
-            try:
-                r = t.result()
-                logger.info("[research] shielded run finished after "
-                            "caller cancel: %s", r.get("id"))
-            except Exception:
-                logger.exception("[research] shielded run failed after "
-                                 "caller cancel")
-        run.add_done_callback(_log_done)
-        raise
-    if result.get("status") == "ready":
-        text_out = (
-            f"research #{result['id']} ready — {q}\n\n"
-            f"gist: {result.get('gist','(none)')}\n\n"
-            f"build recs: {result.get('build_recs',0)} · "
-            f"subtract recs: {result.get('subtract_recs',0)} · "
-            f"action items: {result.get('action_items',0)} (of which "
-            f"{len(result.get('task_ids',[]))} staged as tasks)\n\n"
-            f"duration: {result.get('duration_ms',0)}ms\n"
-            f"view: /research/{result['id']}"
-        )
-    else:
-        text_out = (
-            f"research #{result.get('id','?')} {result.get('status','unknown')}: "
-            f"{result.get('error','no error')}"
-        )
     return {"content": [{"type": "text", "text": text_out}]}
+
+
+async def _notify_owner(text_msg: str) -> None:
+    """WhatsApp the owner via the gateway; loud log on failure, never
+    a silent swallow (channel rule: alert on outcomes)."""
+    import os
+
+    import httpx
+
+    base = os.environ.get(
+        "GATEWAY_URL", "http://whatsapp.railway.internal:8080"
+    ).rstrip("/")
+    secret = os.environ.get("AGENT_SHARED_SECRET", "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.post(
+                f"{base}/api/v1/notify/owner",
+                json={"text": text_msg[:3000]},
+                headers={"x-astra-secret": secret},
+            )
+        if r.status_code != 200:
+            logger.error("[research] owner notify failed: %s %s",
+                         r.status_code, r.text[:200])
+    except Exception:
+        logger.exception("[research] owner notify errored")
 
 
 @tool(

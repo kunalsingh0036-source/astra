@@ -169,7 +169,7 @@ async def run_research(
         if parsed is None:
             await _mark_error(
                 briefing_id,
-                f"JSON parse failed; raw head: {raw_json_text[:400]!r}",
+                f"JSON parse failed; raw head: {raw_json_text[:1200]!r}",
                 model_used,
                 t0,
             )
