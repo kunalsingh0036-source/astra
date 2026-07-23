@@ -87,10 +87,10 @@ async def run_topic_on_demand(
         topic=topic,
         topic_slug="on_demand",
         prompt_focus=prompt_focus or (
-            f"Research the topic: {topic}. Prioritize what Kunal can act "
-            "on this week given the compass. Distinguish fact from signal. "
-            "Call out things worth adding to Astra's roadmap and things "
-            "worth subtracting."
+            f"Research the topic: {topic}. Answer THE QUESTION with "
+            "sourced facts first; distinguish fact from signal. Keep "
+            "build/subtract/action sections ONLY where directly relevant "
+            "to this topic — do not pad them from unrelated internal state."
         ),
         business_tags=business_tags,
         kind="on_demand",
@@ -441,7 +441,9 @@ async def _invoke_claude(
     # 8000 tokens is ~32K chars of output — enough headroom for the
     # deep Saturday audit. Standard keeps tighter so daily briefings
     # stay short.
-    max_tokens = 8000 if depth == "deep" else 4000
+    # 4000 truncated agent-path compositions mid-JSON (briefing #149) —
+    # the verified block makes outputs longer than the single-shot era.
+    max_tokens = 10000 if depth == "deep" else 8000
 
     # Anthropic's server-side web_search tool lets Claude fetch pages
     # without us plumbing MCP. We only invoke it when we actually want
@@ -534,6 +536,10 @@ def _safe_json(text: str) -> dict[str, Any] | None:
         if opens <= 0 and opens_sq <= 0:
             continue
         candidate = head.rstrip().rstrip(",")
+        # If truncation landed inside a string literal, close the quote
+        # first or every bracket-close candidate fails to parse.
+        if candidate.count('"') % 2 == 1:
+            candidate += '"'
         candidate += "]" * max(0, opens_sq) + "}" * max(0, opens)
         try:
             parsed = json.loads(candidate, strict=False)

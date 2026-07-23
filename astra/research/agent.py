@@ -123,6 +123,10 @@ _SEARCH_PROMPT = """You are a research sub-agent answering ONE question with web
 QUESTION: {q}
 PREFER SOURCES: {prefer}
 
+Search strategy:
+- Try MULTIPLE phrasings: the direct question, entity-first ("<entity> 2026 calendar/list"), and source-first ("<preferred-domain> <topic>") queries. If a preferred source exists (official calendar, federation, regulator), query it BY NAME before settling for blogs.
+- For list/calendar/count questions, hunt for the authoritative index page, not news mentions.
+
 Iron rules:
 - EVERY finding must cite at least one URL you actually saw in search results. A finding you cannot source does not go in findings; put it in open_questions instead.
 - NEVER conclude absence from failed searches. If you searched for X and found nothing, report it in not_found ("searched N times, queries used, nothing surfaced") — that is an observation about your search, not a fact about the world.
@@ -324,7 +328,7 @@ async def run_agent(
     """The full research pipeline. Returns the parsed briefing dict
     (same schema as the runner's single-shot path) + agent telemetry
     under "_agent"."""
-    per_search = 6 if depth == "deep" else 4
+    per_search = 8 if depth == "deep" else 6
     verify_k = 8 if depth == "deep" else 5
 
     subs = await _plan(topic, focus, depth)
@@ -347,6 +351,26 @@ async def run_agent(
         "[research-agent] guard: %d findings kept, %d not-found, %d open",
         len(findings), len(not_found), len(open_qs),
     )
+
+    # Thin-result retry: web_search is high-variance run to run — one
+    # round found the JSW Indian Open, the next found only a 2021 covid
+    # notice. If the guard kept almost nothing, re-run every sub-
+    # question ONCE with explicit reformulation pressure before
+    # concluding the world is empty.
+    if len(findings) < 2 and subs:
+        logger.info("[research-agent] thin results — one reformulated retry round")
+        retry_subs = [
+            {**sub, "q": sub.get("q", "") + " (previous search round found "
+             "almost nothing — reformulate aggressively: different phrasings, "
+             "entity names, the official/primary source by name)"}
+            for sub in subs
+        ]
+        retry_results = await asyncio.gather(*(bounded(s) for s in retry_subs))
+        f2, nf2, oq2 = _guard(list(retry_results))
+        findings.extend(f2)
+        not_found.extend(nf2)
+        open_qs.extend(oq2)
+        logger.info("[research-agent] after retry: %d findings", len(findings))
     findings = await _verify_top(findings, today=today, k=verify_k)
 
     material = json.dumps(findings, indent=1)[:16000]
