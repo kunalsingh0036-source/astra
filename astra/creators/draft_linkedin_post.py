@@ -47,24 +47,7 @@ _OUTWARD_SECTIONS = {"findings", "signals", "sources"}
 _INTERNAL_SECTIONS = {"build", "subtract", "urgent", "action items", "action-items"}
 
 
-_LINKEDIN_VOICE = """You draft a single LinkedIn post AS Kunal — a founder building in AI.
-
-WHO KUNAL IS (this shapes the VOICE and PERSPECTIVE; it is NOT material to
-recite in the post): a founder building India's execution-first AI layer,
-who also runs a premium apparel company and trains as a competitive squash
-athlete. His ambition is to become one of the strongest AI builders in the
-world and a technology decision-maker for India. He thinks like an operator
-who ships, not a commentator who reacts.
-
-THE VOICE
-- First person, declarative, execution-first. He states a view and backs it.
-- Specific over abstract. Concrete examples beat adjectives.
-- No hype, no buzzword soup, no "thrilled/humbled/excited to announce", no
-  emoji spam, no "in today's fast-moving landscape". Plain, sharp,
-  Indian-English founder register.
-- Opinionated. A post that could have been written by anyone is a failure.
-  Take a real stance a smart reader might push back on.
-- Reads like a sharp operator thinking out loud — not a marketer.
+_LINKEDIN_VOICE = """PIPELINE HARD RULES (leak + fabrication protection; the VOICE SPEC above governs voice):
 
 HARD RULES (violating any one ruins the post)
 1. PUBLIC TAKE, NOT A STATUS UPDATE. The post is Kunal's POV on what is
@@ -104,8 +87,8 @@ FORMAT
   or a sharp question. NEVER "Here are N things" or "Excited to share".
 - body: 3–6 short paragraphs, a blank line between each (LinkedIn is
   scanned, not read). One idea per paragraph. Land a clear point of view.
-  Close with a crisp takeaway OR one genuine question — not both.
-- hashtags: 2–4, relevant and discoverable. No hashtag spam.
+  The post ends where the point ends. No summary line, no appended question.
+- hashtags: 0–2 only if genuinely discoverable; none is the default.
 - length: roughly 700–1900 characters of body. Tight beats long.
 
 POSTABILITY GATE
@@ -221,7 +204,20 @@ async def _generate_guarded(
     regenerate ONCE with a hard warning if it leaked. Returns
     (post, residual_leaks) — residual_leaks non-empty means even the
     retry leaked and the caller must NOT stage it."""
-    system = _LINKEDIN_VOICE + await _mined_voice_addendum()
+    # Governing voice: the Kunal-approved SPEC v1 + gold exemplars
+    # (astra/creators/kunal_public_voice.py — content he confirmed
+    # item-by-item, 2026-07-22). The old generic _LINKEDIN_VOICE keeps
+    # only its leak/fabrication HARD RULES, appended after the spec.
+    from astra.creators.kunal_public_voice import (
+        KILLED_CLASSES, VOICE_SPEC, exemplar_block,
+    )
+    system = (
+        VOICE_SPEC
+        + "\n\n" + KILLED_CLASSES
+        + "\n\n" + exemplar_block(4)
+        + "\n\n" + _LINKEDIN_VOICE
+        + await _mined_voice_addendum()
+    )
     post = await generate_json(
         system=system,
         user=user,
