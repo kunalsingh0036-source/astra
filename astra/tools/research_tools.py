@@ -32,8 +32,11 @@ async def research_tool(args: dict) -> dict:
     q = (args.get("query") or "").strip()
     if not q:
         return {"content": [{"type": "text", "text": "research: query required"}]}
+    # quick = legacy single-shot (cheap lookup). standard/deep run the
+    # research AGENT: plan → parallel sourced sub-searches → code
+    # guards → adversarial verify → synthesize. Default standard.
     depth = (args.get("depth") or "standard").lower()
-    if depth not in ("standard", "deep"):
+    if depth not in ("quick", "standard", "deep"):
         depth = "standard"
     tags = (args.get("business_tags") or "").strip()[:255]
 

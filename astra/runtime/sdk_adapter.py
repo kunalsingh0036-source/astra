@@ -95,6 +95,21 @@ def _guess_timeout(tool_name: str, namespace: str) -> int:
     """Per-tool timeout heuristic. Most tools are fast lookups (10s);
     a few are known slow paths (LLM-adjacent generation, multi-step
     fetch+analyze). Tunable per-name later if needed."""
+    # Slow by exact name — their bodies own longer inner budgets (bridge
+    # reads / LLM distillation / multi-stage research) that prefix or
+    # default timeouts would cancel. Checked FIRST so exact names beat
+    # the SLOW prefixes (draft_linkedin_now must not fall into draft_=120).
+    SLOW_EXACT = {
+        "ingest_voice_export": 180,   # paged Mac-bridge reads + parse + POST
+        "learn_my_voice": 150,        # LLM distillation
+        "mine_my_voice": 300,         # kicks off background mine
+        "research": 600,              # multi-stage agent: plan → parallel
+                                      # sourced searches → verify → synthesize
+        "draft_linkedin_now": 420,    # draft + claim extraction + per-claim
+                                      # fresh-search verification (fail closed)
+    }
+    if tool_name in SLOW_EXACT:
+        return SLOW_EXACT[tool_name]
     # Slow tools — generation + crawl
     SLOW = (
         "draft_",
@@ -106,15 +121,6 @@ def _guess_timeout(tool_name: str, namespace: str) -> int:
     for prefix in SLOW:
         if tool_name.startswith(prefix):
             return 120
-    # Slow by exact name — their bodies own longer inner budgets (bridge
-    # reads / LLM distillation) that the 15s default would cancel.
-    SLOW_EXACT = {
-        "ingest_voice_export": 180,   # paged Mac-bridge reads + parse + POST
-        "learn_my_voice": 150,        # LLM distillation
-        "mine_my_voice": 300,         # kicks off background mine
-    }
-    if tool_name in SLOW_EXACT:
-        return SLOW_EXACT[tool_name]
     # Browser fetches — moderate
     if "browser" in tool_name or "fetch" in tool_name or "search" in tool_name:
         return 30

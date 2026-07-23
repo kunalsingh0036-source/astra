@@ -418,6 +418,39 @@ async def draft_linkedin_post(
             "reason": post.get("reason", "model declined to post"),
         }
 
+    # ── Research-tandem claim gate (R8) ─────────────────────────────
+    # Every external factual claim in the post is fact-checked by the
+    # research agent with fresh searches before staging. Fail CLOSED:
+    # a post with a contradicted or unsupportable claim does not stage.
+    # This is the drafter-side half of the "no PSA India events" class
+    # fix — the briefing may itself be stale or wrong; the post gets
+    # its own verification, and reviewers see the claim→source map.
+    claim_report: list[dict[str, Any]] = []
+    try:
+        claim_report = await _claim_gate(post)
+    except Exception as e:
+        logger.exception("[linkedin] claim gate errored: %s", e)
+        return {
+            "ok": True, "status": "not_postable",
+            "reason": f"claim gate errored, refusing to stage unverified: {str(e)[:160]}",
+        }
+    bad = [c for c in claim_report
+           if c["verdict"] in ("CONTRADICTED", "UNSUPPORTED")]
+    if bad:
+        logger.warning(
+            "[linkedin] claim gate blocked post for briefing %s: %s",
+            briefing["id"],
+            [(c["claim"][:60], c["verdict"]) for c in bad],
+        )
+        return {
+            "ok": True, "status": "not_postable",
+            "reason": ("claim gate: " + "; ".join(
+                f"{c['verdict']}: {c['claim'][:80]}"
+                + (f" (correction: {c['correction'][:80]})" if c.get("correction") else "")
+                for c in bad[:3]
+            ))[:400],
+        }
+
     # Stage it for review. Stamp the briefing linkage into content so the
     # surface can show provenance and idempotency holds.
     content = {
@@ -426,6 +459,7 @@ async def draft_linkedin_post(
         "briefing_topic": briefing["topic"],
         "business_tags": briefing["business_tags"],
         "platform": "linkedin",
+        "claim_report": claim_report,
     }
     title = (post.get("title") or briefing["topic"])[:120]
     slug = (briefing["business_tags"] or "personal").split(",")[0].strip() or "personal"
@@ -447,6 +481,45 @@ async def draft_linkedin_post(
         "artifact_id": artifact["id"], "title": title,
         "reason": post.get("reason", ""),
     }
+
+
+_CLAIM_EXTRACT_PROMPT = """List the factual claims about the EXTERNAL world in this post that a fact-checker could verify: events, numbers, dates, company facts, market facts, "X exists / X does not exist" statements. EXCLUDE: opinions, predictions, philosophy, analogies, and the author's own views or framing.
+
+POST:
+<<<{body}>>>
+
+STRICT JSON only: {{"claims": ["<claim as a standalone checkable sentence>", ...]}}
+Empty list if the post makes no checkable external claims."""
+
+
+async def _claim_gate(post: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract checkable external claims from a drafted post and verify
+    each with the research agent (fresh searches). Returns the full
+    claim report; caller decides staging. Posts with zero checkable
+    claims (pure opinion/philosophy) pass with an empty report."""
+    from datetime import datetime, timedelta, timezone
+
+    from astra.creators._shared import generate_json
+    from astra.research.agent import claim_check
+
+    body = str(post.get("body") or "")
+    if not body.strip():
+        return []
+    extracted = await generate_json(
+        system="You extract checkable factual claims. STRICT JSON only.",
+        user=_CLAIM_EXTRACT_PROMPT.format(body=body[:6000]),
+        forbidden=[],
+        text_blob_fn=lambda d: "",
+    )
+    claims = [c for c in (extracted.get("claims") or [])
+              if isinstance(c, str) and c.strip()][:6]
+    if not claims:
+        return []
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist).strftime("%Y-%m-%d")
+    return await claim_check(
+        claims, context="a public LinkedIn post by a founder", today=today,
+    )
 
 
 async def refine_linkedin_post(

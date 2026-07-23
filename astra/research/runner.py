@@ -126,16 +126,43 @@ async def run_research(
         compass = gather_compass()
         state = await gather_astra_state()
 
+        # depth quick = legacy single-shot (cheap lookups). standard/
+        # deep = the research AGENT: plan → parallel sourced sub-
+        # searches → code guards → adversarial verify → synthesize,
+        # then ONE composition call that adds the compass/state-aware
+        # sections using ONLY the verified external facts. This is the
+        # class fix for the unsourced-negative-claim fabrication that a
+        # single-shot briefing let through (the "no PSA India events"
+        # incident, 2026-07).
+        verified_block = ""
+        if depth in ("standard", "deep"):
+            from astra.research.agent import run_agent
+
+            ext = await run_agent(
+                topic=topic,
+                focus=prompt_focus,
+                depth=depth,
+                schema_json=_AGENT_SCHEMA_JSON,
+                today=str(state.get("now_ist", "")),
+            )
+            verified_block = json.dumps(
+                {k: ext.get(k) for k in
+                 ("gist", "findings", "signals", "sources", "_agent")},
+                indent=1, default=str,
+            )[:18000]
+
         prompt = _build_prompt(
             topic=topic,
             prompt_focus=prompt_focus,
             depth=depth,
             compass_block=compass.render_for_prompt(),
             state=state,
+            verified_block=verified_block,
         )
 
         model_used, raw_json_text = await _invoke_claude(
             prompt=prompt, depth=depth,
+            enable_search=not verified_block,
         )
 
         parsed = _safe_json(raw_json_text)
@@ -148,6 +175,26 @@ async def run_research(
             )
             return {"status": "error", "id": briefing_id,
                     "error": "parse_failed"}
+
+        # Final code gate (agent path): the composition call must not
+        # reintroduce sourceless findings — a finding either carries a
+        # real URL or it is not a finding. Same rule the agent enforces
+        # internally; enforced again here because prompts are not gates.
+        if verified_block:
+            kept = []
+            for f in (parsed.get("findings") or []):
+                srcs = [s for s in (f.get("sources") or [])
+                        if isinstance(s, str) and s.startswith("http")]
+                if srcs:
+                    f["sources"] = srcs
+                    kept.append(f)
+                else:
+                    logger.warning(
+                        "[research] composition invented sourceless "
+                        "finding, dropped: %r",
+                        str(f.get("title") or f.get("finding"))[:80],
+                    )
+            parsed["findings"] = kept
 
         body_md = _compose_markdown(topic=topic, parsed=parsed)
 
@@ -200,6 +247,16 @@ async def run_research(
 # ──────────────────────────────────────────────────────────────────
 
 
+# Minimal schema the research AGENT synthesizes into (external facts
+# only); the composition call below folds these into the full briefing.
+_AGENT_SCHEMA_JSON = """{
+  "gist": "<2-3 sentences>",
+  "findings": [{"title": "<short headline>", "detail": "<2-4 sentences, includes verification status naturally>", "confidence": "<high|medium|low>", "sources": ["<url>"]}],
+  "signals": [{"pattern": "<emerging pattern>", "significance": "<why it matters>", "timeframe": "<days/weeks/quarter>"}],
+  "sources": [{"url": "<url>", "description": "<short>"}]
+}"""
+
+
 def _build_prompt(
     *,
     topic: str,
@@ -207,6 +264,7 @@ def _build_prompt(
     depth: str,
     compass_block: str,
     state: dict[str, Any],
+    verified_block: str = "",
 ) -> str:
     """Build the Claude prompt.
 
@@ -232,7 +290,7 @@ You are self-aware: the <astra_state> block is Astra's current internals — wha
 TODAY (IST): {now_ist}
 TOPIC: {topic}
 FOCUS: {prompt_focus}
-
+{_verified_section(verified_block)}
 {depth_note}
 
 ────────────────────────────────────────────────────────────────────
@@ -327,13 +385,39 @@ Rules
 Return the JSON now."""
 
 
+def _verified_section(verified_block: str) -> str:
+    """The verified-research block for the composition call (agent path)."""
+    if not verified_block:
+        return ""
+    return f"""
+────────────────────────────────────────────────────────────────────
+VERIFIED EXTERNAL RESEARCH (produced by the research agent: planned,
+searched in parallel, source-enforced, adversarially verified)
+────────────────────────────────────────────────────────────────────
+<verified_research>
+{verified_block}
+</verified_research>
+
+RULES FOR THIS BLOCK (absolute):
+- Every EXTERNAL fact in your briefing comes from <verified_research>
+  and carries its sources verbatim. You have NO search tool; do not
+  add outside-world claims from memory.
+- Anything listed under "_agent.open_questions" or absent from the
+  research may be referenced only as an open question, never a fact.
+- Never state that something does not exist. The strongest allowed
+  phrasing is "not found in our searches".
+- The internal sections (build/subtract/urgencies/action items) draw
+  on <astra_state> and <compass> as before.
+"""
+
+
 # ──────────────────────────────────────────────────────────────────
 # Claude invocation
 # ──────────────────────────────────────────────────────────────────
 
 
 async def _invoke_claude(
-    *, prompt: str, depth: str,
+    *, prompt: str, depth: str, enable_search: bool = True,
 ) -> tuple[str, str]:
     """Call Claude Messages with the web_search tool enabled.
 
@@ -362,14 +446,17 @@ async def _invoke_claude(
     # Anthropic's server-side web_search tool lets Claude fetch pages
     # without us plumbing MCP. We only invoke it when we actually want
     # Claude to look things up. Available since 2025-05.
-    tools: list[dict] = [
-        {"type": "web_search_20250305", "name": "web_search", "max_uses": 10 if depth == "deep" else 6},
-    ]
+    tools: list[dict] = []
+    if enable_search:
+        tools.append({
+            "type": "web_search_20250305", "name": "web_search",
+            "max_uses": 10 if depth == "deep" else 6,
+        })
 
     response = await client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        tools=tools,
+        tools=tools or anthropic.NOT_GIVEN,
         messages=[{"role": "user", "content": prompt}],
     )
 
