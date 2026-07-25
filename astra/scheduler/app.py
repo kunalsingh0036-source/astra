@@ -44,6 +44,7 @@ from astra.scheduler.jobs import (
     run_meeting_capture_trigger,
     run_content_draft,
     run_daily_research,
+    run_spine_fetch,
     run_inbox_preview,
     run_classify_sweep,
     run_classify_sweep_light,
@@ -410,7 +411,17 @@ def _build_scheduler() -> AsyncIOScheduler:
         run_daily_research,
         _ist_cron(hour=7, minute=0),
         id="daily_research",
-        name="Research Intel (daily rotating topic + Sat meta-review)",
+        name="AI Intel brief (spine-composed daily + Sat meta-review)",
+        replace_existing=True,
+    )
+
+    # Spine fetch — every 2h, all registered sources + tripwire check.
+    # Feeds the 07:00 intel brief; tripwire hits alert immediately.
+    scheduler.add_job(
+        run_spine_fetch,
+        _ist_cron(hour="*/2", minute=20),
+        id="spine_fetch",
+        name="Source spine fetch (RSS/API/scrape + tripwires)",
         replace_existing=True,
     )
 

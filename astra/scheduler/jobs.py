@@ -1377,10 +1377,18 @@ async def run_meeting_capture_trigger():
 
 
 async def run_daily_research():
-    """07:00 IST daily — Research Intel runs today's rotating topic.
+    """07:00 IST daily — the AI INTEL brief (North Star function).
 
-    Saturday routes through meta_review instead (deeper self-audit).
-    Sunday uses the standard runner but on the Sunday open-research slot.
+    Replaces the old rotating-topic runner (2026-07-25): that path drew
+    from open web_search, fabricated on AI days (briefing #133: 4/4
+    cited URLs 404), and pointed at Kunal's routine instead of the
+    industry. The intel run composes ONLY from spine-fetched source
+    items (astra/research/spine.py) with delta memory, delivers ONE
+    WhatsApp screen + the full brief in the app's Research room.
+
+    Saturday keeps the meta_review self-audit (separate concern).
+    Business verticals (squash/Apex/BAY) return as weekly spine-fed
+    sections in Phase 2 — never displacing the AI lead.
     """
     from datetime import datetime, timedelta, timezone
     ist = timezone(timedelta(hours=5, minutes=30))
@@ -1390,8 +1398,14 @@ async def run_daily_research():
         from astra.research.meta_review import run_meta_review
         return await _safe("research_meta_review", run_meta_review)
 
-    from astra.research.runner import run_scheduled_daily
-    return await _safe("research_scheduled_daily", run_scheduled_daily)
+    from astra.research.intel import run_daily_intel
+    return await _safe("intel_daily", run_daily_intel)
+
+
+async def run_spine_fetch():
+    """Every 2h — fetch all registered spine sources, fire tripwires."""
+    from astra.research.spine import fetch_all
+    return await _safe("spine_fetch", fetch_all)
 
 
 async def inbox_preview() -> dict:
