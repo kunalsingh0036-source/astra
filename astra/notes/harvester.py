@@ -221,11 +221,37 @@ async def sync_all(*, force: bool = False) -> SyncReport:
     unchanged_count = 0
     failed_count = 0
 
+    # HARD requirement: this function reads Notes.app via osascript, so
+    # it can only run on the Mac. In the cloud it used to swallow the
+    # failure and return an all-zeros report — which the agent then
+    # relayed to Kunal as "ran a forced sync: 0 new" (2026-07-24, the
+    # 50-vs-53 incident). A sync that cannot run must SAY so, never
+    # report zeros as if it checked.
+    import shutil
+
+    if shutil.which("osascript") is None:
+        raise RuntimeError(
+            "osascript unavailable — Apple Notes sync only runs on "
+            "Kunal's Mac (route via the bridge)"
+        )
+
+    # Poke Notes.app awake first: if it isn't running, macOS hasn't
+    # pulled recent iCloud changes, and phone-created notes are
+    # invisible (the 50-vs-53 gap was 4 iPhone notes the Mac hadn't
+    # received). `launch` is background-only — no focus steal.
+    try:
+        _osa('tell application "Notes" to launch', timeout=15)
+        import time as _t
+
+        _t.sleep(3)  # give CloudKit a beat to deliver
+    except Exception as e:
+        logger.warning("[notes] Notes.app launch poke failed: %s", e)
+
     try:
         index = list_note_index()
     except Exception as e:
         logger.exception("[notes] list_note_index failed: %s", e)
-        return SyncReport(0, 0, 0, 0, 0, int((time.monotonic() - started) * 1000))
+        raise RuntimeError(f"Apple Notes enumeration failed: {e}") from e
 
     async with async_session() as session:
         for entry in index:

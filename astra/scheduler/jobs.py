@@ -508,6 +508,24 @@ async def notes_sync() -> dict:
     Incremental: only notes whose modification date changed are
     re-fetched. Typical run: <2s for no-op, 10–30s on a full re-sync.
     """
+    import shutil
+
+    if shutil.which("osascript") is None:
+        # Cloud scheduler: Notes lives on the Mac — route via bridge.
+        # This path used to call sync_all directly, which silently
+        # returned zeros in the cloud: every scheduled sync since the
+        # Railway migration was a phantom (how the mirror froze at 50
+        # while Kunal had 53/54). Bridge offline = laptop closed =
+        # normal: skip quietly, never a fake success.
+        from astra.tools.notes_tools import _bridge_sync
+
+        res = await _bridge_sync(force=False)
+        txt = " ".join(c.get("text", "") for c in (res.get("content") or []))
+        if "Mac is offline" in txt or "BRIDGE_OFFLINE" in txt:
+            return {"status": "skipped", "reason": "bridge offline (laptop closed — normal)"}
+        logger.info("[scheduler] notes_sync via bridge: %s", txt[:200])
+        return {"status": "success", "detail": txt[:300]}
+
     from astra.notes.harvester import sync_all
 
     report = await sync_all(force=False)

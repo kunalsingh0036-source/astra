@@ -66,9 +66,15 @@ async def notes_list_tool(args: dict) -> dict:
     min_chars = max(0, int(args.get("min_chars") or 0))
     rows = await list_notes(folder=folder, limit=limit, min_chars=min_chars)
     stats = await note_stats()
+    last_sync = await _last_synced_at()
     lines = [
-        f"{stats['total_notes']} notes total across {len(stats['by_folder'])} folders.",
+        f"{stats['total_notes']} notes in the MIRROR across {len(stats['by_folder'])} folders "
+        f"(as of last Mac sync: {last_sync}).",
         f"Folders: {stats['by_folder']}",
+        "CAVEAT you must pass on when Kunal asks about counts: this is the "
+        "Mac's Notes mirror. Notes created on his iPhone can lag until the "
+        "Mac's iCloud catches up. If his count differs, his device is the "
+        "truth — offer a fresh sync (notes_sync), never re-assert this number.",
         "",
         f"Showing {len(rows)} (folder={folder or 'any'}, min_chars={min_chars}):",
     ]
@@ -111,10 +117,18 @@ async def notes_get_tool(args: dict) -> dict:
     {"force": bool},
 )
 async def notes_sync_tool(args: dict) -> dict:
+    import shutil
+
     force = bool(args.get("force", False))
+    if shutil.which("osascript") is None:
+        # Cloud container: Notes lives on the Mac. Route the sync
+        # through the bridge (runs the harvester ON the Mac against the
+        # cloud DB). Previously this path silently returned all-zeros
+        # and the agent told Kunal it had "live checked" — never again.
+        return await _bridge_sync(force=force)
     report = await sync_all(force=force)
     lines = [
-        f"Apple Notes sync · {report.elapsed_ms}ms",
+        f"Apple Notes sync (ran on Mac) · {report.elapsed_ms}ms",
         f"  seen: {report.total_notes_seen}",
         f"  new: {report.new_notes}",
         f"  updated: {report.updated_notes}",
@@ -122,6 +136,53 @@ async def notes_sync_tool(args: dict) -> dict:
         f"  failed: {report.failed_notes}",
     ]
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+async def _bridge_sync(*, force: bool) -> dict:
+    """Run the harvester on the Mac via the bridge bash channel."""
+    from astra.runtime.tools.local import local_bash_impl
+
+    force_arg = "True" if force else "False"
+    cmd = (
+        'cd "/Users/kunalsingh/Claude Code/astra" && '
+        "DATABASE_URL=$(railway variables --service Postgres --json 2>/dev/null "
+        "| python3 -c 'import sys,json;print(json.load(sys.stdin)"
+        '["DATABASE_PUBLIC_URL"].replace("postgresql://","postgresql+asyncpg://")'
+        ".replace(\"postgres://\",\"postgresql+asyncpg://\"))') "
+        '.venv/bin/python3 -c "import asyncio; '
+        "from astra.notes.harvester import sync_all; "
+        f"r = asyncio.run(sync_all(force={force_arg})); "
+        "print(f'seen={r.total_notes_seen} new={r.new_notes} "
+        "updated={r.updated_notes} unchanged={r.unchanged_notes} "
+        "failed={r.failed_notes}')\""
+    )
+    res = await local_bash_impl({"command": cmd})
+    text_parts = [c.get("text", "") for c in (res.get("content") or [])
+                  if isinstance(c, dict)]
+    out = "\n".join(text_parts).strip()
+    if "BRIDGE_OFFLINE" in out:
+        return {"content": [{"type": "text", "text": (
+            "Cannot sync Apple Notes right now: the sync runs on Kunal's "
+            "Mac and the Mac is offline (normal when the laptop is closed). "
+            "The mirror count stands as-of its last sync — tell Kunal that, "
+            "and offer to queue the sync for when the Mac is back."
+        )}]}
+    return {"content": [{"type": "text", "text": f"Apple Notes sync (via Mac bridge):\n{out}"}]}
+
+
+async def _last_synced_at() -> str:
+    from sqlalchemy import text as _sql
+
+    from astra.db.engine import async_session
+
+    try:
+        async with async_session() as s:
+            v = (await s.execute(
+                _sql("SELECT MAX(last_synced_at) FROM apple_notes")
+            )).scalar()
+        return v.strftime("%Y-%m-%d %H:%M UTC") if v else "never"
+    except Exception:
+        return "unknown"
 
 
 def create_notes_mcp_server():
