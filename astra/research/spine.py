@@ -319,6 +319,9 @@ async def fetch_all() -> dict[str, Any]:
                 continue
             added = 0
             async with async_session() as s:
+                prior = (await s.execute(
+                    text("SELECT COUNT(*) FROM source_items WHERE source_key = :k"),
+                    {"k": src.key})).scalar() or 0
                 for it in items:
                     ck = _hash(f"{src.key}|{it['url']}|{it['title']}")
                     res = await s.execute(
@@ -337,7 +340,14 @@ async def fetch_all() -> dict[str, Any]:
                     )
                     if res.scalar() is not None:
                         added += 1
-                        new_items.append({**it, "source_key": src.key, "tier": src.tier})
+                        # Backfill grace: a source's FIRST fetch ingests
+                        # history — those items are old news, not events.
+                        # Tripwires only see items from sources we were
+                        # already watching. (First run fired 19 pings of
+                        # stale alerts into WhatsApp — the exact clutter
+                        # Kunal banned.)
+                        if prior > 0:
+                            new_items.append({**it, "source_key": src.key, "tier": src.tier})
                 await s.commit()
             per_source[src.key] = added
     fired = await _check_tripwires(new_items)
@@ -346,8 +356,12 @@ async def fetch_all() -> dict[str, Any]:
     return {"new": len(new_items), "per_source": per_source, "tripwires": fired}
 
 
+_TRIPWIRE_ALERT_CAP = 3  # per fetch cycle; overflow goes to the daily brief
+
+
 async def _check_tripwires(new_items: list[dict[str, Any]]) -> int:
-    """Keyword tripwires on NEW items → immediate owner alert (deduped)."""
+    """Keyword tripwires on NEW items → immediate owner alert (deduped,
+    capped per cycle — WhatsApp is for communication, not a firehose)."""
     import os
 
     import httpx
@@ -373,6 +387,9 @@ async def _check_tripwires(new_items: list[dict[str, Any]]) -> int:
             if not is_new:
                 continue
             fired += 1
+            if fired > _TRIPWIRE_ALERT_CAP:
+                logger.info("[spine] tripwire cap reached; %s logged, not pinged", tw["key"])
+                continue
             base = os.environ.get("GATEWAY_URL", "http://whatsapp.railway.internal:8080").rstrip("/")
             secret = os.environ.get("AGENT_SHARED_SECRET", "").strip()
             msg = (f"⚡ Tripwire [{tw['key']}]\n{it['title']}\n{it['url']}\n"
