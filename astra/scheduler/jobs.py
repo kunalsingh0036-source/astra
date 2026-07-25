@@ -1408,6 +1408,18 @@ async def run_spine_fetch():
     return await _safe("spine_fetch", fetch_all)
 
 
+async def run_study_assignment():
+    """Sunday 18:00 IST — the week's study assignment (5h/wk budget)."""
+    from astra.research.study import run_weekly_assignment
+    return await _safe("study_assignment", run_weekly_assignment)
+
+
+async def run_study_srs():
+    """Daily 21:30 IST — up to 4 due recall prompts, one message."""
+    from astra.research.study import run_daily_srs
+    return await _safe("study_srs", run_daily_srs)
+
+
 async def inbox_preview() -> dict:
     """12:45 IST — lands 15 min before the 13:00 work window.
 

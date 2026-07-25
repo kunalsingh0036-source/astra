@@ -45,6 +45,8 @@ from astra.scheduler.jobs import (
     run_content_draft,
     run_daily_research,
     run_spine_fetch,
+    run_study_assignment,
+    run_study_srs,
     run_inbox_preview,
     run_classify_sweep,
     run_classify_sweep_light,
@@ -422,6 +424,26 @@ def _build_scheduler() -> AsyncIOScheduler:
         _ist_cron(hour="*/2", minute=20),
         id="spine_fetch",
         name="Source spine fetch (RSS/API/scrape + tripwires)",
+        replace_existing=True,
+    )
+
+    # Study assignment — Sunday 18:00 IST (5h/week budget: paper + build
+    # + daily recall). One WhatsApp screen; full assignment in the app.
+    scheduler.add_job(
+        run_study_assignment,
+        _ist_cron(day_of_week="sun", hour=18, minute=0),
+        id="study_assignment",
+        name="Weekly study assignment (AI mastery curriculum)",
+        replace_existing=True,
+    )
+
+    # Daily recall — 21:30 IST, lands after evening training. Up to 4
+    # due cards, one message, ~5 minutes.
+    scheduler.add_job(
+        run_study_srs,
+        _ist_cron(hour=21, minute=30),
+        id="study_srs",
+        name="Daily study recall (SRS)",
         replace_existing=True,
     )
 
