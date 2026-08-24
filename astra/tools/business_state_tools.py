@@ -253,15 +253,20 @@ _TIER1 = {
     "stream": "STREAM_URL|http://stream.railway.internal:8080",
     "scheduler": None,  # no HTTP surface; reported via jobstore elsewhere
     "email": "EMAIL_AGENT_URL|http://email.railway.internal:8080",
-    "finance": "FINANCE_URL|http://finance.railway.internal:8080",
+    # finance.railway.internal was DELETED in the R3 consolidation; the
+    # app is now mounted at /finance inside `agents`. The stale default
+    # made fleet_status report finance unreachable forever.
+    "finance": "FINANCE_URL|http://agents.railway.internal:8080/finance",
     "whatsapp": "GATEWAY_URL|http://whatsapp.railway.internal:8080",
-    "bridge": "A2A_BRIDGE_BASE|http://bridge.railway.internal:8500",
+    # bridge.railway.internal ALSO died in R3 (folded into `agents`
+    # at /a2a). Probe the host service itself: /a2a/health is behind
+    # mesh auth, so probing it would report a permanent HTTP 401.
+    "agents": "AGENTS_URL|http://agents.railway.internal:8080",
 }
 _TIER2 = {
     "helmtech": "HELMTECH_URL|https://helm-sales-production.up.railway.app",
     "apex-sales": "APEX_URL|https://apex-sales-team-production-2c45.up.railway.app",
     "apex-experimental": "APEX_EXPERIMENTAL_URL|https://apex-experimental-production.up.railway.app",
-    "bookkeeper": "BOOKKEEPER_URL|",  # not deployed; honest 'not deployed'
 }
 
 
@@ -302,7 +307,7 @@ async def _probe(name: str, spec: str | None) -> tuple[str, str]:
     "Astra. Use for 'how is everything', 'is anything down', 'fleet "
     "status', or any whole-system health question. Covers Tier-1 "
     "direct children (stream/scheduler/email/finance/whatsapp/bridge) "
-    "and Tier-2 federated agents (helmtech/apex/bookkeeper). "
+    "and Tier-2 federated agents (helmtech/apex). "
     "Prefer this over any service_* / agent_status / fleet_summary "
     "tool — those probe a decommissioned laptop topology and lie.",
     {},

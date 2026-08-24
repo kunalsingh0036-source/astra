@@ -38,11 +38,54 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # NOT "*": this API serves five companies' financial records. Only the
+    # astra-web origin (and localhost for dev) may talk to it from a browser.
+    allow_origins=[settings.web_origin, "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Mesh auth ──────────────────────────────────────────────────────
+#
+# Until 2026-08-07 this service had NO authentication: unauthenticated
+# GETs returned data and unauthenticated POSTs reached the handlers.
+# It was harmless only because every table was empty; seeding the entity
+# master (GSTIN/PAN/CIN) would have published it. Every sibling service
+# (email_agent, gateway, stream) already had this. Pattern copied from
+# services/email_agent/main.py.
+#
+# FAIL CLOSED: unset secret → 503 on protected routes, never open.
+_PUBLIC_EXACT = {"/", "/health"}
+
+
+@app.middleware("http")
+async def require_mesh_secret(request, call_next):
+    import hmac as _hmac
+
+    from fastapi.responses import JSONResponse
+
+    path = request.url.path.rstrip("/") or "/"
+    # This app is mounted at /finance inside the `agents` service. Depending
+    # on Starlette's root_path handling the prefix may or may not appear in
+    # request.url.path, so normalise both shapes — otherwise /health is
+    # protected in one deployment shape and everything is public in the other.
+    if path.startswith("/finance"):
+        path = path[len("/finance"):].rstrip("/") or "/"
+
+    if request.method == "OPTIONS" or path in _PUBLIC_EXACT:
+        return await call_next(request)
+    secret = settings.agent_shared_secret.strip()
+    if not secret:
+        return JSONResponse(
+            {"detail": "auth not configured: AGENT_SHARED_SECRET is unset"},
+            status_code=503,
+        )
+    provided = request.headers.get("x-astra-secret", "").strip()
+    if not _hmac.compare_digest(provided, secret):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 # Mount all API routes under /api/v1

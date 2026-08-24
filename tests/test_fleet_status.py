@@ -56,11 +56,10 @@ async def test_fleet_status_degrades_to_honest_lines(monkeypatch):
     monkeypatch.setenv("EMAIL_AGENT_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("FINANCE_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("GATEWAY_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("A2A_BRIDGE_BASE", "http://127.0.0.1:1")
+    monkeypatch.setenv("AGENTS_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("HELMTECH_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("APEX_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("APEX_EXPERIMENTAL_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("BOOKKEEPER_URL", "")
 
     from astra.tools.business_state_tools import fleet_status_tool
 
@@ -69,7 +68,21 @@ async def test_fleet_status_degrades_to_honest_lines(monkeypatch):
     assert "FLEET STATUS" in text
     assert "Tier 1" in text and "Tier 2" in text
     assert "unreachable" in text  # dead endpoints reported honestly
-    assert "not deployed" in text  # empty bookkeeper URL
     assert "healthy" not in text.split("Summary")[0].replace(
         "no HTTP health surface", ""
     )  # nothing falsely healthy
+
+
+@pytest.mark.asyncio
+async def test_probe_reports_empty_url_as_not_deployed():
+    """An entry with no configured URL degrades to an honest 'not
+    deployed', never a crash and never a false healthy. No registry
+    entry exercises this today (bookkeeper was removed once the repo
+    was harvested and buried), so it is asserted directly."""
+    from astra.tools.business_state_tools import _probe
+
+    name, status = await _probe("someagent", "SOME_URL|")
+    assert (name, status) == ("someagent", "not deployed")
+
+    name, status = await _probe("nosurface", None)
+    assert status == "no HTTP health surface"

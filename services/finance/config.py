@@ -46,8 +46,13 @@ class Settings(BaseSettings):
     model_haiku: str = "claude-haiku-4-5-20251001"
     model_sonnet: str = "claude-sonnet-4-6"
 
-    # Bookkeeper integration
-    bookkeeper_url: str = "http://localhost:8000"
+    # Mesh auth. Fail-closed: main.py 503s protected routes when this
+    # is unset rather than serving them open (the empty-env-save
+    # failure class in learnings_railway_migration.md).
+    agent_shared_secret: str = ""
+
+    # Allowed browser origin for CORS (astra-web).
+    web_origin: str = "https://astra.thearrogantclub.com"
 
     # Server
     host: str = "0.0.0.0"
