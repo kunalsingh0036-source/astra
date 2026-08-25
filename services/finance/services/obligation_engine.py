@@ -54,6 +54,22 @@ class MaterialisedObligation:
 
 # ── Entity predicate: True / False / UNKNOWN ───────────────────────
 
+def _norm(v: Any) -> Any:
+    """Case- and shape-normalise a comparison value.
+
+    SQLAlchemy's Enum persists the member NAME ("PVT_LTD"), while the
+    catalogue and the JSON API both speak the VALUE ("pvt_ltd"). Raw SQL
+    reads the stored name, so a naive == returned a CONFIDENT False and
+    silently dropped every pvt_ltd-gated rule — AOC-4, MGT-7, ITR,
+    statutory audit. Found in the 2026-08-24 acceptance run. Comparing
+    case-insensitively closes that class: a value mismatch must never
+    read as "does not apply".
+    """
+    if isinstance(v, str):
+        return v.strip().casefold()
+    return v
+
+
 def applies_to(rule_applies_when: dict, business: dict) -> Applicability:
     """Does this rule bind this entity?
 
@@ -83,15 +99,15 @@ def applies_to(rule_applies_when: dict, business: dict) -> Applicability:
             return False
         if op == "gt" and not (float(actual) > float(expected)):
             return False
-        if op == "in" and actual not in expected:
+        if op == "in" and _norm(actual) not in [_norm(e) for e in expected]:
             return False
         if op == "is_true" and bool(actual) is not bool(expected):
             return False
         if op == "eq":
             if isinstance(expected, list):
-                if actual not in expected:
+                if _norm(actual) not in [_norm(e) for e in expected]:
                     return False
-            elif actual != expected:
+            elif _norm(actual) != _norm(expected):
                 return False
 
     return UNKNOWN if unknown_seen else True
