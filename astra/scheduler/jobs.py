@@ -1420,6 +1420,18 @@ async def run_daily_research():
     return await _safe("intel_daily", run_daily_intel)
 
 
+async def run_objectives_tick():
+    """Every 4h — advance every self-pursuing goal.
+
+    4-hourly rather than daily because a chase that only wakes at 07:00
+    cannot react to a reply that lands at 09:00, and the whole point is
+    that it stops as soon as the outcome arrives. Notification cost stays
+    flat: the tick sends ONE batched message or none at all.
+    """
+    from astra.objectives.engine import tick
+    return await _safe("objectives_tick", tick)
+
+
 async def run_spine_fetch():
     """Every 2h — fetch all registered spine sources, fire tripwires."""
     from astra.research.spine import fetch_all

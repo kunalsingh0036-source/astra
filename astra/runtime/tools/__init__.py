@@ -126,6 +126,12 @@ def _imp_shares():
 _bridge_constructor("shares", _imp_shares)
 
 
+def _imp_objectives():
+    from astra.tools.objective_tools import create_objectives_mcp_server
+    return create_objectives_mcp_server()
+_bridge_constructor("objectives", _imp_objectives)
+
+
 def _imp_calendar():
     from astra.tools.calendar_tools import create_calendar_mcp_server
     return create_calendar_mcp_server()

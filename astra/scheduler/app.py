@@ -44,6 +44,7 @@ from astra.scheduler.jobs import (
     run_meeting_capture_trigger,
     run_content_draft,
     run_daily_research,
+    run_objectives_tick,
     run_spine_fetch,
     run_study_assignment,
     run_study_srs,
@@ -414,6 +415,17 @@ def _build_scheduler() -> AsyncIOScheduler:
         _ist_cron(hour=7, minute=0),
         id="daily_research",
         name="AI Intel brief (spine-composed daily + Sat meta-review)",
+        replace_existing=True,
+    )
+
+    # Objectives — every 4h. Goals that chase themselves: re-check the
+    # done condition, draft the next nudge, escalate when it drags, stop
+    # the moment the outcome lands. ONE batched message per tick.
+    scheduler.add_job(
+        run_objectives_tick,
+        _ist_cron(hour="8,12,16,20", minute=10),
+        id="objectives_tick",
+        name="Objectives tick (self-pursuing goals)",
         replace_existing=True,
     )
 

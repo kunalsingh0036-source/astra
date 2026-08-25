@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from email_agent.db.engine import get_session
@@ -45,6 +45,57 @@ async def list_messages(
     q = q.limit(limit).offset(offset)
     result = await session.execute(q)
     return result.scalars().all()
+
+
+@router.get("/reply-check")
+async def reply_check(
+    sender: str,
+    since: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Did `sender` send us anything at or after `since`?
+
+    Exists for the objective loop: a chase that cannot detect a reply is
+    a nag. Deterministic — a SQL existence check, no model involved.
+    Matches on a substring of the from-address so display-name forms
+    ("Samarth <s@x.com>") still resolve.
+
+    Returns {found, at, subject}. A LOOKUP FAILURE MUST NOT look like a
+    negative: the caller treats a non-200 as "unknown", never as "no
+    reply", because the difference decides whether Kunal gets nagged.
+    """
+    from datetime import datetime
+
+    try:
+        since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "since must be ISO-8601")
+
+    needle = (sender or "").strip().lower()
+    if not needle:
+        raise HTTPException(400, "sender required")
+
+    row = (await session.execute(
+        text("""
+            SELECT sent_at, subject
+            FROM email_messages
+            -- direction is a SQLAlchemy Enum: PG stores the member NAME
+            -- ('INBOUND'), not the value. Comparing to 'inbound' matches
+            -- NOTHING and a chase would never see a reply. Same trap that
+            -- silently dropped the uncapped statutory filings — normalise.
+            WHERE UPPER(CAST(direction AS TEXT)) = 'INBOUND'
+              AND sent_at >= :since
+              AND lower(from_address) LIKE :needle
+            ORDER BY sent_at ASC
+            LIMIT 1
+        """),
+        {"since": since_dt, "needle": f"%{needle}%"},
+    )).mappings().first()
+
+    if not row:
+        return {"found": False, "at": None, "subject": None}
+    return {"found": True, "at": row["sent_at"].isoformat(),
+            "subject": row["subject"] or ""}
 
 
 @router.get("/summary", response_model=MessageSummary)
