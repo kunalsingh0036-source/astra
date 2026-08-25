@@ -46,9 +46,14 @@ async def health() -> dict:
 
 
 # ── Sub-apps. Each keeps its own routes + middleware/auth + DB engine. ──
-# Mounted under a path prefix; mounted sub-apps run their own lifespan and
-# middleware for requests under their mount, so behaviour is unchanged —
-# only the base URL moves (host:port → host:port/<prefix>).
+# Mounted under a path prefix. CAREFUL: a mounted sub-app runs its own
+# MIDDLEWARE for requests under its mount, but Starlette does NOT run a
+# mounted sub-app's LIFESPAN. Verified in production 2026-08-24 — the
+# finance app's startup hook never fired and its tables were never
+# created. Any sub-app that needs startup work must use a lazy
+# point-of-use guard (see services/finance/db/ensure.py:ensure_ready)
+# or be invoked from THIS app's lifespan. Only the base URL moves
+# otherwise (host:port → host:port/<prefix>).
 from services.finance.main import app as _finance_app  # noqa: E402
 
 from astra.agents.external.bridge_server import app as _bridge_app  # noqa: E402

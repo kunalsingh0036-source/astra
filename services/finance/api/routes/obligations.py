@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from finance.db.engine import get_session
+from finance.db.ensure import ensure_ready
 from finance.services.obligation_engine import exposure_for, materialise
 
 router = APIRouter(prefix="/obligations", tags=["obligations"])
@@ -62,6 +63,7 @@ async def scan(
 ):
     """Materialise every obligation due in the window, for every active
     entity. Idempotent — safe to run on a schedule."""
+    await ensure_ready()
     today = _today_ist()
     from_date = today - timedelta(days=lookback_days)
     to_date = today + timedelta(days=horizon_days)
@@ -136,6 +138,7 @@ async def list_obligations(
     """Open obligations. `alertable_only` applies the source gate: a rule
     that is not 'verified' NEVER surfaces as an alert, only in the
     sign-off tray."""
+    await ensure_ready()
     today = _today_ist()
     sql = """
         SELECT o.id, o.business_id, b.name AS business, b.slug,
@@ -177,6 +180,7 @@ async def mark_filed(
 ):
     """Record a filing. `filed_ref` (ARN/SRN/acknowledgement) is required —
     a filing with no reference is a claim, not a record."""
+    await ensure_ready()
     ref = str((payload or {}).get("filed_ref") or "").strip()
     if not ref:
         raise HTTPException(400, "filed_ref required (ARN / SRN / acknowledgement no.)")
@@ -196,6 +200,7 @@ async def mark_filed(
 @router.get("/rules")
 async def list_rules(session: AsyncSession = Depends(get_session)):
     """The catalogue, with the sign-off tray called out explicitly."""
+    await ensure_ready()
     rows = (await session.execute(text("""
         SELECT code, label, authority, cadence, penalty_per_day, penalty_capped,
                penalty_note, statute_ref, source_url, verified_on, verified_by,
@@ -217,6 +222,7 @@ async def verify_rule(
     session: AsyncSession = Depends(get_session),
 ):
     """Sign a rule off. Only after this does it alert."""
+    await ensure_ready()
     by = str((payload or {}).get("verified_by") or "kunal").strip()
     if by not in {"kunal", "ca", "cs"}:
         raise HTTPException(400, "verified_by must be one of: kunal, ca, cs")

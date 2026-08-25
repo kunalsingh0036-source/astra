@@ -94,6 +94,30 @@ _INDEXES = [
 ]
 
 
+_ensured = False
+
+
+async def ensure_ready() -> None:
+    """Lazy, once-per-process guard — call at the top of any route that
+    touches the obligation tables.
+
+    WHY LAZY AND NOT lifespan: this app is MOUNTED (app.mount("/finance",
+    ...)) inside `agents`, and Starlette does NOT run lifespan handlers
+    for mounted sub-apps. Middleware runs, lifespan does not. Verified in
+    production 2026-08-24: zero "[finance] ensure_schema" log lines ever
+    appeared and the tables did not exist. Same shape as
+    astra/creators/engagement.py, which calls its guard per-function for
+    exactly this class of reason.
+    """
+    global _ensured
+    if _ensured:
+        return
+    await ensure_schema()
+    report = await seed_rules()
+    logger.info("[finance] schema ready; rule catalogue: %s", report)
+    _ensured = True
+
+
 async def ensure_schema() -> None:
     """Idempotent. Logs loudly on failure; never silently half-applies."""
     async with async_session() as s:

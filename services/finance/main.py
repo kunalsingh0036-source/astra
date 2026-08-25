@@ -28,9 +28,10 @@ async def lifespan(app: FastAPI):
     # Import models so they register with SQLAlchemy metadata
     import finance.models  # noqa: F401
 
-    # The finance service is mounted inside `agents`, whose entrypoint
-    # does NOT run alembic — so this guard is what actually creates the
-    # entity-master columns and the obligation tables in production.
+    # Standalone runs only. When MOUNTED inside `agents`, Starlette does
+    # NOT execute this lifespan at all — the real guarantee is the lazy
+    # ensure_ready() guard called by the obligation routes. Kept here so
+    # a standalone `python -m finance.main` still comes up migrated.
     # Failure is logged loudly and does not take the service down: a
     # healthy-but-unmigrated finance API is recoverable; a crash-looping
     # `agents` takes /a2a down with it.
