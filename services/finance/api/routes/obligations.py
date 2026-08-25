@@ -114,7 +114,7 @@ async def scan(
             exposure_amount = CASE
                 WHEN o.status IN ('filed','not_applicable') THEN o.exposure_amount
                 WHEN o.due_date < :today THEN
-                    COALESCE(r.penalty_per_day, 0) * (:today::date - o.due_date)
+                    COALESCE(r.penalty_per_day, 0) * (CAST(:today AS DATE) - o.due_date)
                 ELSE 0 END,
             updated_at = now()
         FROM obligation_rules r
