@@ -113,6 +113,10 @@ async def scan(
                 ELSE 'upcoming' END,
             exposure_amount = CASE
                 WHEN o.status IN ('filed','not_applicable') THEN o.exposure_amount
+                -- Applicability unknown => no rupee claim. Resolve the
+                -- entity master first; a penalty figure for something that
+                -- may not apply reads as fact and is not one.
+                WHEN o.status = 'needs_entity_data' THEN 0
                 WHEN o.due_date < :today THEN
                     COALESCE(r.penalty_per_day, 0) * (CAST(:today AS DATE) - o.due_date)
                 ELSE 0 END,
@@ -184,10 +188,14 @@ async def mark_filed(
     ref = str((payload or {}).get("filed_ref") or "").strip()
     if not ref:
         raise HTTPException(400, "filed_ref required (ARN / SRN / acknowledgement no.)")
-    filed_on = (payload or {}).get("filed_on") or str(_today_ist())
+    raw_on = (payload or {}).get("filed_on")
+    try:
+        filed_on = date.fromisoformat(str(raw_on)) if raw_on else _today_ist()
+    except ValueError:
+        raise HTTPException(400, "filed_on must be YYYY-MM-DD")
     res = await session.execute(text("""
         UPDATE obligations
-        SET status='filed', filed_on=CAST(:on AS DATE), filed_ref=:ref,
+        SET status='filed', filed_on=:on, filed_ref=:ref,
             exposure_amount=0, updated_at=now()
         WHERE id=:id RETURNING id
     """), {"id": obligation_id, "on": filed_on, "ref": ref})
@@ -228,9 +236,9 @@ async def verify_rule(
         raise HTTPException(400, "verified_by must be one of: kunal, ca, cs")
     res = await session.execute(text("""
         UPDATE obligation_rules
-        SET status='verified', verified_by=:by, verified_on=CAST(:on AS DATE)
+        SET status='verified', verified_by=:by, verified_on=:on
         WHERE code=:code RETURNING code
-    """), {"code": code, "by": by, "on": str(_today_ist())})
+    """), {"code": code, "by": by, "on": _today_ist()})
     if res.scalar() is None:
         raise HTTPException(404, f"no rule {code}")
     await session.commit()
