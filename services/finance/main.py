@@ -1,5 +1,6 @@
 """Finance Agent — FastAPI application."""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +16,7 @@ from finance.api.routes import (
     dashboard,
     expenses,
     invoices,
+    obligations,
     payments,
     reconciliation,
 )
@@ -25,6 +27,23 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     # Import models so they register with SQLAlchemy metadata
     import finance.models  # noqa: F401
+
+    # The finance service is mounted inside `agents`, whose entrypoint
+    # does NOT run alembic — so this guard is what actually creates the
+    # entity-master columns and the obligation tables in production.
+    # Failure is logged loudly and does not take the service down: a
+    # healthy-but-unmigrated finance API is recoverable; a crash-looping
+    # `agents` takes /a2a down with it.
+    try:
+        from finance.db.ensure import ensure_schema, seed_rules
+
+        await ensure_schema()
+        report = await seed_rules()
+        logging.getLogger(__name__).info("[finance] rule catalogue: %s", report)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "[finance] schema ensure/seed failed — obligations will be unavailable"
+        )
 
     yield
 
@@ -91,7 +110,7 @@ async def require_mesh_secret(request, call_next):
 # Mount all API routes under /api/v1
 for route_module in [
     businesses, invoices, payments, expenses, bank_accounts,
-    alerts, reconciliation, cash_flow, dashboard, ai,
+    alerts, reconciliation, cash_flow, dashboard, ai, obligations,
 ]:
     app.include_router(route_module.router, prefix="/api/v1")
 
@@ -118,6 +137,7 @@ async def root():
             "cash_flow": "/api/v1/cash-flow",
             "alerts": "/api/v1/alerts",
             "dashboard": "/api/v1/dashboard",
+            "obligations": "/api/v1/obligations",
         },
     }
 

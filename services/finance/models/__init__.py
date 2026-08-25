@@ -8,6 +8,9 @@ from finance.models.expense import Expense
 from finance.models.reconciliation import Reconciliation, ReconciliationType, ReconciliationStatus
 from finance.models.cash_flow import CashFlowSnapshot
 from finance.models.alert import Alert, AlertType, AlertSeverity
+from finance.models.obligation import (
+    Obligation, ObligationRule, ObligationStatus, RuleStatus,
+)
 
 __all__ = [
     "Business", "BusinessType",
@@ -18,4 +21,5 @@ __all__ = [
     "Reconciliation", "ReconciliationType", "ReconciliationStatus",
     "CashFlowSnapshot",
     "Alert", "AlertType", "AlertSeverity",
+    "Obligation", "ObligationRule", "ObligationStatus", "RuleStatus",
 ]
