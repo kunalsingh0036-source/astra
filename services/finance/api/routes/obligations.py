@@ -83,11 +83,15 @@ async def scan(
 
     by_code = {r["code"]: r for r in rules}
     created = 0
+    # (business_id, rule_code, period_label) the rules CURRENTLY generate.
+    # Used below to retire obligations that no longer apply.
+    live: set[tuple[str, str, str]] = set()
     for biz in businesses:
         planned = materialise(
             business=biz, rules=rules, from_date=from_date, to_date=to_date
         )
         for item in planned:
+            live.add((str(biz["id"]), item.rule_code, item.period_label))
             rule = by_code[item.rule_code]
             res = await session.execute(text("""
                 INSERT INTO obligations
@@ -107,6 +111,28 @@ async def scan(
             })
             if res.scalar() is not None:
                 created += 1
+
+    # RECONCILE, do not merely insert. If the rules stop generating an
+    # obligation — an entity's data is corrected, a rule is retired, or
+    # (as happened on 2026-08-26) a Sec 2(41) fix removes filings that
+    # never legally existed — the stale row must go, or the calendar
+    # quietly drifts away from the rules that justify it and Kunal is
+    # chased for a deadline nothing stands behind.
+    #
+    # NEVER touches a row a human has acted on: filed rows are the record.
+    retired = 0
+    stale_rows = (await session.execute(text("""
+        SELECT id, business_id, rule_code, period_label
+        FROM obligations
+        WHERE status NOT IN ('filed')
+          AND due_date BETWEEN :f AND :t
+    """), {"f": from_date, "t": to_date})).mappings().all()
+    to_drop = [r["id"] for r in stale_rows
+               if (str(r["business_id"]), r["rule_code"], r["period_label"]) not in live]
+    if to_drop:
+        await session.execute(
+            text("DELETE FROM obligations WHERE id = ANY(:ids)"), {"ids": to_drop})
+        retired = len(to_drop)
 
     # Refresh live state on everything still open. Arithmetic only.
     await session.execute(text("""
@@ -132,7 +158,7 @@ async def scan(
     """), {"today": today, "soon": today + timedelta(days=7)})
     await session.commit()
 
-    return {"ok": True, "created": created,
+    return {"ok": True, "created": created, "retired": retired,
             "window": {"from": str(from_date), "to": str(to_date)},
             "entities": len(businesses), "rules": len(rules)}
 
