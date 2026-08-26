@@ -97,3 +97,32 @@ def test_materialise_is_deterministic():
     b = materialise(business=PVT, rules=RULES,
                     from_date=date(2026, 8, 1), to_date=date(2027, 3, 31))
     assert a == b
+
+
+def test_first_financial_year_sec_2_41():
+    """Companies Act Sec 2(41): a company incorporated Jan-Mar has its
+    first FY end on 31 Mar of the FOLLOWING year. Without this, an entity
+    incorporated Feb-2026 gets FY2025-26 AOC-4/MGT-7/ITR obligations that
+    legally do not exist — a fabricated Rs 100/day deadline. Caught when
+    Kunal's real entity master landed."""
+    from datetime import date as _d
+
+    from finance.services.obligation_engine import first_fy_end
+
+    assert first_fy_end(_d(2026, 2, 19)) == _d(2027, 3, 31)   # HelmTech
+    assert first_fy_end(_d(2026, 2, 27)) == _d(2027, 3, 31)   # TAC Squash
+    assert first_fy_end(_d(2025, 11, 5)) == _d(2026, 3, 31)
+    assert first_fy_end(None) is None
+
+
+def test_no_obligation_predates_the_entity():
+    biz = {"business_type": "PVT_LTD", "incorporation_date": date(2026, 2, 19)}
+    got = materialise(business=biz, rules=RULES,
+                      from_date=date(2025, 1, 1), to_date=date(2028, 3, 31))
+    aoc = [o for o in got if o.rule_code == "AOC4"]
+    assert aoc, "AOC-4 must still exist for the FIRST real FY"
+    assert all(o.period_label != "FY2025-26" for o in aoc)
+    assert aoc[0].period_label == "FY2026-27"
+    # monthly returns must not predate incorporation either
+    monthly = [o for o in got if o.rule_code == "GSTR3B"]
+    assert all(o.due_date >= date(2026, 2, 1) for o in monthly)

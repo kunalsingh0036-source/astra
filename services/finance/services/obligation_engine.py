@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -126,6 +126,27 @@ def _shift_month(year: int, month: int, by: int) -> tuple[int, int]:
     return idx // 12, idx % 12 + 1
 
 
+def first_fy_end(incorporation: date | None) -> date | None:
+    """Companies Act 2013, Sec 2(41): a company incorporated ON OR AFTER
+    1 January has its FIRST financial year end on 31 March of the
+    FOLLOWING year.
+
+    Without this, an entity incorporated Feb-2026 is handed FY2025-26
+    AOC-4 / MGT-7 / ITR / statutory-audit obligations that legally do not
+    exist — a fabricated Rs 100/day deadline arriving through the period
+    generator rather than the rule table. Found when Kunal's real entity
+    master landed (HelmTech 19 Feb 2026, TAC Squash 27 Feb 2026).
+    """
+    if incorporation is None:
+        return None
+    # The formula is uniform once you work it through:
+    #   incorporated Apr-Dec of year Y -> normal FY end = 31 Mar (Y+1)
+    #   incorporated Jan-Mar of year Y -> the Sec 2(41) proviso extends the
+    #     first FY past the stub period, also landing on 31 Mar (Y+1)
+    # Both branches give 31 March of the following calendar year.
+    return date(incorporation.year + 1, 3, 31)
+
+
 def _fy_bounds(fy_start_year: int) -> tuple[date, date, str]:
     """Indian FY: 1 Apr fy_start_year -> 31 Mar fy_start_year+1."""
     start = date(fy_start_year, 4, 1)
@@ -185,6 +206,11 @@ def materialise(
     caller's job (ON CONFLICT DO NOTHING on the unique instance key)."""
     out: list[MaterialisedObligation] = []
 
+    incorporation = business.get("incorporation_date")
+    if isinstance(incorporation, datetime):
+        incorporation = incorporation.date()
+    first_fy = first_fy_end(incorporation)
+
     for rule in rules:
         verdict = applies_to(rule.get("applies_when") or {}, business)
         if verdict is False:
@@ -217,6 +243,12 @@ def materialise(
             continue  # 'event' — catalogued, never auto-materialised
 
         for anchor, label in anchors:
+            # The entity cannot owe a return for a period before it existed.
+            if incorporation is not None and anchor < incorporation:
+                continue
+            # ...and its first ANNUAL filings are governed by Sec 2(41).
+            if cadence == "annual" and first_fy is not None and anchor < first_fy:
+                continue
             due = due_date_for(due_rule, period_anchor=anchor)
             if due is None or not (from_date <= due <= to_date):
                 continue
