@@ -255,7 +255,22 @@ async def run_lean_turn(
     except Exception:
         logger.exception("[lean-runtime] autonomy refresh_from_db failed")
 
+    # Provider bridge: if the primary is known-unhealthy (credit
+    # exhaustion, auth, rate limit, 5xx) this hands back the Kimi
+    # fallback instead of failing the turn. Decided BEFORE the stream
+    # opens — mid-stream failover would mean restructuring the loop
+    # while it is already emitting text. See astra/llm/failover.py.
     client = AsyncAnthropic()
+    try:
+        from astra.llm.failover import maybe_bridge
+
+        client, model, _on_bridge = await maybe_bridge(client, model)
+        if _on_bridge:
+            logger.warning(
+                '[lean-runtime] turn %s running on BRIDGE provider', turn_id)
+    except Exception:
+        # Failover is a safety net, never a new way to fail a turn.
+        logger.exception('[lean-runtime] bridge check errored; using primary')
 
     # Rehydrate prior turns if a session_id is provided. Each
     # completed turn stored its final message stack in the turns

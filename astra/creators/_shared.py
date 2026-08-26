@@ -22,9 +22,10 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-import anthropic
+import anthropic  # noqa: F401  (kept for typing/back-compat)
 
 from astra.config import settings
+from astra.llm.failover import acreate
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +113,10 @@ async def generate_json(
     key = get_anthropic_key()
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY not set; cannot draft")
-    client = anthropic.AsyncAnthropic(api_key=key)
-
-    resp = await client.messages.create(
+    # acreate() owns client construction so the Kimi bridge can take over
+    # transparently when the primary provider fails (credit exhaustion,
+    # auth, rate limit, 5xx). See astra/llm/failover.py.
+    resp = await acreate(
         model=model,
         max_tokens=max_tokens,
         system=system,

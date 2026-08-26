@@ -36,23 +36,39 @@ async def test_synthesize_falls_back_without_llm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sections_degrade_to_strings_never_raise(monkeypatch):
-    """Every gather helper returns a string even with the DB/agents
-    unreachable — a dead source is one honest clause, not a crash."""
+    """Every gather helper degrades to an honest clause with the DB and
+    agents unreachable — never a crash, never a fabricated number.
+
+    Three of these return (text, facts) rather than a bare string: the
+    facts dict carries the exact counts so a synthesised brief can be
+    reconciled against them (added after the 2026-06-13 audit found a
+    brief hallucinating "41 action-needed / 10 drafts" from a correct
+    "9 / 0"). The test asserts the real contract per helper."""
     import astra.scheduler.briefing_v2 as bv
 
     monkeypatch.setenv("EMAIL_AGENT_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("FLEET_HEALTH_URLS", "stream=http://127.0.0.1:1/health")
+
     for fn in (
         bv._calendar_today,
-        bv._inbox_state,
-        bv._fleet_line,
-        bv._training_state,
         bv._research_line,
         bv._recent_turn_topics,
         bv._calendar_tomorrow,
     ):
         out = await fn()
-        assert isinstance(out, str)
+        # A string, always. An EMPTY string is legitimate here: an
+        # optional section with nothing to report is omitted rather than
+        # padded. Only a genuinely dead source must speak up, and those
+        # are the (text, facts) helpers below.
+        assert isinstance(out, str), f"{fn.__name__} must degrade to a string"
+
+    for fn in (bv._inbox_state, bv._fleet_line, bv._training_state):
+        out = await fn()
+        assert isinstance(out, tuple) and len(out) == 2, (
+            f"{fn.__name__} returns (text, facts)")
+        text, facts = out
+        assert isinstance(text, str) and text.strip()
+        assert isinstance(facts, dict)
 
 
 def test_phase_b_imports():

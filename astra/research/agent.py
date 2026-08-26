@@ -63,7 +63,9 @@ async def _call(
     model: str | None = None,
 ) -> str:
     """One Claude call; web_search enabled when searches > 0."""
-    import anthropic
+    import anthropic  # noqa: F401  (client kwargs shape)
+
+    from astra.llm.failover import acreate
 
     from astra.config import settings
     from astra.research.runner import _get_api_key
@@ -71,7 +73,6 @@ async def _call(
     key = _get_api_key()
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY not available")
-    client = anthropic.AsyncAnthropic(api_key=key)
     tools: list[dict] = []
     if searches > 0:
         tools.append({
@@ -79,7 +80,7 @@ async def _call(
             "name": "web_search",
             "max_uses": searches,
         })
-    resp = await client.messages.create(
+    resp = await acreate(
         model=model or settings.model_sonnet,
         max_tokens=max_tokens,
         tools=tools or anthropic.NOT_GIVEN,
