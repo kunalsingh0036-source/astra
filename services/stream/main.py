@@ -493,6 +493,71 @@ def _check_secret(request: Request) -> None:
 # approved queue (next-approved), pastes each into the focused LinkedIn/X
 # composer, Kunal clicks Post, and the Sidecar confirms the real ship
 # (posted). Astra never clicks Post — his finger is the gate.
+@app.get("/browser/next-task")
+async def browser_next_task(request: Request) -> dict[str, object]:
+    """The Chrome extension's poll. Returns one task or nothing.
+
+    Polling rather than a socket is deliberate: MV3 service workers are
+    killed after ~30s idle, so a persistent connection has to be nursed
+    with keepalives forever. An asleep browser is simply a browser with
+    no hands right now — the same honest degradation the Mac bridge uses.
+    """
+    _check_secret(request)
+
+    from astra.browser.store import claim_next, expire_stale  # type: ignore
+
+    await expire_stale()
+    task = await claim_next(request.query_params.get("url") or "")
+    return {"ok": True, "task": task}
+
+
+@app.post("/browser/task/{task_id}/result")
+async def browser_task_result(task_id: str, request: Request) -> dict[str, object]:
+    """Extension reports back. An error is recorded as an error, never
+    swallowed into a success with empty data."""
+    _check_secret(request)
+    try:
+        raw = await request.json()
+    except Exception:
+        raw = {}
+
+    from astra.browser.store import complete  # type: ignore
+
+    ok = await complete(
+        task_id,
+        result=(raw or {}).get("result") or {},
+        error=str((raw or {}).get("error") or ""),
+    )
+    if not ok:
+        raise HTTPException(404, f"no browser task {task_id}")
+    return {"ok": True}
+
+
+@app.post("/browser/enqueue")
+async def browser_enqueue(request: Request) -> dict[str, object]:
+    """Queue a browser task. ACT kinds (click/type/navigate/scroll) are
+    staged unapproved by default; approval is a separate human step."""
+    _check_secret(request)
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(400, "JSON body required")
+
+    from astra.browser.store import enqueue  # type: ignore
+
+    try:
+        out = await enqueue(
+            kind=str((raw or {}).get("kind") or ""),
+            url_pattern=str((raw or {}).get("url_pattern") or ""),
+            payload=(raw or {}).get("payload") or {},
+            approved=bool((raw or {}).get("approved")),
+            requested_by=str((raw or {}).get("requested_by") or "astra"),
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **out}
+
+
 @app.post("/engagement/ingest")
 async def engagement_ingest(request: Request) -> dict[str, object]:
     """Feed batch from the Mac-side reader (E1). Body: {batch_id,

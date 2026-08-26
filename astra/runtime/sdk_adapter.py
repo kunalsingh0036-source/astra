@@ -103,6 +103,8 @@ def _guess_timeout(tool_name: str, namespace: str) -> int:
         "ingest_voice_export": 180,   # paged Mac-bridge reads + parse + POST
         "learn_my_voice": 150,        # LLM distillation
         "mine_my_voice": 300,         # kicks off background mine
+        "browser_read": 100,      # extension polls once a minute
+        "browser_extract": 100,
         "research": 600,              # multi-stage agent: plan → parallel
                                       # sourced searches → verify → synthesize
         "draft_linkedin_now": 420,    # draft + claim extraction + per-claim

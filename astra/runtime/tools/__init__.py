@@ -132,6 +132,12 @@ def _imp_objectives():
 _bridge_constructor("objectives", _imp_objectives)
 
 
+def _imp_browser():
+    from astra.tools.browser_tools import create_browser_mcp_server
+    return create_browser_mcp_server()
+_bridge_constructor("browser", _imp_browser)
+
+
 def _imp_calendar():
     from astra.tools.calendar_tools import create_calendar_mcp_server
     return create_calendar_mcp_server()
