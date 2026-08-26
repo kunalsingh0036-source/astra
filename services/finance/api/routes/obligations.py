@@ -42,7 +42,13 @@ async def _load_businesses(session: AsyncSession, business_id=None) -> list[dict
         SELECT id, name, slug, business_type, gstin, pan,
                gst_registration_type, employee_count, aato_last_fy,
                has_international_transactions, fy_end, lut_valid_till,
-               paid_up_capital, is_active
+               paid_up_capital, is_active,
+               -- REQUIRED by the Sec 2(41) first-financial-year guard in
+               -- obligation_engine.materialise(). Omitting it made every
+               -- entity look like it had no incorporation date, so the
+               -- guard silently never fired and Feb-2026 companies were
+               -- handed FY2025-26 filings that do not legally exist.
+               incorporation_date
         FROM businesses
         WHERE COALESCE(is_active, TRUE) = TRUE
     """
