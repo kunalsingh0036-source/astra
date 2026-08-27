@@ -28,7 +28,7 @@ _BY = "seed"             # NOT 'ca' — nothing here is signed off yet
 CATALOGUE: list[dict] = [
     # ── GST ────────────────────────────────────────────────────────
     {
-        "code": "GSTR1_MONTHLY", "label": "GSTR-1 (outward supplies)",
+        "code": "GSTR1_MONTHLY", "penalty_cap_amount": 5000, "label": "GSTR-1 (outward supplies)",
         "authority": "GST", "cadence": "monthly",
         "due_rule": {"kind": "monthly_day", "day": 11, "offset_months": 1},
         "applies_when": {"gst_registration_type": ["regular"]},
@@ -38,7 +38,7 @@ CATALOGUE: list[dict] = [
         "source_url": "https://www.indiafilings.com/gst-return-filing/due-dates",
     },
     {
-        "code": "GSTR3B_MONTHLY", "label": "GSTR-3B + tax payment",
+        "code": "GSTR3B_MONTHLY", "penalty_cap_amount": 5000, "label": "GSTR-3B + tax payment",
         "authority": "GST", "cadence": "monthly",
         "due_rule": {"kind": "monthly_day", "day": 20, "offset_months": 1},
         "applies_when": {"gst_registration_type": ["regular"]},
@@ -283,6 +283,7 @@ def seed_rows() -> list[dict]:
         out.append({
             **r,
             "penalty_note": r.get("penalty_note", ""),
+            "penalty_cap_amount": r.get("penalty_cap_amount"),
             "owner": r.get("owner", "kunal"),
             "verified_on": _V,
             "verified_by": _BY,

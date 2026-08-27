@@ -47,6 +47,12 @@ _BUSINESS_COLUMNS = [
     ("is_active", "BOOLEAN DEFAULT TRUE"),
 ]
 
+_RULE_COLUMNS = [
+    # penalty_capped told us a cap EXISTS but not what it is, so exposure
+    # kept accruing past the legal ceiling and overstated the liability.
+    ("penalty_cap_amount", "NUMERIC(12,2)"),
+]
+
 _OBLIGATION_RULES = """
 CREATE TABLE IF NOT EXISTS obligation_rules (
     code             VARCHAR(40) PRIMARY KEY,
@@ -127,6 +133,9 @@ async def ensure_schema() -> None:
                     text(f"ALTER TABLE businesses ADD COLUMN IF NOT EXISTS {col} {ddl}")
                 )
             await s.execute(text(_OBLIGATION_RULES))
+            for col, ddl in _RULE_COLUMNS:
+                await s.execute(text(
+                    f"ALTER TABLE obligation_rules ADD COLUMN IF NOT EXISTS {col} {ddl}"))
             await s.execute(text(_OBLIGATIONS))
             for idx in _INDEXES:
                 await s.execute(text(idx))
@@ -170,16 +179,18 @@ async def seed_rules(*, overwrite_unverified: bool = True) -> dict:
                 "note": row.get("penalty_note", ""),
                 "statute": row["statute_ref"], "src": row["source_url"],
                 "von": row["verified_on"], "vby": row["verified_by"],
+                "cap": row.get("penalty_cap_amount"),
                 "status": row["status"], "owner": row.get("owner", "kunal"),
             }
             res = await s.execute(text("""
                 INSERT INTO obligation_rules
                     (code, label, authority, cadence, due_rule, applies_when,
-                     penalty_per_day, penalty_capped, penalty_note,
+                     penalty_per_day, penalty_capped, penalty_cap_amount,
+                     penalty_note,
                      statute_ref, source_url, verified_on, verified_by, status, owner)
                 VALUES
                     (:code, :label, :authority, :cadence, CAST(:due_rule AS JSONB),
-                     CAST(:applies_when AS JSONB), :ppd, :capped, :note,
+                     CAST(:applies_when AS JSONB), :ppd, :capped, :cap, :note,
                      :statute, :src, :von, :vby, :status, :owner)
                 ON CONFLICT (code) DO UPDATE SET
                     label = EXCLUDED.label, authority = EXCLUDED.authority,
@@ -187,6 +198,7 @@ async def seed_rules(*, overwrite_unverified: bool = True) -> dict:
                     applies_when = EXCLUDED.applies_when,
                     penalty_per_day = EXCLUDED.penalty_per_day,
                     penalty_capped = EXCLUDED.penalty_capped,
+                    penalty_cap_amount = EXCLUDED.penalty_cap_amount,
                     penalty_note = EXCLUDED.penalty_note,
                     statute_ref = EXCLUDED.statute_ref, source_url = EXCLUDED.source_url,
                     verified_on = EXCLUDED.verified_on, verified_by = EXCLUDED.verified_by,

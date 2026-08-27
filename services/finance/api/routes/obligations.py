@@ -163,7 +163,13 @@ async def scan(
                 -- may not apply reads as fact and is not one.
                 WHEN o.status = 'needs_entity_data' THEN 0
                 WHEN o.due_date < :today THEN
-                    COALESCE(r.penalty_per_day, 0) * (CAST(:today AS DATE) - o.due_date)
+                    -- Never accrue past the statutory ceiling. GSTR-1/3B
+                    -- late fees stop at Rs 5,000 per return; without this
+                    -- the figure keeps climbing and overstates the debt.
+                    LEAST(
+                        COALESCE(r.penalty_per_day, 0) * (CAST(:today AS DATE) - o.due_date),
+                        COALESCE(r.penalty_cap_amount, 999999999)
+                    )
                 ELSE 0 END,
             updated_at = now()
         FROM obligation_rules r
