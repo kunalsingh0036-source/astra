@@ -100,7 +100,20 @@ async def scan(
                 VALUES
                     (:id, :bid, :code, :period, :due, :status,
                      :owner, :exposure, :alert_on, :note)
-                ON CONFLICT (business_id, rule_code, period_label) DO NOTHING
+                ON CONFLICT (business_id, rule_code, period_label) DO UPDATE
+                -- Resolve a stale unknown. An obligation created while the
+                -- entity master was incomplete is stuck on
+                -- 'needs_entity_data'; once Kunal supplies the field the
+                -- rules can decide, and the row must follow. Without this
+                -- the status was STICKY and filling in the data changed
+                -- nothing, which defeats the whole point of asking.
+                -- Never touches a row that is filed or already resolved.
+                SET status = CASE
+                        WHEN obligations.status = 'needs_entity_data'
+                             AND EXCLUDED.status <> 'needs_entity_data'
+                        THEN EXCLUDED.status
+                        ELSE obligations.status END,
+                    updated_at = now()
                 RETURNING id
             """), {
                 "id": uuid.uuid4(), "bid": biz["id"], "code": item.rule_code,
