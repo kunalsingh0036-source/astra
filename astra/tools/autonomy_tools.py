@@ -12,7 +12,6 @@ from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
 
 from astra.autonomy.audit import audit_logger
 from astra.autonomy.manager import autonomy_manager
-from astra.autonomy.modes import AutonomyMode
 
 
 @tool(
@@ -35,55 +34,12 @@ async def get_mode_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
-@tool(
-    "set_mode",
-    "Change the autonomy mode. Modes: 'always_ask' (ask for every action), "
-    "'semi_auto' (auto-approve reads/writes, ask for destructive), "
-    "'full_auto' (everything auto-approved). Optionally set a duration "
-    "(minutes) after which it reverts, or a task_id for task-scoped mode.",
-    {
-        "mode": str,
-        "duration_minutes": int,
-        "task_id": str,
-        "reason": str,
-    },
-)
-async def set_mode_tool(args: dict) -> dict:
-    mode_str = args["mode"]
-    duration = args.get("duration_minutes", None)
-    task_id = args.get("task_id", None)
-    reason = args.get("reason", "User requested")
-
-    try:
-        mode = AutonomyMode(mode_str)
-    except ValueError:
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Invalid mode '{mode_str}'. Must be: always_ask, semi_auto, full_auto",
-                }
-            ],
-            "is_error": True,
-        }
-
-    # Persist to app_settings as well so the web UI / other services
-    # see the change. Without this, an agent-driven mode switch was
-    # invisible to the /settings page and to any subsequent web read.
-    result = await autonomy_manager.set_mode_persisted(
-        mode=mode,
-        duration_minutes=duration,
-        task_id=task_id,
-        reason=reason,
-    )
-
-    msg = f"Mode changed: {result['from']} → {result['to']}"
-    if duration:
-        msg += f" (reverting in {duration} minutes)"
-    if task_id:
-        msg += f" (scoped to task: {task_id})"
-
-    return {"content": [{"type": "text", "text": msg}]}
+# CONTAINMENT §3 (2026-08-28): set_mode is NO LONGER a model-callable
+# tool. Autonomy mode is a human control surface — the /settings page
+# in astra-web writes app_settings and the manager syncs from it every
+# turn. A model that can raise its own autonomy mode is the same class
+# of hole as a model that can approve its own actions. The manager
+# still exposes set_mode_persisted() for HUMAN-driven code paths.
 
 
 @tool(
@@ -248,7 +204,7 @@ def create_autonomy_mcp_server():
         version="0.1.0",
         tools=[
             get_mode_tool,
-            set_mode_tool,
+            # set_mode_tool removed — CONTAINMENT §3, see note above.
             get_audit_log_tool,
             audit_stats_tool,
             list_pending_approvals_tool,
@@ -295,17 +251,78 @@ async def list_pending_approvals_tool(args: dict) -> dict:
     },
 )
 async def resolve_approval_tool(args: dict) -> dict:
+    import re
+
     from astra.autonomy.approvals import resolve_approval
+    from astra.autonomy.turn_context import current_user_prompt
 
     decision = str(args.get("decision", "")).strip().lower()
     if decision in ("approve", "yes", "y"):
         decision = "approved"
     if decision in ("deny", "no", "n", "reject"):
         decision = "denied"
+
+    # CONTAINMENT §5: the model may only resolve an approval when the
+    # HUMAN'S OWN MESSAGE contains an explicit token for this id —
+    # "approve 12" / "deny 12" ("always" for a standing grant). The
+    # model composes these args, so the args prove nothing; the
+    # runtime-injected prompt is the only text the model did not
+    # write. Empty context (no turn, broken plumbing) REFUSES — an
+    # unavailable check is a failed check, never a passed one. The
+    # web /approvals page uses resolve_approval() directly and is
+    # unaffected. The broker (Workstream A) replaces all of this.
+    approval_id = int(args["approval_id"])
+    human_text = ""
+    try:
+        human_text = current_user_prompt.get() or ""
+    except Exception:
+        human_text = ""
+    _verb = (
+        r"(?:approve|approved|deny|denied|reject|rejected|yes|no|ok(?:ay)?)"
+    )
+    token_ok = bool(
+        re.search(
+            rf"\b{_verb}\b[^0-9]{{0,40}}#?\s*{approval_id}\b",
+            human_text,
+            re.IGNORECASE,
+        )
+    )
+    if not token_ok:
+        return {
+            "content": [{
+                "type": "text",
+                "text": (
+                    f"REFUSED: resolving approval #{approval_id} "
+                    "requires Kunal's own message to contain an "
+                    f"explicit token like 'approve {approval_id}' or "
+                    f"'deny {approval_id}'. His current message does "
+                    "not. Ask him to reply with exactly that — do "
+                    "not retry without it."
+                ),
+            }],
+            "is_error": True,
+        }
+    standing = bool(args.get("standing", False))
+    if standing and not re.search(
+        r"\b(?:always|permanently|standing)\b", human_text, re.IGNORECASE
+    ):
+        return {
+            "content": [{
+                "type": "text",
+                "text": (
+                    "REFUSED: a STANDING grant requires Kunal's own "
+                    f"message to say 'approve {approval_id} always'. "
+                    "It does not. Resolve as a one-shot instead "
+                    "(standing=false), or ask him to say 'always'."
+                ),
+            }],
+            "is_error": True,
+        }
+
     result = await resolve_approval(
-        int(args["approval_id"]),
+        approval_id,
         decision,
-        standing=bool(args.get("standing", False)),
+        standing=standing,
         source="chat",
     )
     if not result.get("ok"):

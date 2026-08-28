@@ -1069,6 +1069,11 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
             _sys = get_system_prompt() + _channel_addendum(req.channel)
             if _now:
                 _sys = f"{_sys}\n\n{_now}"
+            # CONTAINMENT §4: web = Kunal in the chair (interactive);
+            # whatsapp and anything unknown = unattended, which strips
+            # the self-modification tool families. Mapping lives in
+            # astra/runtime/tool_surface.py.
+            from astra.runtime.tool_surface import surface_for_channel
             agen = run_lean_turn(
                 req.prompt,
                 session_id=req.session_id,
@@ -1077,6 +1082,7 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
                 load_history=True,
                 history_limit=_channel_history_limit(req.channel),
                 attachments=req.attachments,
+                surface=surface_for_channel(req.channel),
             ).__aiter__()
             while True:
                 try:

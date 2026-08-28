@@ -92,10 +92,15 @@ def test_guess_tier_known_destructive() -> None:
     assert _guess_tier("forget_memory") == ActionTier.DESTRUCTIVE
 
 
-def test_guess_tier_unknown_defaults_to_write() -> None:
-    """A tool not in the autonomy map defaults to WRITE — conservative
-    default (semi_auto auto-allows; always_ask asks)."""
-    assert _guess_tier("__brand_new_tool_no_one_has_classified__") == ActionTier.WRITE
+def test_guess_tier_unknown_defaults_to_destructive() -> None:
+    """CONTAINMENT §1: a tool not in the autonomy map lands in
+    DESTRUCTIVE — the tier that ASKS in semi_auto. The old WRITE
+    default silently auto-allowed every unclassified tool in the
+    default mode."""
+    assert (
+        _guess_tier("__brand_new_tool_no_one_has_classified__")
+        == ActionTier.DESTRUCTIVE
+    )
 
 
 # ── Timeout heuristics ──────────────────────────────────

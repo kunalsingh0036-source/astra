@@ -40,6 +40,8 @@ async def _run_one_turn(prompt: str, *, session_id: str | None = None) -> str | 
         session_id=session_id,
         system_prompt=get_system_prompt(),
         load_history=True,
+        # Local terminal — Kunal is in the chair.
+        surface="interactive",
     ):
         # Each frame is "event: <name>\ndata: <json>\n\n". Parse + render.
         text = frame.decode("utf-8")

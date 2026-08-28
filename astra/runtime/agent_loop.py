@@ -201,6 +201,7 @@ async def run_lean_turn(
     max_tokens: int = 8192,
     tools_enabled: bool = True,
     tool_namespaces: list[str] | None = None,
+    surface: str = "unattended",
     turn_id: int | None = None,
     load_history: bool = True,
     history_limit: int | None = None,
@@ -223,6 +224,13 @@ async def run_lean_turn(
             behavior). Useful for tests + flows that don't need tools.
         tool_namespaces: when provided, only these registry namespaces
             are exposed to the model. Defaults to all registered tools.
+        surface: "interactive" (Kunal demonstrably in the chair — web
+            PWA, local CLI) or "unattended" (everything else). The
+            unattended surface strips the self-modification tool
+            families and the Mac-bridge writing verbs — see
+            astra/runtime/tool_surface.py (CONTAINMENT §4). DEFAULTS
+            to unattended: least privilege unless a caller explicitly
+            claims otherwise.
         turn_id: when set, the final message stack gets persisted to
             this turn row at end-of-turn. Caller is responsible for
             creating the row (services/stream uses _create_turn_record).
@@ -240,6 +248,16 @@ async def run_lean_turn(
     model = model or settings.model_sonnet
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
+
+    # CONTAINMENT §5: record the human's actual message where tool
+    # handlers can read it without trusting model-composed args.
+    # resolve_approval_tool refuses unless this text contains an
+    # explicit approve/deny token for the id being resolved.
+    try:
+        from astra.autonomy.turn_context import current_user_prompt
+        current_user_prompt.set(prompt or "")
+    except Exception:
+        logger.exception("[lean-runtime] turn_context set failed")
     yield await _emit(turn_id, session_event, session_id=sid)
 
     # Cross-service mode sync. The web UI's /settings toggle writes
@@ -345,6 +363,34 @@ async def run_lean_turn(
         if tools_enabled
         else []
     )
+    # CONTAINMENT §4: the unattended surface holds a strictly smaller
+    # tool set — the self-modification families and Mac-bridge writing
+    # verbs exist only when Kunal is demonstrably in the chair. Two
+    # layers: (a) the tools are absent from the model's tool list;
+    # (b) the dispatch loop below refuses them anyway, so a drift in
+    # list assembly can never silently re-expose them.
+    from astra.runtime.tool_surface import (
+        SURFACE_INTERACTIVE,
+        interactive_only_tool_names,
+        normalize_surface,
+    )
+
+    surface = normalize_surface(surface)
+    _surface_blocked: frozenset[str] = (
+        frozenset()
+        if surface == SURFACE_INTERACTIVE
+        else interactive_only_tool_names()
+    )
+    if _surface_blocked and anthropic_tools:
+        before_n = len(anthropic_tools)
+        anthropic_tools = [
+            t for t in anthropic_tools if t["name"] not in _surface_blocked
+        ]
+        logger.info(
+            "[lean-runtime] surface=%s: %d tools exposed (%d "
+            "interactive-only excluded)",
+            surface, len(anthropic_tools), before_n - len(anthropic_tools),
+        )
     # Prompt caching: ~10k tokens of system prompt + ~10-15k tokens of
     # 117 tool schemas were re-sent UNCACHED on every iteration of
     # every turn — 2-5× avoidable input spend on multi-iteration
@@ -594,6 +640,37 @@ async def run_lean_turn(
                             "content": msg,
                             "is_error": True,
                         }
+                    )
+                    continue
+
+                if tool_name in _surface_blocked:
+                    msg = (
+                        f"REFUSED — {tool_name} is interactive-only "
+                        f"and this turn runs on the {surface!r} "
+                        "surface. Self-modification tools are only "
+                        "available when Kunal is in the web app or "
+                        "CLI. Do not retry here; tell the user to "
+                        "run this from the web app."
+                    )
+                    logger.warning(
+                        "[lean-runtime] surface violation: %s on %s",
+                        tool_name, surface,
+                    )
+                    yield await _emit(
+                        turn_id, tool_result, id=tool_id,
+                        preview=msg, is_error=True,
+                    )
+                    tool_results_for_user_turn.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": msg,
+                            "is_error": True,
+                        }
+                    )
+                    _audit_log(
+                        tool_name, td,
+                        decision_reason="deny (surface violation)",
                     )
                     continue
 
@@ -1333,11 +1410,17 @@ _GATE_EXEMPT_TOOLS = {
 def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
     """Three-way autonomy decision: 'allow' | 'deny' | 'ask'.
 
-    ASK is now a REAL outcome — the dispatch loop turns it into a
+    ASK is a REAL outcome — the dispatch loop turns it into a
     pending approval + an approval_request event instead of the old
     silent ASK→ALLOW collapse that made always_ask a fiction
-    (deep-scan P1 #7). On any internal failure defaults to ALLOW so
-    a broken autonomy module can't brick every tool.
+    (deep-scan P1 #7).
+
+    FAIL CLOSED (CONTAINMENT §2): a gate that cannot evaluate DENIES.
+    The old behaviour returned "allow" on a broken autonomy import or
+    an exception in the decision path — which meant anything that
+    could induce an exception here (a poisoned mode row, an import
+    cycle, a bad deploy) silently disabled the entire gate. A denied
+    turn that says why is recoverable; a silently opened gate is not.
     """
     if tool_name in _GATE_EXEMPT_TOOLS:
         return "allow", "gate-exempt (approval/introspection tool)"
@@ -1349,7 +1432,15 @@ def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
             get_permission_for_tier,
         )
     except Exception:
-        return "allow", "autonomy module unavailable — allowing by default"
+        logger.exception(
+            "[lean-runtime] autonomy module unavailable — DENYING %s "
+            "(fail closed)", tool_name,
+        )
+        return "deny", (
+            "deny — autonomy gate unavailable (fail closed): the "
+            "autonomy module failed to import, so no permission "
+            "decision is possible. Fix the runtime; do not retry."
+        )
 
     try:
         mode = autonomy_manager.mode
@@ -1366,7 +1457,15 @@ def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
             return "deny", f"deny ({ctx})"
         return "ask", f"ask ({ctx})"
     except Exception:
-        return "allow", "autonomy check raised — allowing"
+        logger.exception(
+            "[lean-runtime] autonomy check raised — DENYING %s "
+            "(fail closed)", tool_name,
+        )
+        return "deny", (
+            "deny — autonomy check raised (fail closed): the gate "
+            "could not evaluate this call, so it is refused. The "
+            "error is in the service log."
+        )
 
 
 def _audit_log(tool_name: str, td: Any, *, decision_reason: str) -> None:

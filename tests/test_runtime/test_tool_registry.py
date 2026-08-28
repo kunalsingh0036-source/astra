@@ -67,6 +67,7 @@ def test_duplicate_registration_raises(registry: ToolRegistry) -> None:
         description="d",
         input_schema={"type": "object"},
         fn=fn,
+        tier=ActionTier.WRITE,
     )
     registry.register(td)
     with pytest.raises(ValueError, match="already registered"):
@@ -79,7 +80,7 @@ def test_names_sorted(registry: ToolRegistry) -> None:
 
     for n in ("zebra", "alpha", "mike"):
         registry.register(
-            ToolDef(name=n, description=n, input_schema={"type": "object"}, fn=fn)
+            ToolDef(name=n, description=n, input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
         )
     assert registry.names() == ["alpha", "mike", "zebra"]
 
@@ -91,13 +92,13 @@ def test_by_namespace_filters(registry: ToolRegistry) -> None:
     registry.register(
         ToolDef(
             name="a", description="", input_schema={"type": "object"}, fn=fn,
-            namespace="memory",
+            tier=ActionTier.WRITE, namespace="memory",
         )
     )
     registry.register(
         ToolDef(
             name="b", description="", input_schema={"type": "object"}, fn=fn,
-            namespace="creators",
+            tier=ActionTier.WRITE, namespace="creators",
         )
     )
     mem = registry.by_namespace("memory")
@@ -122,6 +123,7 @@ def test_as_anthropic_tools_shape(registry: ToolRegistry) -> None:
                 "required": ["q"],
             },
             fn=fn,
+            tier=ActionTier.WRITE,
         )
     )
     out = registry.as_anthropic_tools()
@@ -140,13 +142,13 @@ def test_as_anthropic_tools_namespace_filter(registry: ToolRegistry) -> None:
     registry.register(
         ToolDef(
             name="a", description="", input_schema={"type": "object"}, fn=fn,
-            namespace="memory",
+            tier=ActionTier.WRITE, namespace="memory",
         )
     )
     registry.register(
         ToolDef(
             name="b", description="", input_schema={"type": "object"}, fn=fn,
-            namespace="creators",
+            tier=ActionTier.WRITE, namespace="creators",
         )
     )
     out = registry.as_anthropic_tools(namespaces=["memory"])
@@ -162,7 +164,7 @@ async def test_dispatch_str_return(registry: ToolRegistry) -> None:
         return f"got {args.get('x', 0)}"
 
     registry.register(
-        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn)
+        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
     )
     r = await registry.dispatch("t", {"x": 42})
     assert isinstance(r, ToolResult)
@@ -179,7 +181,7 @@ async def test_dispatch_dict_return(registry: ToolRegistry) -> None:
         return {"k": "v", "n": 7}
 
     registry.register(
-        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn)
+        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
     )
     r = await registry.dispatch("t", {})
     assert "k" in r.text
@@ -203,7 +205,7 @@ async def test_dispatch_mcp_content_shape(registry: ToolRegistry) -> None:
         }
 
     registry.register(
-        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn)
+        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
     )
     r = await registry.dispatch("t", {})
     assert r.text == "first\nsecond"
@@ -219,7 +221,7 @@ async def test_dispatch_mcp_error_shape(registry: ToolRegistry) -> None:
         }
 
     registry.register(
-        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn)
+        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
     )
     r = await registry.dispatch("t", {})
     assert r.text == "permission denied"
@@ -245,7 +247,7 @@ async def test_dispatch_tool_raises(registry: ToolRegistry) -> None:
         raise RuntimeError("boom")
 
     registry.register(
-        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn)
+        ToolDef(name="t", description="", input_schema={"type": "object"}, fn=fn, tier=ActionTier.WRITE)
     )
     r = await registry.dispatch("t", {})
     assert r.is_error is True
@@ -269,6 +271,7 @@ async def test_dispatch_timeout(registry: ToolRegistry) -> None:
             description="",
             input_schema={"type": "object"},
             fn=slow,
+            tier=ActionTier.WRITE,
             timeout_sec=1,
         )
     )
@@ -292,6 +295,7 @@ async def test_dispatch_timeout_override(registry: ToolRegistry) -> None:
             description="",
             input_schema={"type": "object"},
             fn=slow,
+            tier=ActionTier.WRITE,
             timeout_sec=10,
         )
     )

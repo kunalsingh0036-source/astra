@@ -29,6 +29,14 @@ from astra.config import settings
 
 logger = logging.getLogger(__name__)
 
+# CONTAINMENT §3: full_auto may never be a permanent state. A
+# programmatic set_mode(FULL_AUTO) without a duration is rejected,
+# and a full_auto adopted from app_settings (the web toggle writes
+# the row directly, so it cannot be rejected there) is clamped to
+# this TTL — it reverts to semi_auto and writes the revert back to
+# the DB, so "full auto, forever" cannot exist through any path.
+FULL_AUTO_DEFAULT_TTL_MINUTES = 60
+
 # Key inside the app_settings table that holds the autonomy mode.
 # Matches /api/autonomy in astra-web — they read/write the same row.
 _DB_KEY = "autonomy_mode"
@@ -134,6 +142,17 @@ class AutonomyManager:
         Returns:
             Dict with mode change details.
         """
+        if mode == AutonomyMode.FULL_AUTO and not duration_minutes and not task_id:
+            # CONTAINMENT §3: an elevation with no expiry is a
+            # permanent grant. Callers must bound it — by time, or by
+            # a task scope (which additionally gets the TTL backstop
+            # below, because a task that never completes must not be
+            # a permanent grant either).
+            raise ValueError(
+                "full_auto requires duration_minutes or task_id — a "
+                "mode with no expiry cannot be a permanent grant "
+                f"(default TTL is {FULL_AUTO_DEFAULT_TTL_MINUTES} min)"
+            )
         with self._lock:
             old_mode = self._mode
             self._previous_mode = old_mode
@@ -141,6 +160,12 @@ class AutonomyManager:
 
             if duration_minutes:
                 self._revert_at = time.time() + (duration_minutes * 60)
+            elif mode == AutonomyMode.FULL_AUTO and task_id:
+                # TTL backstop on task-scoped elevation: whichever
+                # comes first — task completion or the clock.
+                self._revert_at = time.time() + (
+                    FULL_AUTO_DEFAULT_TTL_MINUTES * 60
+                )
             else:
                 self._revert_at = None
 
@@ -251,6 +276,22 @@ class AutonomyManager:
                 return False
             old = self._mode
             self._mode = new_mode
+            if new_mode == AutonomyMode.FULL_AUTO:
+                # CONTAINMENT §3: the web toggle writes app_settings
+                # directly, so a no-TTL full_auto cannot be rejected
+                # at the write — clamp it on adoption instead. On
+                # expiry _check_revert() reverts AND persists the
+                # revert to app_settings, closing the loop (the next
+                # refresh will not re-adopt a stale full_auto row).
+                self._previous_mode = AutonomyMode.SEMI_AUTO
+                self._revert_at = time.time() + (
+                    FULL_AUTO_DEFAULT_TTL_MINUTES * 60
+                )
+                logger.warning(
+                    "[autonomy] full_auto adopted from app_settings — "
+                    "clamped to %d min TTL",
+                    FULL_AUTO_DEFAULT_TTL_MINUTES,
+                )
             self._history.append(
                 {
                     "from": old.value,

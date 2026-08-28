@@ -77,7 +77,10 @@ class ToolDef:
     # `input_schema` per tool — we pass this through verbatim.
     input_schema: dict[str, Any]
     fn: ToolImpl
-    tier: ActionTier = ActionTier.WRITE
+    # REQUIRED — no default (CONTAINMENT §1). A tool that does not
+    # declare its tier must fail to construct, not silently land in
+    # an auto-allowed tier. Validated again in ToolRegistry.register.
+    tier: ActionTier
     # Per-tool timeout in seconds. The bundled SDK CLI had opaque
     # internal timeouts that nobody could see or tune. Here every tool
     # declares its own — fast lookups can be 5s, slow LLM-adjacent
@@ -111,6 +114,15 @@ class ToolRegistry:
     # ── Registration ────────────────────────────────────────
 
     def register(self, tool_def: ToolDef) -> None:
+        if not isinstance(tool_def.tier, ActionTier):
+            # CONTAINMENT §1: a tool that fails to declare a valid
+            # tier fails to REGISTER — it must never reach the model's
+            # tool surface with an unclassified permission level.
+            raise ValueError(
+                f"tool {tool_def.name!r} declares no valid tier "
+                f"(got {tool_def.tier!r}); every tool must declare "
+                "READ, WRITE, or DESTRUCTIVE at registration"
+            )
         if tool_def.name in self._tools:
             # Re-registration is a programming error — duplicate names
             # would silently shadow each other. Make it loud.
@@ -254,7 +266,7 @@ def register_tool(
     name: str,
     description: str,
     input_schema: dict[str, Any] | None = None,
-    tier: ActionTier = ActionTier.WRITE,
+    tier: ActionTier,
     timeout_sec: int = 30,
     namespace: str = "general",
     concurrent_safe: bool = True,

@@ -78,14 +78,30 @@ def _to_json_schema(schema: Any) -> dict[str, Any]:
 
 
 def _guess_tier(tool_name: str) -> ActionTier:
-    """Look up the tool in the autonomy tier map; default to WRITE."""
+    """Look up the tool in the autonomy tier map.
+
+    Fails CLOSED (CONTAINMENT §1): a tool the map does not know — or
+    a broken autonomy import — lands in DESTRUCTIVE, the tier that
+    asks a human in semi_auto. The old WRITE default silently
+    auto-allowed every unclassified tool (edit_astra_file,
+    send_reply_draft, ~80 others) in the default mode.
+    """
     try:
         from astra.autonomy.modes import TOOL_TIERS, ActionTier as AutonomyTier
     except Exception:
-        return ActionTier.WRITE
+        logger.error(
+            "[sdk-adapter] autonomy tier map unavailable — registering "
+            "%s as DESTRUCTIVE (fail closed)", tool_name,
+        )
+        return ActionTier.DESTRUCTIVE
     auto_tier = TOOL_TIERS.get(tool_name)
     if auto_tier is None:
-        return ActionTier.WRITE
+        logger.warning(
+            "[sdk-adapter] tool %s has no tier in TOOL_TIERS — "
+            "registering as DESTRUCTIVE (fail closed). Classify it in "
+            "astra/autonomy/modes.py.", tool_name,
+        )
+        return ActionTier.DESTRUCTIVE
     # The autonomy module's ActionTier enum has identical values to
     # ours but is a different class. Map by value.
     return ActionTier(auto_tier.value)

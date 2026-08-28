@@ -33,8 +33,11 @@ class TestModes:
         assert get_permission(AutonomyMode.FULL_AUTO, "Bash") == PermissionDecision.ALLOW
         assert get_permission(AutonomyMode.FULL_AUTO, "forget_memory") == PermissionDecision.ALLOW
 
-    def test_unknown_tool_defaults_to_write(self):
-        assert get_action_tier("some_unknown_tool") == ActionTier.WRITE
+    def test_unknown_tool_defaults_to_destructive(self):
+        """CONTAINMENT §1 flipped the default: an unclassified tool
+        lands in the tier that ASKS in semi_auto, never the tier
+        that auto-executes."""
+        assert get_action_tier("some_unknown_tool") == ActionTier.DESTRUCTIVE
 
     def test_tool_tier_classification(self):
         assert get_action_tier("Read") == ActionTier.READ
@@ -51,9 +54,10 @@ class TestModes:
         the tool is called."""
         from astra.autonomy.modes import get_permission_for_tier
 
-        # local_bash is NOT in TOOL_TIERS — the name path is wrong:
-        assert get_action_tier("local_bash") == ActionTier.WRITE
-        # …but the tier path (what the runtime now uses) is right:
+        # local_bash is now classified in TOOL_TIERS (the full-surface
+        # sweep, CONTAINMENT §1) — the name path agrees:
+        assert get_action_tier("local_bash") == ActionTier.DESTRUCTIVE
+        # …and the tier path (what the runtime uses) is right:
         assert (
             get_permission_for_tier(AutonomyMode.SEMI_AUTO, ActionTier.DESTRUCTIVE)
             == PermissionDecision.ASK
@@ -162,7 +166,7 @@ class TestModes:
     def test_time_based_revert(self):
         mgr = AutonomyManager()
         default_mode = mgr.mode  # Whatever .env says
-        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=0)
+        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=1)
         # Duration is 0 minutes — force revert by backdating the revert_at
         mgr._revert_at = time.time() - 1
         assert mgr.mode == default_mode
@@ -187,7 +191,7 @@ class TestModes:
     def test_history_tracked(self):
         mgr = AutonomyManager()
         mgr.set_mode(AutonomyMode.SEMI_AUTO)
-        mgr.set_mode(AutonomyMode.FULL_AUTO)
+        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=30)
         history = mgr.get_history()
         assert len(history) == 2
 
@@ -280,7 +284,7 @@ class TestDBPersistence:
         mode rather than dropping to a default. Turns must never fail
         because the config table is having a bad day."""
         mgr = AutonomyManager()
-        mgr.set_mode(AutonomyMode.FULL_AUTO)
+        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=30)
         with patch(
             "astra.autonomy.manager._read_mode_from_db", return_value=None
         ):
@@ -331,5 +335,7 @@ class TestDBPersistence:
         with patch(
             "astra.autonomy.manager._write_mode_to_db", return_value=False
         ):
-            await mgr.set_mode_persisted(AutonomyMode.FULL_AUTO)
+            await mgr.set_mode_persisted(
+                AutonomyMode.FULL_AUTO, duration_minutes=30
+            )
         assert mgr.mode == AutonomyMode.FULL_AUTO
