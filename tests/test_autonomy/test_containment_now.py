@@ -608,3 +608,18 @@ def test_standing_grant_still_works_for_ordinary_tools():
     granted, reason = asyncio.run(_run())
     assert granted is True
     assert reason == "standing grant"
+
+
+def test_approval_prompt_does_not_offer_always_for_no_standing_tools():
+    """The 'add always' hint must not appear for a tool whose
+    standing grant the resolver would refuse — telling Kunal to do
+    something the code rejects is the docstring-lies class."""
+    import inspect
+
+    from astra.runtime import agent_loop
+
+    src = inspect.getsource(agent_loop)
+    assert "NO_STANDING_TOOLS" in src, (
+        "the approval prompt no longer consults the no-standing list"
+    )
+    assert "ONE CALL AT A TIME" in src

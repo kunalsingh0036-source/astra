@@ -733,12 +733,28 @@ async def run_lean_turn(
                             tool_name=tool_name,
                             reason=decision_reason,
                         )
+                        # The "always" hint is per-tool: offering it for
+                        # a no-standing tool would be instructing Kunal
+                        # to do something the resolver refuses.
+                        try:
+                            from astra.autonomy.approvals import (
+                                NO_STANDING_TOOLS,
+                            )
+                            _no_standing = tool_name in NO_STANDING_TOOLS
+                        except Exception:
+                            _no_standing = True  # fail closed on the hint
+                        _always = (
+                            f" This tool is approved ONE CALL AT A TIME — "
+                            f"'always' does not work on it."
+                            if _no_standing
+                            else f" (add 'always' to grant {tool_name} "
+                                 f"permanently)"
+                        )
                         msg = (
                             f"NOT EXECUTED — awaiting Kunal's approval "
                             f"(#{approval_id}, {decision_reason}). Tell the "
                             f"user: approve on /approvals, or by saying "
-                            f"'approve {approval_id}' (add 'always' to "
-                            f"grant {tool_name} permanently). Re-run the "
+                            f"'approve {approval_id}'.{_always} Re-run the "
                             f"action after approval."
                         )
                     except Exception as e:
