@@ -9,8 +9,12 @@ the same honest degradation the Mac bridge already uses.
 
 Safety model, deliberately narrow:
   - READ tasks (extract, screenshot, read_page) run unattended.
-  - ACT tasks (click, type, navigate) require `approved=true`, which
-    only a human can set. The extension refuses anything else.
+  - ACT tasks (click, type, navigate) are ALWAYS staged unapproved
+    and are released only when the linked row in `approvals` has been
+    resolved by a human (the /approvals page, the resolve_approval
+    chat tool, or "approve N" on WhatsApp). Callers cannot pre-approve
+    their own actions: `enqueue()` takes no approval argument, and
+    `claim_next` reads the approvals table rather than a local flag.
   - There is NO task type that submits a form, sends a message, or
     completes a payment. Draft-don't-send holds inside the browser too.
 """
@@ -52,6 +56,7 @@ _ENSURE = [
         expires_at   TIMESTAMPTZ NOT NULL
     )
     """,
+    "ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS approval_id INTEGER",
     "CREATE INDEX IF NOT EXISTS ix_browser_tasks_pending ON browser_tasks (status, created_at)",
 ]
 
@@ -71,35 +76,64 @@ async def ensure_tables() -> None:
 
 async def enqueue(
     *, kind: str, url_pattern: str = "", payload: dict | None = None,
-    approved: bool = False, ttl_minutes: int = 30,
-    requested_by: str = "astra",
+    ttl_minutes: int = 30, requested_by: str = "astra",
 ) -> dict[str, Any]:
+    """Stage a browser task.
+
+    There is deliberately NO `approved` parameter. The endpoint used to
+    take one straight from the request body, so anything holding the
+    mesh secret — including the agent loop itself, which reaches its own
+    HTTP surface — could stage a click and approve it in the same call.
+    The docstring claimed "only a human can set" while the code let the
+    caller assert it. An ACT task now opens a row in `approvals`, and
+    only resolve_approval() (the /approvals page, the chat tool, or
+    "approve N" over WhatsApp) can release it.
+    """
     if kind not in ALL_KINDS:
         raise ValueError(f"unknown browser task kind: {kind}")
-    if kind in ACT_KINDS and not approved:
-        # Not an error — a staged action awaiting a human. Recorded so the
-        # approval surface can show it.
-        logger.info("[browser] staging UNAPPROVED act task: %s", kind)
     await ensure_tables()
     tid = uuid.uuid4()
+
+    approval_id: int | None = None
+    if kind in ACT_KINDS:
+        from astra.autonomy.approvals import create_approval
+        approval_id = await create_approval(
+            tool_name=f"browser_{kind}",
+            tool_input={"kind": kind, "url_pattern": url_pattern[:900],
+                        "payload": payload or {}, "task_id": str(tid)},
+            reason=(f"Astra wants to {kind} in your browser"
+                    + (f" on {url_pattern[:120]}" if url_pattern else "")),
+            turn_id=None,
+            session_id=None,
+        )
+        logger.info("[browser] staged act task %s -> approval #%s",
+                    kind, approval_id)
+
     async with async_session() as s:
         await s.execute(text("""
             INSERT INTO browser_tasks
-                (id, kind, url_pattern, payload, approved, requested_by, expires_at)
-            VALUES (:id, :k, :u, CAST(:p AS JSONB), :a, :rb, :exp)
+                (id, kind, url_pattern, payload, approved, approval_id,
+                 requested_by, expires_at)
+            VALUES (:id, :k, :u, CAST(:p AS JSONB), FALSE, :ap, :rb, :exp)
         """), {
             "id": tid, "k": kind, "u": url_pattern[:900],
-            "p": json.dumps(payload or {}), "a": approved, "rb": requested_by,
+            "p": json.dumps(payload or {}), "ap": approval_id,
+            "rb": requested_by,
             "exp": datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes),
         })
         await s.commit()
-    return {"id": str(tid), "kind": kind, "approved": approved}
+    return {"id": str(tid), "kind": kind, "approved": False,
+            "approval_id": approval_id}
 
 
 async def claim_next(url_hint: str = "") -> dict[str, Any] | None:
-    """Hand the extension one task. ACT tasks are only ever handed over
-    once a human has approved them — the gate lives here, server-side,
-    so a compromised or modified extension cannot grant itself one."""
+    """Hand the extension one task.
+
+    An ACT task is released only when its linked `approvals` row reads
+    'approved'. The gate is a JOIN, not a boolean on this row: the only
+    writer of that status is resolve_approval(), which a human drives.
+    The legacy `approved` column is no longer consulted — a task cannot
+    talk its own way past the gate."""
     await ensure_tables()
     async with async_session() as s:
         row = (await s.execute(text("""
@@ -108,7 +142,14 @@ async def claim_next(url_hint: str = "") -> dict[str, Any] | None:
                 SELECT id FROM browser_tasks
                 WHERE status='pending'
                   AND expires_at > now()
-                  AND (kind = ANY(:read_kinds) OR approved = TRUE)
+                  AND (
+                        kind = ANY(:read_kinds)
+                        OR EXISTS (
+                            SELECT 1 FROM approvals a
+                            WHERE a.id = browser_tasks.approval_id
+                              AND a.status = 'approved'
+                        )
+                      )
                 ORDER BY created_at ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1

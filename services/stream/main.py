@@ -536,7 +536,10 @@ async def browser_task_result(task_id: str, request: Request) -> dict[str, objec
 @app.post("/browser/enqueue")
 async def browser_enqueue(request: Request) -> dict[str, object]:
     """Queue a browser task. ACT kinds (click/type/navigate/scroll) are
-    staged unapproved by default; approval is a separate human step."""
+    ALWAYS staged unapproved — an `approved` field in the body is
+    ignored, because the caller holding the mesh secret is exactly who
+    the gate exists to stop. Release happens through the approvals
+    queue (/approvals, resolve_approval, or "approve N" on WhatsApp)."""
     _check_secret(request)
     try:
         raw = await request.json()
@@ -550,7 +553,6 @@ async def browser_enqueue(request: Request) -> dict[str, object]:
             kind=str((raw or {}).get("kind") or ""),
             url_pattern=str((raw or {}).get("url_pattern") or ""),
             payload=(raw or {}).get("payload") or {},
-            approved=bool((raw or {}).get("approved")),
             requested_by=str((raw or {}).get("requested_by") or "astra"),
         )
     except ValueError as e:

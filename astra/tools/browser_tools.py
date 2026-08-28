@@ -124,15 +124,16 @@ async def browser_stage_action_tool(args: dict) -> dict:
         "dy": 800,
     }
     t = await enqueue(kind=action, url_pattern=(args.get("url_pattern") or "").strip(),
-                      payload=payload, approved=False)
+                      payload=payload)
     what = {"click": f"click {payload['text']!r}",
             "type": f"type into field {payload['index']}",
             "navigate": f"go to {payload['url']}",
             "scroll": "scroll"}[action]
     return _ok(
         f"Staged (NOT run): {what}.\nTask {t['id']}.\n"
-        "Tell Kunal it is waiting on his approval — Astra will not act in his "
-        "browser until he says so."
+        f"Waiting on approval #{t.get('approval_id')} — approve it on the "
+        "/approvals page or reply \"approve " f"{t.get('approval_id')}\" on "
+        "WhatsApp. Astra cannot release this itself."
     )
 
 
