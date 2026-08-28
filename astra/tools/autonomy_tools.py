@@ -330,7 +330,16 @@ async def resolve_approval_tool(args: dict) -> dict:
             "content": [{"type": "text", "text": f"Failed: {result.get('error')}"}],
             "is_error": True,
         }
-    extra = " (standing grant — won't ask again)" if result.get("standing") else ""
+    if result.get("standing_refused"):
+        extra = (
+            " — a STANDING grant was REFUSED (this tool is on the "
+            "no-standing list and must be approved per call); "
+            "resolved as a one-shot instead"
+        )
+    elif result.get("standing"):
+        extra = " (standing grant — won't ask again)"
+    else:
+        extra = ""
     return {
         "content": [
             {

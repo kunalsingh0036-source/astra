@@ -496,3 +496,115 @@ def test_escalation_gated_not_executed_on_interactive_surface():
     # both mean NOT EXECUTED. What it must never be is a successful
     # edit result.
     assert "NOT EXECUTED" in preview or "denied" in preview
+
+
+# ────────────────────────────────────────────────────────────
+# §6 — the no-standing list (CHARTER: some things are approved
+# per call or not at all)
+# ────────────────────────────────────────────────────────────
+
+def test_no_standing_list_covers_the_charter_categories():
+    from astra.autonomy.approvals import NO_STANDING_TOOLS
+
+    for name in (
+        # shell / execution
+        "local_bash", "Bash", "run_creator_tests",
+        # sends + publishes
+        "send_reply_draft", "approve_content_draft", "send_a2a_task",
+        # self-modification + deploy
+        "edit_astra_file", "write_astra_file", "local_edit",
+        "local_write", "commit_code_changes", "commit_kit_changes",
+        "apply_self_improvement",
+        # deletes
+        "forget_memory", "restart_agent",
+        # permission surface
+        "set_mode", "resolve_approval", "revoke_tool_grant",
+        # exposes the machine
+        "start_tunnel", "stop_tunnel",
+    ):
+        assert name in NO_STANDING_TOOLS, f"{name} must be no-standing"
+
+
+def test_every_no_standing_tool_is_destructive():
+    """The two lists must agree: anything too dangerous for a
+    standing grant is too dangerous to auto-allow in semi_auto."""
+    from astra.autonomy.approvals import NO_STANDING_TOOLS
+
+    wrong = [
+        n for n in NO_STANDING_TOOLS
+        if n in TOOL_TIERS and TOOL_TIERS[n] is not ActionTier.DESTRUCTIVE
+    ]
+    assert wrong == [], f"no-standing but not DESTRUCTIVE: {wrong}"
+
+
+def test_standing_grant_ignored_for_no_standing_tool():
+    """A tool_grants row for local_bash (one exists in production,
+    granted 2026-06-12 via chat) must not authorise anything."""
+    from astra.autonomy import approvals
+
+    class _FakeResult:
+        def __init__(self, has_row):
+            self._has_row = has_row
+
+        def first(self):
+            return object() if self._has_row else None
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def execute(self, stmt, params=None):
+            # First query = the tool_grants lookup → row EXISTS.
+            # Second = the one-shot UPDATE → no unconsumed approval.
+            sql = str(stmt)
+            return _FakeResult("tool_grants" in sql)
+
+        async def commit(self):
+            return None
+
+    async def _run():
+        with mock.patch.object(
+            approvals, "async_session", lambda: _FakeSession()
+        ):
+            return await approvals.check_grant("local_bash")
+
+    granted, reason = asyncio.run(_run())
+    assert granted is False, (
+        "a standing grant on local_bash still authorised a call — "
+        "the no-standing list is not being enforced on read"
+    )
+    assert reason == "no grant"
+
+
+def test_standing_grant_still_works_for_ordinary_tools():
+    from astra.autonomy import approvals
+
+    class _FakeResult:
+        def first(self):
+            return object()
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+        async def execute(self, stmt, params=None):
+            return _FakeResult()
+
+        async def commit(self):
+            return None
+
+    async def _run():
+        with mock.patch.object(
+            approvals, "async_session", lambda: _FakeSession()
+        ):
+            return await approvals.check_grant("notes_search")
+
+    granted, reason = asyncio.run(_run())
+    assert granted is True
+    assert reason == "standing grant"

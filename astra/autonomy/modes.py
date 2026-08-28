@@ -231,8 +231,10 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "local_grep": ActionTier.READ,
     "local_bridge_status": ActionTier.READ,
     "screenshot_url": ActionTier.READ,
-    "local_edit": ActionTier.WRITE,
-    "local_write": ActionTier.WRITE,
+    # Arbitrary file writes on the Mac — launchd plists, shell rc
+    # files, the sidecar's plaintext trust root. Not "recoverable".
+    "local_edit": ActionTier.DESTRUCTIVE,
+    "local_write": ActionTier.DESTRUCTIVE,
     "local_bash": ActionTier.DESTRUCTIVE,
 
     # ── memory ──────────────────────────────────────────────

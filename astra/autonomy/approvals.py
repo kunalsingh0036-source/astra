@@ -35,6 +35,56 @@ logger = logging.getLogger(__name__)
 EXPIRY_HOURS = 24
 
 
+# CONTAINMENT §6 / CHARTER no-standing list.
+#
+# Some capabilities must be approved EVERY time, per call. A standing
+# grant on them is a permanent, argument-blind bypass: check_grant()
+# compares only the tool NAME, so one "approve 9 always" on local_bash
+# in June authorises every shell command on Kunal's Mac forever. That
+# grant was found live in production on 2026-08-28 (tool_grants row,
+# source="chat", granted 2026-06-12).
+#
+# These tools may still be approved — one call at a time — but a
+# standing grant is refused at write time AND ignored at read time, so
+# a row that predates this rule (or is inserted by any other path)
+# cannot authorise anything.
+#
+# The list follows the charter: shell, anything that sends or
+# publishes, anything that deletes, anything that changes autonomy or
+# permissions, anything that edits/commits Astra's own code, and
+# anything that exposes the machine.
+NO_STANDING_TOOLS: frozenset[str] = frozenset({
+    # arbitrary execution
+    "local_bash",
+    "Bash",
+    "run_creator_tests",
+    # sends / publishes
+    "send_reply_draft",
+    "approve_content_draft",
+    "send_a2a_task",
+    # self-modification + deploy
+    "edit_astra_file",
+    "write_astra_file",
+    "local_edit",
+    "local_write",
+    "commit_code_changes",
+    "commit_kit_changes",
+    "revert_last_code_commit",
+    "apply_self_improvement",
+    # deletes / destructive ops
+    "forget_memory",
+    "restart_agent",
+    "cancel_a2a_task",
+    # permission + autonomy surface
+    "set_mode",
+    "resolve_approval",
+    "revoke_tool_grant",
+    # exposes the machine
+    "start_tunnel",
+    "stop_tunnel",
+})
+
+
 async def create_approval(
     *,
     tool_name: str,
@@ -81,7 +131,16 @@ async def check_grant(tool_name: str) -> tuple[bool, str]:
                 {"n": tool_name},
             )
             if r.first():
-                return True, "standing grant"
+                if tool_name in NO_STANDING_TOOLS:
+                    # A row exists but must not authorise anything —
+                    # this tool is approved per call or not at all.
+                    logger.warning(
+                        "[approvals] IGNORING standing grant for %s — "
+                        "on the no-standing list (CONTAINMENT §6)",
+                        tool_name,
+                    )
+                else:
+                    return True, "standing grant"
             r = await s.execute(
                 _sql(
                     """
@@ -124,6 +183,7 @@ async def resolve_approval(
     approval also writes a tool_grants row (per-tool auto-allow)."""
     if decision not in ("approved", "denied"):
         return {"ok": False, "error": "decision must be approved|denied"}
+    standing_requested = standing
     async with async_session() as s:
         r = await s.execute(
             _sql(
@@ -145,6 +205,23 @@ async def resolve_approval(
                 "error": f"approval #{approval_id} not found or not pending",
             }
         tool_name = row.tool_name
+        if standing and tool_name in NO_STANDING_TOOLS:
+            # Downgrade to a one-shot rather than failing the whole
+            # resolution: the human said yes to THIS call, which is
+            # still valid. What is refused is the "and every future
+            # one" part.
+            logger.warning(
+                "[approvals] refusing STANDING grant for %s — "
+                "no-standing list; resolving as one-shot instead",
+                tool_name,
+            )
+            standing = False
+            await s.execute(
+                _sql(
+                    "UPDATE approvals SET standing = false WHERE id = :id"
+                ),
+                {"id": approval_id},
+            )
         if decision == "approved" and standing:
             await s.execute(
                 _sql(
@@ -160,7 +237,8 @@ async def resolve_approval(
             )
         await s.commit()
     return {"ok": True, "tool_name": tool_name, "decision": decision,
-            "standing": standing}
+            "standing": standing,
+            "standing_refused": bool(standing_requested and not standing)}
 
 
 async def list_pending(limit: int = 50) -> list[dict[str, Any]]:

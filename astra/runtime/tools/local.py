@@ -243,7 +243,13 @@ async def local_read_impl(args: dict) -> dict:
         },
         "required": ["path", "content"],
     },
-    tier=ActionTier.WRITE,
+    # DESTRUCTIVE, not WRITE: this writes ARBITRARY files on
+    # Kunal's Mac — including launchd plists, shell rc files
+    # and ~/.config/astra-sidecar.json (the sidecar's plaintext
+    # trust root). WRITE meant semi_auto auto-allowed it with
+    # no ask. Kept in sync with TOOL_TIERS + NO_STANDING_TOOLS
+    # by test_every_no_standing_tool_is_destructive.
+    tier=ActionTier.DESTRUCTIVE,
     timeout_sec=35,
     namespace="local",
 )
@@ -275,7 +281,13 @@ async def local_write_impl(args: dict) -> dict:
         },
         "required": ["path", "old_string", "new_string"],
     },
-    tier=ActionTier.WRITE,
+    # DESTRUCTIVE, not WRITE: this writes ARBITRARY files on
+    # Kunal's Mac — including launchd plists, shell rc files
+    # and ~/.config/astra-sidecar.json (the sidecar's plaintext
+    # trust root). WRITE meant semi_auto auto-allowed it with
+    # no ask. Kept in sync with TOOL_TIERS + NO_STANDING_TOOLS
+    # by test_every_no_standing_tool_is_destructive.
+    tier=ActionTier.DESTRUCTIVE,
     timeout_sec=35,
     namespace="local",
 )
