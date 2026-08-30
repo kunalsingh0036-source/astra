@@ -623,3 +623,158 @@ def test_approval_prompt_does_not_offer_always_for_no_standing_tools():
         "the approval prompt no longer consults the no-standing list"
     )
     assert "ONE CALL AT A TIME" in src
+
+
+# ────────────────────────────────────────────────────────────
+# §8 — the bridge chokepoint (found 2026-08-30: the surface
+# split was enforced in the agent loop only, and two production
+# paths reached the Mac bridge without crossing it)
+# ────────────────────────────────────────────────────────────
+
+def _dispatch_on_surface(tool_name, surface, on_behalf_of=None):
+    """Call local._dispatch with a given surface, with the bridge
+    resolution mocked out so we only exercise the guard."""
+    from astra.autonomy.turn_context import current_surface
+    from astra.runtime.tools import local
+
+    async def _no_bridge():
+        return None, []          # bridge offline — never reached if refused
+
+    async def _run():
+        token = current_surface.set(surface)
+        try:
+            with mock.patch.object(
+                local, "_active_bridge_token_id", _no_bridge
+            ):
+                return await local._dispatch(
+                    tool_name, {"command": "echo hi"},
+                    timeout_sec=5.0, on_behalf_of=on_behalf_of,
+                )
+        finally:
+            current_surface.reset(token)
+
+    return asyncio.run(_run())
+
+
+def test_bridge_refuses_shell_on_unattended_surface():
+    out = _dispatch_on_surface("local_bash", "unattended")
+    assert out.get("is_error") is True
+    assert "REFUSED" in out["content"][0]["text"]
+
+
+def test_bridge_allows_shell_on_interactive_surface():
+    """Interactive passes the guard and falls through to the bridge
+    (which is mocked offline here) — the point is it is NOT refused
+    by the surface check."""
+    out = _dispatch_on_surface("local_bash", "interactive")
+    assert "REFUSED" not in out["content"][0]["text"]
+
+
+def test_bridge_default_surface_is_unattended():
+    """Code paths outside a turn — schedulers, jobs — must be treated
+    as unattended. The ContextVar default carries this."""
+    from astra.autonomy.turn_context import current_surface
+
+    assert current_surface.get() == "unattended"
+
+
+def test_preauthorised_internal_caller_allowed_but_named():
+    """notes_sync is a reviewed, fixed-argument job. It passes; an
+    anonymous caller doing the same thing does not."""
+    ok = _dispatch_on_surface("local_bash", "unattended",
+                              on_behalf_of="notes_sync")
+    assert "REFUSED" not in ok["content"][0]["text"]
+
+    anon = _dispatch_on_surface("local_bash", "unattended",
+                                on_behalf_of="something_new")
+    assert anon.get("is_error") is True
+    assert "REFUSED" in anon["content"][0]["text"]
+
+
+def test_notes_sync_declares_itself_to_the_chokepoint():
+    """The scheduler's 30-minute job must pass on_behalf_of — without
+    it the call is anonymous and gets refused, silently freezing the
+    Notes mirror (it froze at 50 once already)."""
+    import inspect
+
+    from astra.tools import notes_tools
+
+    src = inspect.getsource(notes_tools)
+    assert 'on_behalf_of="notes_sync"' in src
+
+
+def test_reply_tools_declares_itself_to_the_chokepoint():
+    import inspect
+
+    from astra.tools import reply_tools
+
+    src = inspect.getsource(reply_tools)
+    assert 'on_behalf_of="ingest_voice_export"' in src
+
+
+def test_no_anonymous_bridge_callers_remain():
+    """Class check: nothing outside astra/runtime/tools/local.py may
+    reach the bridge helpers without naming itself. A new anonymous
+    caller re-opens the exact hole found on 2026-08-30."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    offenders = []
+    for path in root.rglob("astra/**/*.py"):
+        if ".venv" in str(path) or "__pycache__" in str(path):
+            continue
+        if path.name == "local.py" and "runtime/tools" in str(path):
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        # Negative lookbehind so `wa_dispatch(` and friends do not
+        # masquerade as the bridge's `_dispatch(`.
+        for m in re.finditer(
+            r"(?<![A-Za-z0-9_])(?:local\.)?(?:_dispatch|local_bash_impl|"
+            r"local_write_impl|local_edit_impl)\s*\(", text
+        ):
+            window = text[m.start():m.start() + 400]
+            if "on_behalf_of" not in window:
+                line = text[:m.start()].count("\n") + 1
+                offenders.append(f"{path.relative_to(root)}:{line}")
+    assert offenders == [], (
+        "anonymous bridge callers (must pass on_behalf_of=): "
+        f"{offenders}"
+    )
+
+
+def test_screenshot_url_is_not_read_tier():
+    """It spawns headless Chrome on the Mac. READ meant auto-allowed
+    in semi_auto for a tool that starts a local process."""
+    import astra.runtime.tools  # noqa: F401
+    from astra.runtime.tool_registry import REGISTRY
+
+    td = REGISTRY.get("screenshot_url")
+    assert td is not None
+    assert td.tier is not td.tier.READ
+    assert TOOL_TIERS["screenshot_url"] is not ActionTier.READ
+
+
+def test_web_resolver_enforces_no_standing():
+    """astra-web has its OWN resolver. It drifted from the Python one
+    and wrote standing grants for local_bash. Both must agree."""
+    import pathlib
+
+    from astra.autonomy.approvals import NO_STANDING_TOOLS
+
+    route = (
+        pathlib.Path(__file__).resolve().parents[3]
+        / "astra-web/app/api/approvals/[id]/resolve/route.ts"
+    )
+    if not route.exists():          # astra-web not checked out beside astra
+        pytest.skip("astra-web not present")
+    src = route.read_text()
+    assert "NO_STANDING_TOOLS" in src, (
+        "the web resolver does not know about the no-standing list — "
+        "clicking 'approve N always' there grants what the Python "
+        "resolver refuses"
+    )
+    missing = [t for t in NO_STANDING_TOOLS if f'"{t}"' not in src]
+    assert missing == [], (
+        f"web resolver's no-standing list is missing: {missing}"
+    )

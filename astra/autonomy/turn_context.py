@@ -31,3 +31,21 @@ from contextvars import ContextVar
 current_user_prompt: ContextVar[str] = ContextVar(
     "current_user_prompt", default=""
 )
+
+# The surface the current turn runs on ("interactive" | "unattended").
+# Set by run_lean_turn. Defaults to "unattended" — least privilege —
+# so code paths OUTSIDE a turn (schedulers, jobs, background tasks)
+# are treated as unattended, which is what they are.
+#
+# This exists because the surface split was enforced only in the agent
+# loop's dispatch, and TWO production paths reach the Mac bridge
+# without going through it: astra/tools/notes_tools.py::_bridge_sync
+# (invoked by the 30-minute scheduler job) and
+# astra/tools/reply_tools.py::ingest_voice_export. Both imported the
+# bridge helpers directly, so local_bash's DESTRUCTIVE tier AND its
+# interactive-only restriction were both bypassed — 48 ungated shell
+# executions a day. A guard in one dispatch loop is not a guard; it
+# belongs at the chokepoint every caller must cross.
+current_surface: ContextVar[str] = ContextVar(
+    "current_surface", default="unattended"
+)

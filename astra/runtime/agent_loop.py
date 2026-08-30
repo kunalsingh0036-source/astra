@@ -376,6 +376,14 @@ async def run_lean_turn(
     )
 
     surface = normalize_surface(surface)
+    # Publish the surface to the bridge chokepoint too — the agent
+    # loop is not the only path that reaches the Mac (see
+    # astra/autonomy/turn_context.py::current_surface).
+    try:
+        from astra.autonomy.turn_context import current_surface
+        current_surface.set(surface)
+    except Exception:
+        logger.exception("[lean-runtime] current_surface set failed")
     _surface_blocked: frozenset[str] = (
         frozenset()
         if surface == SURFACE_INTERACTIVE

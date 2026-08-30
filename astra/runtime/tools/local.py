@@ -83,10 +83,88 @@ async def _active_bridge_token_id() -> tuple[int | None, list[str]]:
     return int(row[0]), list(paths)
 
 
+# Internal callers permitted to reach an interactive-only bridge verb
+# from an unattended context. Each is a NAMED, REVIEWED, fixed-argument
+# job — not a general capability.
+#
+# notes_sync: the 30-minute scheduler job. Its shell command is
+#   hardcoded in astra/tools/notes_tools.py::_bridge_sync; no model
+#   input reaches it. Before this allowlist existed the call was an
+#   INVISIBLE bypass of the tier, the surface split and the audit
+#   trail. Listing it here makes it explicit, logged, and countable.
+#   Workstream A replaces this with a signed standing intent whose
+#   arguments are pinned by the broker.
+_PREAUTHORISED_INTERNAL: frozenset[str] = frozenset({"notes_sync"})
+
+
 async def _dispatch(
-    tool_name: str, args: dict, *, timeout_sec: float
+    tool_name: str, args: dict, *, timeout_sec: float,
+    on_behalf_of: str | None = None,
 ) -> dict:
-    """Common path: resolve bridge → queue call → wait → return."""
+    """Common path: resolve bridge → queue call → wait → return.
+
+    `on_behalf_of` names the registered tool this dispatch is acting
+    for when a tool reaches the bridge WITHOUT going through the agent
+    loop's dispatch (and therefore without its tier check or surface
+    guard). It is a Python keyword argument, so it is unreachable from
+    model-supplied tool arguments — the model cannot set it.
+
+    SURFACE GUARD: interactive-only verbs (local_bash / local_edit /
+    local_write) are refused on the unattended surface unless the
+    caller is a pre-authorised internal job. The agent loop already
+    blocks these for the MODEL; this blocks them for CODE, which is
+    where the two live bypasses were.
+    """
+    try:
+        from astra.autonomy.turn_context import current_surface
+        _surface = current_surface.get()
+    except Exception:
+        _surface = "unattended"  # fail closed
+
+    try:
+        from astra.runtime.tool_surface import (
+            SURFACE_INTERACTIVE,
+            interactive_only_tool_names,
+        )
+        _blocked = interactive_only_tool_names()
+    except Exception:
+        logger.exception("[local] tool_surface unavailable — failing closed")
+        SURFACE_INTERACTIVE = "interactive"  # noqa: N806
+        _blocked = frozenset({"local_bash", "local_edit", "local_write"})
+
+    if tool_name in _blocked and _surface != SURFACE_INTERACTIVE:
+        if on_behalf_of in _PREAUTHORISED_INTERNAL:
+            logger.warning(
+                "[local] PRE-AUTHORISED internal bridge call: %s via %s "
+                "on surface=%s (fixed-argument job; Workstream A will "
+                "replace this with a signed standing intent)",
+                tool_name, on_behalf_of, _surface,
+            )
+        else:
+            logger.warning(
+                "[local] REFUSED bridge call: %s on surface=%s "
+                "(on_behalf_of=%r) — interactive-only verb",
+                tool_name, _surface, on_behalf_of,
+            )
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        f"REFUSED: {tool_name} is interactive-only and this "
+                        f"context is {_surface!r}. Writing to or running "
+                        "shell on Kunal's Mac is only available when he is "
+                        "in the web app or CLI. Tell him what you could not "
+                        "do and that it needs the web app — do not retry."
+                    ),
+                }],
+                "is_error": True,
+            }
+    else:
+        logger.info(
+            "[local] bridge call: %s surface=%s on_behalf_of=%r",
+            tool_name, _surface, on_behalf_of,
+        )
+
     token_id, allowed_paths = await _active_bridge_token_id()
     if token_id is None:
         return {
@@ -330,8 +408,9 @@ async def local_edit_impl(args: dict) -> dict:
     timeout_sec=160,
     namespace="local",
 )
-async def local_bash_impl(args: dict) -> dict:
-    return await _dispatch("local_bash", args, timeout_sec=140.0)
+async def local_bash_impl(args: dict, *, on_behalf_of: str | None = None) -> dict:
+    return await _dispatch("local_bash", args, timeout_sec=140.0,
+                           on_behalf_of=on_behalf_of)
 
 
 @register_tool(
@@ -471,7 +550,13 @@ async def local_bridge_status_impl(args: dict) -> dict:
         },
         "required": ["url"],
     },
-    tier=ActionTier.READ,
+    # WRITE, not READ: this spawns a headless Chrome PROCESS on Kunal's
+    # Mac and writes a PNG there. The tier axis is about reversibility,
+    # but a READ tier here also meant "auto-allowed in semi_auto" for a
+    # tool that starts a local process — a physical act mis-filed as a
+    # lookup. Not DESTRUCTIVE (it is reversible and takes a URL, not a
+    # command), but it must not sit in the never-ask tier.
+    tier=ActionTier.WRITE,
     # Outer cap. Inner: chrome subprocess timeout (30s) + bridge
     # network + dispatch overhead. 60s leaves margin without hanging
     # the runner per-turn budget.

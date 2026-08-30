@@ -156,7 +156,13 @@ async def _bridge_sync(*, force: bool) -> dict:
         "updated={r.updated_notes} unchanged={r.unchanged_notes} "
         "failed={r.failed_notes}')\""
     )
-    res = await local_bash_impl({"command": cmd})
+    # Declare the caller: this reaches the Mac bridge WITHOUT passing
+    # through the agent loop's tier check + surface guard, so the
+    # chokepoint in local.py::_dispatch needs to know who is asking.
+    # "notes_sync" is on the reviewed _PREAUTHORISED_INTERNAL list
+    # because this command is hardcoded above — no model input reaches
+    # it. Anything else gets refused on the unattended surface.
+    res = await local_bash_impl({"command": cmd}, on_behalf_of="notes_sync")
     text_parts = [c.get("text", "") for c in (res.get("content") or [])
                   if isinstance(c, dict)]
     out = "\n".join(text_parts).strip()

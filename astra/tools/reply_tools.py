@@ -277,6 +277,7 @@ async def ingest_voice_export_tool(args: dict) -> dict:
             res = await _dispatch(
                 "local_read", {"path": path, "offset": offset, "limit": 2000},
                 timeout_sec=30.0,
+                on_behalf_of="ingest_voice_export",
             )
             txt = (res.get("content") or [{}])[0].get("text", "")
             if res.get("is_error"):

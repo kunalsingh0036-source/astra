@@ -230,7 +230,8 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "local_glob": ActionTier.READ,
     "local_grep": ActionTier.READ,
     "local_bridge_status": ActionTier.READ,
-    "screenshot_url": ActionTier.READ,
+    # Spawns headless Chrome on the Mac — a physical act, not a lookup.
+    "screenshot_url": ActionTier.WRITE,
     # Arbitrary file writes on the Mac — launchd plists, shell rc
     # files, the sidecar's plaintext trust root. Not "recoverable".
     "local_edit": ActionTier.DESTRUCTIVE,
