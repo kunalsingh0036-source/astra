@@ -74,12 +74,21 @@ def upgrade() -> None:
         $$ LANGUAGE plpgsql;
         """
     )
+    # ONE statement per op.execute(): asyncpg prepares every statement,
+    # and a prepared statement cannot carry multiple commands
+    # ("cannot insert multiple commands into a prepared statement").
+    # Batching the DROP and CREATE in one call failed the migration,
+    # and because scheduler-entrypoint.sh runs under `set -euo
+    # pipefail`, a failed `alembic upgrade head` aborts the boot before
+    # exec'ing the scheduler — it takes the whole service down.
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_tool_grants_no_standing ON tool_grants"
+    )
     op.execute(
         """
-        DROP TRIGGER IF EXISTS trg_tool_grants_no_standing ON tool_grants;
         CREATE TRIGGER trg_tool_grants_no_standing
             BEFORE INSERT OR UPDATE ON tool_grants
-            FOR EACH ROW EXECUTE FUNCTION astra_refuse_no_standing_grant();
+            FOR EACH ROW EXECUTE FUNCTION astra_refuse_no_standing_grant()
         """
     )
     # The live grant this rule exists for: local_bash, source='chat',
