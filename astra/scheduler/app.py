@@ -308,25 +308,41 @@ def _build_scheduler() -> AsyncIOScheduler:
     _IS_MACOS = _sys.platform == "darwin"
     if not _IS_MACOS:
         logger.info(
-            "[scheduler] skipping 5 macOS-only jobs (notes_sync, "
+            "[scheduler] skipping macOS-only jobs ("
             "missed_session_snapshot, training_catchup_prompt*, "
             "apply_approved_catchups, meetings_pipeline, "
             "meeting_capture_trigger) — no osascript on %s. "
+            "notes_sync is NO LONGER in this list: it routes through "
+            "the Mac bridge and runs everywhere. "
             "*catchup prompt still posts the web notification path.",
             _sys.platform,
         )
 
-    if _IS_MACOS:
-        # Apple Notes sync — every 30 minutes. Incremental (only
-        # changed notes re-fetched), so a no-op run is <2s.
-        scheduler.add_job(
-            run_notes_sync,
-            IntervalTrigger(minutes=30),
-            id="notes_sync",
-            name="Apple Notes sync",
-            replace_existing=True,
-        )
+    # Apple Notes sync — every 30 minutes, on EVERY platform.
+    #
+    # This used to sit inside the `if _IS_MACOS:` block below, which
+    # meant it was never registered on the Linux cloud scheduler — so
+    # it never ran at all. The job BODY (jobs.py::notes_sync) was
+    # later rewritten to detect the cloud (no osascript) and route
+    # through the Mac bridge, complete with a comment describing the
+    # phantom-sync bug it was fixing. The body was fixed; the caller
+    # was never re-enabled, so the fix never executed. Verified
+    # 2026-08-30: apple_notes.last_synced_at newest = 2026-07-25,
+    # 36 days stale, 54 rows — frozen exactly as it froze at 50 once
+    # before.
+    #
+    # Safe on Linux: the cloud path returns a clean "skipped" when the
+    # bridge is offline (laptop closed — its normal state), and never
+    # a fake success.
+    scheduler.add_job(
+        run_notes_sync,
+        IntervalTrigger(minutes=30),
+        id="notes_sync",
+        name="Apple Notes sync",
+        replace_existing=True,
+    )
 
+    if _IS_MACOS:
         # Missed-session snapshot — daily at 21:30 IST, half an hour
         # before the evening briefing so the briefing reads a fresh
         # snapshot. Requires the Apple Notes mirror.
