@@ -778,3 +778,81 @@ def test_web_resolver_enforces_no_standing():
     assert missing == [], (
         f"web resolver's no-standing list is missing: {missing}"
     )
+
+
+# ────────────────────────────────────────────────────────────
+# §10 — two live bugs the Workstream A red team found in
+# existing code (not in the design)
+# ────────────────────────────────────────────────────────────
+
+def test_approval_record_is_always_valid_json():
+    """create_approval used `json.dumps(tool_input)[:20_000]` cast to
+    JSONB. Slicing a serialised string mid-token yields invalid JSON,
+    so Postgres rejected the INSERT and any tool call with arguments
+    over ~20k chars could never be approved — it failed closed, but
+    with a message blaming the approval store. A long shell command is
+    exactly the kind of call most worth gating."""
+    import json
+
+    from astra.autonomy.approvals import _MAX_INPUT_JSON, _clamp_tool_input
+
+    for case in (
+        {},
+        {"small": "ok"},
+        {"command": "x" * 25_000},
+        {"a": "y" * 30_000, "b": "z" * 30_000},
+        {"nested": {"deep": ["v" * 40_000]}},
+        {"n": 1, "flag": True, "none": None},
+    ):
+        out = _clamp_tool_input(case)
+        json.loads(out)                      # must parse
+        assert len(out) <= _MAX_INPUT_JSON   # must fit
+
+
+def test_truncation_is_disclosed_not_silent():
+    """An approval UI must never show less than what will run without
+    saying so — otherwise Kunal approves a command he only half saw."""
+    import json
+
+    from astra.autonomy.approvals import _clamp_tool_input
+
+    out = json.loads(_clamp_tool_input({"command": "x" * 25_000}))
+    assert "__truncated__" in out
+    assert "TRUNCATED" in out["command"]
+
+
+def test_finalize_call_is_scoped_to_the_presenting_token():
+    """/bridge/result took call_id straight from the request body with
+    no ownership predicate, so any holder of any valid bridge token
+    could write a result for any call — forging the outcome of work it
+    never performed. Theoretical with one body; a live forgery path the
+    moment a second body registers (WORKSTREAMS §G)."""
+    import inspect
+
+    from astra.runtime.bridge import store
+
+    src = inspect.getsource(store.finalize_call)
+    assert "bridge_token_id" in src, (
+        "finalize_call no longer scopes to the presenting token"
+    )
+    assert "bridge_token_id = :tok" in src, (
+        "the UPDATE lost its ownership predicate"
+    )
+
+
+def test_bridge_result_route_passes_the_token_and_fails_loudly():
+    import pathlib
+
+    main = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "services/stream/main.py"
+    ).read_text()
+    idx = main.find("async def bridge_result")
+    assert idx != -1
+    body = main[idx:idx + 2000]
+    assert "bridge_token_id=bt.id" in body, (
+        "the route does not scope the finalize to the caller's token"
+    )
+    assert "404" in body, (
+        "a rejected finalize must fail loudly, not return ok:true"
+    )

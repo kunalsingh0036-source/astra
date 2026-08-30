@@ -795,12 +795,20 @@ async def bridge_result(body: BridgeResultBody, request: Request) -> dict[str, o
     if bt is None:
         raise HTTPException(401, "invalid or revoked bridge token")
 
-    await finalize_call(
+    # Scope the finalize to the token that presented it. Without this
+    # any valid bridge token could write a result for any call.
+    updated = await finalize_call(
         body.call_id,
         ok=body.ok,
         result=body.result,
         error_message=body.error_message,
+        bridge_token_id=bt.id,
     )
+    if not updated:
+        raise HTTPException(
+            404,
+            "no such pending call for this bridge token",
+        )
     return {"ok": True}
 
 

@@ -360,12 +360,24 @@ async def finalize_call(
     ok: bool,
     result: str = "",
     error_message: str | None = None,
-) -> None:
+    bridge_token_id: int | None = None,
+) -> bool:
     """Daemon reports tool execution result. Status flips to
-    'complete' or 'failed'."""
+    'complete' or 'failed'. Returns True if a row was updated.
+
+    `bridge_token_id`, when given, scopes the update to calls owned by
+    that token. The route used to call this with the call_id straight
+    from the request body and no ownership predicate, so ANY holder of
+    ANY valid bridge token could finalize ANY call — writing an
+    arbitrary result for work it never performed. With one registered
+    body that was theoretical; the moment a second body exists (the
+    body-agnostic executor in WORKSTREAMS §G) it is a live forgery
+    path. This is SECURITY-MODEL's "signing requests but trusting
+    replies is the same bug on the way back", at the transport layer.
+    """
     status = "complete" if ok else "failed"
     async with async_session() as s:
-        await s.execute(
+        r = await s.execute(
             text(
                 """
                 UPDATE bridge_calls
@@ -374,6 +386,7 @@ async def finalize_call(
                     error_message = :em,
                     completed_at = now()
                 WHERE id = :id
+                  AND (:tok::int IS NULL OR bridge_token_id = :tok)
                 """
             ),
             {
@@ -381,9 +394,17 @@ async def finalize_call(
                 "st": status,
                 "r": (result or "")[:1_048_576],  # 1MB cap
                 "em": (error_message or None) and error_message[:4000],
+                "tok": bridge_token_id,
             },
         )
+        updated = (r.rowcount or 0) > 0
         await s.commit()
+    if not updated:
+        logger.warning(
+            "[bridge] finalize_call rejected: call %s not owned by "
+            "token %s (or already finalized)", call_id, bridge_token_id,
+        )
+    return updated
 
 
 async def wait_for_result(

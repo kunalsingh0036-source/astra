@@ -20,6 +20,7 @@ keeps re-teaching.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any
@@ -85,6 +86,60 @@ NO_STANDING_TOOLS: frozenset[str] = frozenset({
 })
 
 
+_MAX_INPUT_JSON = 20_000
+
+
+def _clamp_tool_input(tool_input: dict[str, Any]) -> str:
+    """Serialise tool_input to JSON that fits the column AND is still
+    valid JSON.
+
+    The previous form was `json.dumps(tool_input)[:20_000]` cast to
+    JSONB: slicing the SERIALISED string mid-token produces invalid
+    JSON, Postgres rejects the INSERT, create_approval raises, and the
+    agent loop reports "approval store failed". So any tool call with
+    arguments over ~20k chars could never be approved — it failed
+    closed, which is the right direction, but for a reason nobody
+    could see and with a message that blamed the store. A long shell
+    command or a big file write is exactly the kind of call most worth
+    gating.
+
+    Instead, truncate the VALUES and keep the structure. The marker is
+    explicit so a human reading /approvals sees that the argument was
+    shortened rather than silently believing they approved the whole
+    thing — an approval UI must never show less than what will run
+    without saying so.
+    """
+    blob = json.dumps(tool_input)
+    if len(blob) <= _MAX_INPUT_JSON:
+        return blob
+
+    # Reserve room for the marker, the keys, and JSON punctuation, so
+    # the common single-large-argument case keeps a real preview
+    # instead of falling through to the digest-only form.
+    reserve = 600 + 40 * len(tool_input)
+    budget = max(200, (_MAX_INPUT_JSON - reserve) // max(1, len(tool_input)))
+    clamped: dict[str, Any] = {}
+    for k, v in tool_input.items():
+        sv = v if isinstance(v, str) else json.dumps(v, default=str)
+        if len(sv) > budget:
+            sv = sv[:budget] + f"…[TRUNCATED {len(sv) - budget} chars]"
+        clamped[str(k)] = sv
+    clamped["__truncated__"] = (
+        f"original {len(blob)} chars exceeded the {_MAX_INPUT_JSON} "
+        "char approval-record limit; values above are shortened"
+    )
+    out = json.dumps(clamped)
+    if len(out) > _MAX_INPUT_JSON:
+        out = json.dumps({
+            "__truncated__": (
+                f"tool_input was {len(blob)} chars and could not be "
+                "rendered within the approval-record limit"
+            ),
+            "sha256": hashlib.sha256(blob.encode()).hexdigest(),
+        })
+    return out
+
+
 async def create_approval(
     *,
     tool_name: str,
@@ -108,7 +163,7 @@ async def create_approval(
                 "t": turn_id,
                 "sid": session_id,
                 "n": tool_name,
-                "i": json.dumps(tool_input)[:20_000],
+                "i": _clamp_tool_input(tool_input),
                 "r": reason[:2_000],
             },
         )
