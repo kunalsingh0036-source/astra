@@ -24,6 +24,15 @@ dependencies = [
     "pgvector>=0.3.0",
     "alembic>=1.14.0",
 
+    # Cryptography — verifies the Secure Enclave approval signature and
+    # the broker's Ed25519 capability tokens (Workstream A). It was
+    # ALREADY imported at runtime while being an undeclared transitive
+    # dependency: the venv had 46.0.6, the system framework Python the
+    # bridge actually runs on had 46.0.5, and /usr/bin/python3 had none.
+    # A signature verifier must not sit on a version chosen by whichever
+    # interpreter PATH resolved first.
+    "cryptography>=46,<47",
+
     # Embeddings
     "sentence-transformers>=3.0.0",
 
