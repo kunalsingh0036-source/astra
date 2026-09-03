@@ -374,6 +374,13 @@ async def finalize_call(
     body-agnostic executor in WORKSTREAMS §G) it is a live forgery
     path. This is SECURITY-MODEL's "signing requests but trusting
     replies is the same bug on the way back", at the transport layer.
+
+    NOTE the CAST(...) rather than `:tok::int`. In SQLAlchemy `text()` a
+    colon starts a bind parameter, so `::int` is a syntax error at the
+    database — "syntax error at or near :". It passed every unit test
+    (489 of them) because no test exercises this HTTP route, and it
+    500'd on the first real request after deploy. Raw SQL must be
+    EXECUTED once before it ships, not just reviewed.
     """
     status = "complete" if ok else "failed"
     async with async_session() as s:
@@ -386,7 +393,8 @@ async def finalize_call(
                     error_message = :em,
                     completed_at = now()
                 WHERE id = :id
-                  AND (:tok::int IS NULL OR bridge_token_id = :tok)
+                  AND (CAST(:tok AS INTEGER) IS NULL
+                       OR bridge_token_id = CAST(:tok AS INTEGER))
                 """
             ),
             {
