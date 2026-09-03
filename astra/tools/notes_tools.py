@@ -143,12 +143,24 @@ async def _bridge_sync(*, force: bool) -> dict:
     from astra.runtime.tools.local import local_bash_impl
 
     force_arg = "True" if force else "False"
+    # NO `railway variables` INDIRECTION. It used to resolve DATABASE_URL
+    # by shelling out to the Railway CLI, which lives in
+    # ~/.local/bin/railway — NOT on the bridge daemon's launchd PATH
+    # (/Users/kunalsingh/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:
+    # /bin:/usr/sbin:/sbin). Under launchd the call produced nothing,
+    # its error was swallowed by `2>/dev/null`, DATABASE_URL came out
+    # empty, and SQLAlchemy died with "Could not parse SQLAlchemy URL".
+    # Every 30 minutes, invisibly, for 40 days — the mirror froze at 54
+    # rows on 2026-07-25. It worked whenever a human ran it by hand,
+    # because an interactive shell HAS ~/.local/bin. Your shell is not
+    # their environment.
+    #
+    # The repo's own .env already holds a working public URL, and
+    # astra.config.settings resolves it under the daemon's exact
+    # environment (verified). One less moving part, and no PATH
+    # dependency at all.
     cmd = (
         'cd "/Users/kunalsingh/Claude Code/astra" && '
-        "DATABASE_URL=$(railway variables --service Postgres --json 2>/dev/null "
-        "| python3 -c 'import sys,json;print(json.load(sys.stdin)"
-        '["DATABASE_PUBLIC_URL"].replace("postgresql://","postgresql+asyncpg://")'
-        ".replace(\"postgres://\",\"postgresql+asyncpg://\"))') "
         '.venv/bin/python3 -c "import asyncio; '
         "from astra.notes.harvester import sync_all; "
         f"r = asyncio.run(sync_all(force={force_arg})); "
