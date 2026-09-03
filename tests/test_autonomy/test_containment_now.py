@@ -831,12 +831,27 @@ def test_finalize_call_is_scoped_to_the_presenting_token():
 
     from astra.runtime.bridge import store
 
+    import re
+
     src = inspect.getsource(store.finalize_call)
     assert "bridge_token_id" in src, (
         "finalize_call no longer scopes to the presenting token"
     )
-    assert "bridge_token_id = :tok" in src, (
-        "the UPDATE lost its ownership predicate"
+    # Assert the PROPERTY, not the spelling. The first version pinned
+    # the literal "bridge_token_id = :tok" and went red when the cast
+    # changed to CAST(:tok AS INTEGER) — a guard that fails on a
+    # rewording trains people to edit the guard. What must hold is that
+    # the UPDATE's WHERE clause constrains bridge_token_id at all.
+    where = src[src.find("WHERE"):] if "WHERE" in src else ""
+    assert re.search(r"bridge_token_id\s*=", where), (
+        "the UPDATE lost its ownership predicate — any bridge token "
+        "could finalize any call"
+    )
+    # And the parameter must actually be bound. An unbound :tok is a
+    # 500 on every request, which is exactly what shipped once.
+    assert '"tok"' in src, (
+        "the :tok parameter is referenced but never bound — this is a "
+        "guaranteed 500 on every call, not a subtle bug"
     )
 
 
