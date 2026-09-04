@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import time
 import logging
 import os
 
@@ -810,6 +811,224 @@ async def bridge_result(body: BridgeResultBody, request: Request) -> dict[str, o
             "no such pending call for this bridge token",
         )
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════
+# Capability broker (Workstream A3) — the intents transport
+#
+# These routes carry REQUESTS. They carry no authority. There is
+# deliberately no route that grants anything, and no column behind them
+# to set: authority is a Secure Enclave signature over a 190-byte
+# payload, minted on the Mac with a key the cloud has never seen, and
+# checked by the executor against public keys compiled into its own
+# binary.
+#
+# GET /broker/policy IS DELIBERATELY ABSENT. An endpoint the broker
+# fetches configuration from is a config file with worse provenance,
+# and astra-broker/build.sh's "no configuration" guard greps for FILE
+# reads — a URLSession fetch matches none of its patterns, so it would
+# be the one configuration channel the guard structurally cannot see.
+# The catalog route below is one-way: the broker PUBLISHES what it
+# compiled, and nothing the cloud returns is ever read back into a
+# decision.
+#
+# Auth is a DB-backed bearer (bodies.token_hash), not a third env-var
+# secret. STREAM_SHARED_SECRET already exists; adding a sibling makes
+# the two structural twins, and one empty-string env save makes them
+# interchangeable. A hash lookup fails closed for free — no row, no
+# match, 401 — and it yields the body_id the ownership predicate needs.
+# ══════════════════════════════════════════════════════════
+
+
+async def _body_from_bearer(request: Request):
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    token = auth.split(None, 1)[1].strip()
+    from astra.broker.store import validate_body_token
+    b = await validate_body_token(token)
+    if b is None:
+        raise HTTPException(401, "invalid or revoked body token")
+    return b
+
+
+@app.get("/broker/intents/next")
+async def broker_next(request: Request) -> dict[str, object]:
+    """Long-poll for the next intent. 25s cap.
+
+    Modelled on /bridge/poll. Returns {"intent": null} on timeout rather
+    than 204, so the Swift decode path stays uniform.
+
+    touch_body_poll is called ONCE PER REQUEST, not per loop iteration:
+    it must count requests served, not seconds elapsed, or it becomes
+    the same liar bridge_tokens.last_seen_at is — that column read
+    healthy while the bridge served zero calls for months.
+    """
+    b = await _body_from_bearer(request)
+    try:
+        from astra.broker.store import claim_next_intent, touch_body_poll
+        await touch_body_poll(b.id)
+        deadline = asyncio.get_event_loop().time() + 25
+        while True:
+            it = await claim_next_intent(b.id)
+            if it is not None:
+                return {"intent": {
+                    "id": it.id, "verb": it.verb, "args": it.args,
+                    "why": it.why,
+                    "expires_at": it.expires_at.isoformat(),
+                }}
+            if asyncio.get_event_loop().time() >= deadline:
+                return {"intent": None}
+            # Poll, not LISTEN-only. A dedicated LISTEN connection is
+            # the most idle socket in the system and the only one with
+            # no keepalive or pre-ping; when it quietly dies, "no
+            # notification" is indistinguishable from "no work" and the
+            # body starves while everything reports healthy.
+            await asyncio.sleep(2.0)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("[broker] intents/next failed")
+        raise HTTPException(503, "broker transport unavailable")
+
+
+class BrokerStatusBody(BaseModel):
+    status: str
+    deny_reason: str | None = None
+    display_b64: str | None = None
+    token_b64: str | None = None
+    receipt_b64: str | None = None
+    result_b64: str | None = None
+    result_note: str = ""
+
+
+def _b64(v: str | None) -> bytes | None:
+    if not v:
+        return None
+    import base64
+    return base64.b64decode(v)
+
+
+@app.post("/broker/intents/{intent_id}/status")
+async def broker_status(
+    intent_id: int, body: BrokerStatusBody, request: Request
+) -> dict[str, object]:
+    """Record the body's outcome for one intent.
+
+    record_status carries `AND body_id = :body_id` UNCONDITIONALLY, and
+    a mismatch is a 404 — not a silent ok:true, which was half of the
+    original /bridge/result bug.
+    """
+    b = await _body_from_bearer(request)
+    try:
+        from astra.broker.store import record_status
+        updated = await record_status(
+            intent_id,
+            body_id=b.id,
+            status=body.status,
+            deny_reason=body.deny_reason,
+            display_bytes=_b64(body.display_b64),
+            token_bytes=_b64(body.token_b64),
+            receipt_bytes=_b64(body.receipt_b64),
+            result_bytes=_b64(body.result_b64),
+            result_note=body.result_note,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("[broker] status write failed")
+        raise HTTPException(503, "broker transport unavailable")
+    if not updated:
+        raise HTTPException(
+            404, "no such open intent for this body")
+    return {"ok": True}
+
+
+class BrokerAuditBody(BaseModel):
+    seq: int
+    ts: str
+    decision: str
+    prev_hash: str
+    record_hash: str
+    intent_id: int | None = None
+    verb: str = ""
+    reason: str = ""
+    args_sha256: str | None = None
+    display_sha256: str | None = None
+    receipt_sha256: str | None = None
+    actor_claimed: str = ""
+
+
+@app.post("/broker/audit")
+async def broker_audit(
+    body: BrokerAuditBody, request: Request
+) -> dict[str, object]:
+    """Mirror one link of the broker's audit chain.
+
+    The BROKER's local log is the source of truth; this is the cloud's
+    copy, and the cloud is the SUSPECT — a superuser can delete from it.
+    That asymmetry is the point: deletion leaves a gap in `seq`, which
+    converts silent erasure into loud erasure. It does not prevent it.
+
+    A replayed seq is `duplicate: true`, not an error — a body retrying
+    after a network failure must not look like an attack — but
+    overwriting seq N with different bytes is impossible.
+    """
+    b = await _body_from_bearer(request)
+    try:
+        from datetime import datetime
+        from astra.broker.store import append_audit
+        inserted = await append_audit(
+            body_id=b.id,
+            seq=body.seq,
+            ts=datetime.fromisoformat(body.ts),
+            decision=body.decision,
+            prev_hash=body.prev_hash,
+            record_hash=body.record_hash,
+            intent_id=body.intent_id,
+            verb=body.verb,
+            reason=body.reason,
+            args_sha256=body.args_sha256,
+            display_sha256=body.display_sha256,
+            receipt_sha256=body.receipt_sha256,
+            actor_claimed=body.actor_claimed,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("[broker] audit append failed")
+        raise HTTPException(503, "broker transport unavailable")
+    return {"ok": True, "duplicate": not inserted}
+
+
+class BrokerCatalogBody(BaseModel):
+    verbs: list[dict[str, object]]
+    build_cdhash: str = ""
+
+
+@app.post("/broker/catalog")
+async def broker_catalog(
+    body: BrokerCatalogBody, request: Request
+) -> dict[str, object]:
+    """The broker PUBLISHES its compiled verb table. One-way.
+
+    This exists so the model's tool description can be accurate about
+    what the body will accept. It is not configuration: nothing the
+    cloud stores here is ever read back by the broker, which compiles
+    its catalogue in and would refuse an unknown verb regardless.
+    """
+    b = await _body_from_bearer(request)
+    _BROKER_CATALOG[b.id] = {
+        "verbs": body.verbs,
+        "build_cdhash": body.build_cdhash,
+        "at": time.time(),
+    }
+    return {"ok": True, "verbs": len(body.verbs)}
+
+
+# In-process, deliberately: it is a display convenience, and a cache
+# that survives a restart would be a configuration store.
+_BROKER_CATALOG: dict[int, dict[str, object]] = {}
 
 
 @app.post("/api/push/test")

@@ -78,6 +78,27 @@ _EXTRA_INTERACTIVE_ONLY = frozenset({
     "local_edit",
     "local_write",
     "local_bash",
+
+    # Workstream A3. An EXPLICIT decision, not an omission.
+    #
+    # submit_intent cannot itself cause anything — the broker holds the
+    # gate and signed verbs need Kunal's fingerprint. But exec.shell,
+    # fs.write and fs.edit are already compiled into the shipped broker
+    # catalogue, and filing an intent for one of them RAISES A TOUCH ID
+    # PROMPT on his Mac. Habituation is the attack that software cannot
+    # eliminate, and precise control over WHEN a human is asked is most
+    # of it.
+    #
+    # Today a prompt-injected WhatsApp turn cannot even name local_bash
+    # (CONTAINMENT §4). Leaving submit_intent off this list would hand
+    # that capability straight back through a new door. Widening it is a
+    # per-verb decision for a later phase, taken deliberately, with the
+    # broker's per-hour rate limit in place first — that limit does not
+    # exist yet.
+    #
+    # poll_status is deliberately NOT here: reading a status causes
+    # nothing, and an unattended turn should be able to report progress.
+    "submit_intent",
 })
 
 

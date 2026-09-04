@@ -238,6 +238,15 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "local_write": ActionTier.DESTRUCTIVE,
     "local_bash": ActionTier.DESTRUCTIVE,
 
+    # ── capability broker (A3) ────────────────────────────
+    # The gate is the BROKER, not the tier: submit_intent files a row
+    # and causes nothing, and no part of Astra can approve it. But WRITE
+    # rather than READ, because it inserts a durable row that interrupts
+    # a human — READ means "changes nothing", and queueing work for
+    # someone changes something.
+    "submit_intent": ActionTier.WRITE,
+    "poll_status": ActionTier.READ,
+
     # ── memory ──────────────────────────────────────────────
     "recall_memories": ActionTier.READ,
     "recall_recent_turns": ActionTier.READ,

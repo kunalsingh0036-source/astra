@@ -57,6 +57,7 @@ from astra.scheduler.jobs import (
     run_email_sync,
     run_gmail_auth_check,
     run_retention_sweep,
+    run_broker_reap,
     run_wa_dispatch,
     run_inbox_triage,
     run_voice_learning,
@@ -176,6 +177,16 @@ def _build_scheduler() -> AsyncIOScheduler:
     # Retention sweep — daily 03:30 IST (off-peak). Windows approved
     # 2026-06-11: turn_events 30d, bridge_calls 14d, previews per-row
     # TTL (finally calling sweep_expired), turns.messages forever.
+    scheduler.add_job(
+        run_broker_reap,
+        IntervalTrigger(minutes=1),
+        id="broker_reap",
+        name="Expire stale broker intents",
+        replace_existing=True,
+    )
+
+    # Every platform, like notes_sync: the reaper runs in the CLOUD
+    # precisely because the body may be the thing that is missing.
     scheduler.add_job(
         run_retention_sweep,
         _ist_cron(hour=3, minute=30),

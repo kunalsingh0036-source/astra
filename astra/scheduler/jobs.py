@@ -1620,6 +1620,33 @@ async def retention_sweep() -> dict:
     return counts
 
 
+async def broker_reap() -> dict:
+    """Expire intents whose deadline passed.
+
+    Without this, an intent sits in 'claimed' forever and that state is
+    indistinguishable from "the broker died mid-work". CHARTER §8 says
+    nothing may silently no-op — and the component that would notice is,
+    in exactly this failure, the absent one. So the CLOUD reaps, because
+    the cloud is always up.
+
+    NOTE: this touches `intents` only. `intent_events` is APPEND-ONLY
+    and must never be pruned — a gap in `seq` is DEFINED to mean
+    tampering, so pruning it would make the chain verifier cry wolf
+    nightly, and a monitor that cries wolf gets ignored.
+    """
+    try:
+        from astra.broker.store import expire_stale_intents
+        n = await expire_stale_intents()
+    except Exception as e:
+        logger.warning("[scheduler] broker_reap unavailable: %s", e)
+        return {"status": "skipped", "reason": f"broker transport: {e}"}
+    return {"status": "success", "expired": n}
+
+
+async def run_broker_reap():
+    return await _safe("broker_reap", broker_reap)
+
+
 async def run_retention_sweep():
     return await _safe("retention_sweep", retention_sweep)
 

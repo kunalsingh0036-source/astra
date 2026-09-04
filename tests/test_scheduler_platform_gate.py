@@ -79,3 +79,15 @@ def test_skip_log_does_not_still_claim_notes_sync():
         "the skip log must state that notes_sync is not among the "
         "skipped jobs — otherwise the next reader re-learns the bug"
     )
+
+
+def test_broker_reaper_is_registered_on_every_platform():
+    """The reaper runs in the CLOUD precisely because the body may be
+    the thing that is missing. Without it an intent sits in 'claimed'
+    forever, and that state is indistinguishable from "the broker died
+    mid-work" — CHARTER §8's silent no-op, enforced by the component
+    that is absent in exactly this failure."""
+    for platform in ("linux", "darwin"):
+        assert "broker_reap" in _job_ids(platform), (
+            f"broker_reap is not registered on {platform}"
+        )

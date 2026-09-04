@@ -48,6 +48,15 @@ from astra.runtime.tools import memory  # noqa: F401
 # screenshot_url.
 from astra.runtime.tools import local  # noqa: F401
 
+# Workstream A3: the capability broker's transport. Side-effect-registers
+# submit_intent and poll_status.
+#
+# THIS LINE IS THE REGISTRATION. physical.py can be perfect, fully
+# tested in isolation, and register nothing in production without it —
+# which is exactly how notes_sync sat unregistered for 40 days while its
+# body was correct. A test asserts both tools are in the registry.
+from astra.runtime.tools import physical  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
