@@ -294,7 +294,14 @@ def test_whatsapp_channel_maps_to_unattended():
 
     assert surface_for_channel("whatsapp") == "unattended"
     assert surface_for_channel("web") == "interactive"
-    assert surface_for_channel(None) == "interactive"  # web PWA default
+    # CHANGED 2026-09-04, deliberately tightened. This used to assert
+    # None == "interactive" because the PWA relied on the default. That
+    # meant ANY caller which forgot the field silently received the full
+    # Mac-writing surface — least privilege backwards, and silent,
+    # because omitting a field looks like nothing at all. astra-web now
+    # sends channel:"web" explicitly and a test pins that.
+    assert surface_for_channel(None) == "unattended"
+    assert surface_for_channel("") == "unattended"
     assert surface_for_channel("anything_else") == "unattended"
 
 

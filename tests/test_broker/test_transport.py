@@ -212,29 +212,68 @@ def test_the_two_actiontier_enums_have_not_diverged():
     )
 
 
-def test_submit_intent_is_interactive_only_and_poll_status_is_not():
-    """THE surface decision, pinned.
+def test_submit_intent_is_reachable_from_whatsapp():
+    """Kunal's call, and the evidence supports it.
 
-    exec.shell, fs.write and fs.edit are already compiled into the
-    shipped broker catalogue. Filing an intent for one raises a Touch ID
-    prompt on Kunal's Mac. A prompt-injected WhatsApp turn today cannot
-    even name local_bash; if submit_intent were reachable unattended,
-    A3 would hand that back through a new door.
+    The first version made submit_intent interactive-only, reasoning
+    that a prompt-injected WhatsApp message could raise Touch ID prompts
+    on his Mac. That threat does not exist through this path:
+    services/gateway/api/webhook.py:300 gates the chat path on
+    is_owner(phone), so only ASTRA_OWNER_NUMBERS can start a WhatsApp
+    turn, and no scheduler starts turns at all.
 
-    poll_status must NOT be restricted — reading a status causes
-    nothing, and an unattended turn should be able to report progress.
+    The fingerprint is the gate and the display is bound to what
+    executes — neither depends on which transport carried the request.
+    Blocking it cost the ability to ask for something on the Mac from
+    the phone, which is exactly when a body is most useful.
     """
     from astra.runtime.tool_surface import (
-        interactive_only_tool_names, surface_for_channel,
+        allowed_tool_names, interactive_only_tool_names,
     )
 
     io = interactive_only_tool_names()
-    assert "submit_intent" in io, (
-        "submit_intent is reachable from unattended turns — a WhatsApp "
-        "message could raise a Touch ID prompt on Kunal's Mac"
-    )
+    assert "submit_intent" not in io
     assert "poll_status" not in io
+    allowed, _ = allowed_tool_names(
+        ["submit_intent", "poll_status", "local_bash"], "unattended")
+    assert "submit_intent" in allowed and "poll_status" in allowed
+    # local_bash stays blocked: it is unstructured shell with no
+    # broker, no display binding and no fingerprint.
+    assert "local_bash" not in allowed
+
+
+def test_absent_or_unknown_channel_is_least_privilege():
+    """An absent channel used to mean 'web' and therefore the FULL
+    Mac-writing surface, so any caller that forgot the field silently
+    received maximum privilege — least privilege exactly backwards, and
+    silent because forgetting a field looks like nothing.
+
+    Only an explicit "web" is interactive now. astra-web sends it.
+    """
+    from astra.runtime.tool_surface import surface_for_channel
+
+    assert surface_for_channel("web") == "interactive"
+    assert surface_for_channel(None) == "unattended"
+    assert surface_for_channel("") == "unattended"
     assert surface_for_channel("whatsapp") == "unattended"
+    assert surface_for_channel("some-new-caller") == "unattended"
+
+
+def test_the_web_app_sends_its_channel_explicitly():
+    """Load-bearing after the default flipped: if astra-web stops
+    sending channel:"web", the web app quietly loses its Mac tools."""
+    import pathlib as _p
+
+    route = (
+        _p.Path(__file__).resolve().parents[3]
+        / "astra-web/app/api/chat/route.ts"
+    )
+    if not route.exists():
+        pytest.skip("astra-web not checked out beside astra")
+    assert 'channel: "web"' in route.read_text(), (
+        "astra-web no longer sends an explicit channel — with the "
+        "least-privilege default it will fall to the unattended surface"
+    )
 
 
 def test_submit_intent_refuses_when_no_body_is_registered(monkeypatch):

@@ -79,26 +79,32 @@ _EXTRA_INTERACTIVE_ONLY = frozenset({
     "local_write",
     "local_bash",
 
-    # Workstream A3. An EXPLICIT decision, not an omission.
+    # submit_intent is deliberately NOT here. Kunal challenged the
+    # first version, which blocked it, and he was right.
     #
-    # submit_intent cannot itself cause anything — the broker holds the
-    # gate and signed verbs need Kunal's fingerprint. But exec.shell,
-    # fs.write and fs.edit are already compiled into the shipped broker
-    # catalogue, and filing an intent for one of them RAISES A TOUCH ID
-    # PROMPT on his Mac. Habituation is the attack that software cannot
-    # eliminate, and precise control over WHEN a human is asked is most
-    # of it.
+    # The argument for blocking was habituation: filing an intent for a
+    # signed verb raises a Touch ID prompt, and controlling WHEN a human
+    # is asked is most of that attack. The argument assumed a
+    # prompt-injected WhatsApp message could raise prompts on his Mac.
     #
-    # Today a prompt-injected WhatsApp turn cannot even name local_bash
-    # (CONTAINMENT §4). Leaving submit_intent off this list would hand
-    # that capability straight back through a new door. Widening it is a
-    # per-verb decision for a later phase, taken deliberately, with the
-    # broker's per-hour rate limit in place first — that limit does not
-    # exist yet.
+    # IT CANNOT. Verified: services/gateway/api/webhook.py:300 gates the
+    # whole chat path on `is_owner(phone)`, so only a number in
+    # ASTRA_OWNER_NUMBERS can start a WhatsApp turn. Messages from the
+    # other 1,373 chats never reach the agent loop as a turn. And no
+    # scheduler starts turns at all — they call functions directly.
     #
-    # poll_status is deliberately NOT here: reading a status causes
-    # nothing, and an unattended turn should be able to report progress.
-    "submit_intent",
+    # So the threat the block defended against does not exist through
+    # this path, while the cost was real: no asking Astra to do
+    # something on the Mac from his phone, which is exactly when a body
+    # is most useful. The fingerprint is the gate, the display is
+    # cryptographically bound to what executes, and neither depends on
+    # which transport carried the request.
+    #
+    # WHAT REMAINS TRUE, and is not fixed by a channel rule: within an
+    # owner-initiated turn Astra may READ third-party content that tries
+    # to steer it. That is equally possible on the web surface, so
+    # blocking WhatsApp never addressed it. The defences that do are the
+    # honest display, the bound digest, and the daily budget of 3.
 })
 
 
@@ -144,13 +150,20 @@ def normalize_surface(surface: str | None) -> str:
 def surface_for_channel(channel: str | None) -> str:
     """Map a /turns/start channel to a surface.
 
-    web (and the web default of None from the PWA) → interactive.
-    whatsapp → unattended: the transport cannot prove authorship
-    (HMAC authenticates Meta, not Kunal), diffs and artifacts don't
-    render there, and WhatsApp is being deleted as an authorization
-    channel in the target security model. Everything unknown →
-    unattended."""
-    c = (channel or "web").strip().lower()
+    Only an EXPLICIT "web" gets the interactive surface. An absent or
+    unknown channel is unattended.
+
+    This used to default None → "web" → interactive, so any caller that
+    forgot to pass a channel received the FULL Mac-writing surface —
+    least privilege exactly backwards, and the failure was silent
+    because forgetting a field looks like nothing at all. The PWA now
+    sends channel:"web" explicitly (astra-web/app/api/chat/route.ts).
+
+    whatsapp → unattended: the transport cannot prove authorship (Meta's
+    HMAC authenticates the transport, not Kunal), and diffs and
+    artifacts do not render there. Note this no longer blocks
+    submit_intent — see the note in _EXTRA_INTERACTIVE_ONLY."""
+    c = (channel or "").strip().lower()
     if c == "web":
         return SURFACE_INTERACTIVE
     return SURFACE_UNATTENDED
