@@ -22,7 +22,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Response
 from pydantic import BaseModel, Field
@@ -841,19 +841,41 @@ async def bridge_result(body: BridgeResultBody, request: Request) -> dict[str, o
 
 
 async def _body_from_bearer(request: Request):
+    """Resolve the calling body, or 401.
+
+    USED AS A `Depends()` ON EVERY ROUTE, deliberately. FastAPI
+    validates a Pydantic body BEFORE a handler runs, so calling this
+    inside the handler means an UNAUTHENTICATED request with a
+    malformed body gets a 422 — it reached the schema validator, while
+    an authenticated one with the same body got the same answer. Auth
+    must be the first gate, not the second.
+
+    Verified empirically rather than assumed: with Depends,
+    bad-body + no-auth returns 401; without it, 422.
+    """
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("bearer "):
         raise HTTPException(401, "missing bearer token")
     token = auth.split(None, 1)[1].strip()
-    from astra.broker.store import validate_body_token
-    b = await validate_body_token(token)
+    try:
+        from astra.broker.store import validate_body_token
+        b = await validate_body_token(token)
+    except Exception:
+        # A database error in the AUTH path must not surface as an
+        # unhandled 500. 503 says "the transport is unavailable", which
+        # is true and distinguishable; a 500 says "this endpoint is
+        # broken", which sends whoever is debugging to the wrong place.
+        # Fail closed either way — no token is resolved, so no handler
+        # runs.
+        logger.exception("[broker] body-token lookup failed")
+        raise HTTPException(503, "broker transport unavailable")
     if b is None:
         raise HTTPException(401, "invalid or revoked body token")
     return b
 
 
 @app.get("/broker/intents/next")
-async def broker_next(request: Request) -> dict[str, object]:
+async def broker_next(b=Depends(_body_from_bearer)) -> dict[str, object]:
     """Long-poll for the next intent. 25s cap.
 
     Modelled on /bridge/poll. Returns {"intent": null} on timeout rather
@@ -864,7 +886,6 @@ async def broker_next(request: Request) -> dict[str, object]:
     the same liar bridge_tokens.last_seen_at is — that column read
     healthy while the bridge served zero calls for months.
     """
-    b = await _body_from_bearer(request)
     try:
         from astra.broker.store import claim_next_intent, touch_body_poll
         await touch_body_poll(b.id)
@@ -911,7 +932,8 @@ def _b64(v: str | None) -> bytes | None:
 
 @app.post("/broker/intents/{intent_id}/status")
 async def broker_status(
-    intent_id: int, body: BrokerStatusBody, request: Request
+    intent_id: int, body: BrokerStatusBody,
+    b=Depends(_body_from_bearer),
 ) -> dict[str, object]:
     """Record the body's outcome for one intent.
 
@@ -919,7 +941,6 @@ async def broker_status(
     a mismatch is a 404 — not a silent ok:true, which was half of the
     original /bridge/result bug.
     """
-    b = await _body_from_bearer(request)
     try:
         from astra.broker.store import record_status
         updated = await record_status(
@@ -961,7 +982,7 @@ class BrokerAuditBody(BaseModel):
 
 @app.post("/broker/audit")
 async def broker_audit(
-    body: BrokerAuditBody, request: Request
+    body: BrokerAuditBody, b=Depends(_body_from_bearer),
 ) -> dict[str, object]:
     """Mirror one link of the broker's audit chain.
 
@@ -974,7 +995,6 @@ async def broker_audit(
     after a network failure must not look like an attack — but
     overwriting seq N with different bytes is impossible.
     """
-    b = await _body_from_bearer(request)
     try:
         from datetime import datetime
         from astra.broker.store import append_audit
@@ -1008,7 +1028,7 @@ class BrokerCatalogBody(BaseModel):
 
 @app.post("/broker/catalog")
 async def broker_catalog(
-    body: BrokerCatalogBody, request: Request
+    body: BrokerCatalogBody, b=Depends(_body_from_bearer),
 ) -> dict[str, object]:
     """The broker PUBLISHES its compiled verb table. One-way.
 
@@ -1017,7 +1037,6 @@ async def broker_catalog(
     cloud stores here is ever read back by the broker, which compiles
     its catalogue in and would refuse an unknown verb regardless.
     """
-    b = await _body_from_bearer(request)
     _BROKER_CATALOG[b.id] = {
         "verbs": body.verbs,
         "build_cdhash": body.build_cdhash,
