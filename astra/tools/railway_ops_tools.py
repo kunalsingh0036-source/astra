@@ -86,6 +86,19 @@ query {
 _INFRA = {"postgres", "redis", "mysql", "mongo", "backup", "worker",
           "beat", "celery", "scheduler-worker"}
 
+# Shortest string allowed to fuzzy-match a service name. Below this a
+# name must match EXACTLY. 'a' and 's' each resolved to a real service
+# before this existed, and '' matched all of them.
+_MIN_MATCH = 4
+
+# Services that must NEVER be restarted by a model-callable tool,
+# whatever the match path. The old code applied _INFRA only to
+# PROJECT-name matches, so a direct hit on the service name "Postgres"
+# went straight through and redeployed a production database — in any
+# of the 7 projects on this account, including other businesses'.
+_NEVER_RESTART = {"postgres", "redis", "mysql", "mongo",
+                  "postgresql", "mongodb", "clickhouse", "mariadb"}
+
 
 async def _resolve_service(name: str) -> dict | None:
     """Name → {service_id, environment_id, project, service} across
@@ -98,10 +111,25 @@ async def _resolve_service(name: str) -> dict | None:
     Postgres/Redis/worker infra. Prefers a 'production' environment.
     Exact service-name match always wins.
     """
+    want = name.strip().lower()
+    # THE CHOKEPOINT. Both agent_logs and restart_agent resolve through
+    # here, so the length guard belongs here rather than in one caller.
+    # Every containment bug in this codebase has been a guard placed in
+    # one path while another path stayed open.
+    #
+    # "" is a substring of every string, so an empty name matched every
+    # service in every project — via the project branch as well as the
+    # service branch. 'a' and 's' each resolved to a real service too.
+    if len(want) < _MIN_MATCH:
+        logger.warning(
+            "[railway-ops] refusing to resolve %r: shorter than "
+            "_MIN_MATCH=%d, which matches many services across every "
+            "project on the account", name, _MIN_MATCH,
+        )
+        return None
     data = await _gql(_RESOLVE_QUERY)
     if not data:
         return None
-    want = name.strip().lower()
     candidates: list[dict] = []
     for pedge in data.get("projects", {}).get("edges", []):
         proj = pedge["node"]
@@ -115,14 +143,25 @@ async def _resolve_service(name: str) -> dict | None:
             continue
         services = [se["node"] for se in proj.get("services", {}).get("edges", [])]
         app_services = [s for s in services if s["name"].lower() not in _INFRA]
-        project_hit = (
-            want in pname.replace(" ", "")
-            or pname.replace(" ", "") in want
-            or want in pname
-        )
+        # `pname in want` is gone: a project named "BAY" made every
+        # request containing "bay" (or longer strings containing a short
+        # project name) hit that project. Substring matching now runs
+        # one way only, and _MIN_MATCH is already enforced above.
+        squashed = pname.replace(" ", "")
+        project_hit = want in squashed or want in pname
         for svc in services:
             sname = svc["name"].lower()
-            svc_hit = want == sname or want in sname or sname in want
+            # `sname in want` is deliberately GONE and `want in sname`
+            # is gated on a minimum length below. The old form was
+            # `want == sname or want in sname or sname in want`, and
+            # "" is a substring of every string — so an empty service
+            # name matched EVERY service across all 7 projects and
+            # restart_agent({}) redeployed whichever sorted first.
+            # Verified by running the real resolver against a fixture
+            # built from the live account: '' -> a production database
+            # in another business.
+            svc_hit = want == sname or (len(want) >= _MIN_MATCH
+                                        and want in sname)
             # A project-name match resolves to the APP service only
             # (not infra); a direct service-name match always counts.
             if svc_hit or (
@@ -245,10 +284,33 @@ async def restart_agent_tool(args: dict) -> dict:
             ]
         }
     name = str(args.get("service", "")).strip()
+    if len(name) < _MIN_MATCH:
+        return {
+            "content": [{"type": "text", "text": (
+                f"Refusing to restart on the name {name!r}: too short or "
+                f"empty. A restart target must be at least {_MIN_MATCH} "
+                "characters, because a short or empty name matches many "
+                "services across every project on this account — an "
+                "empty one matched ALL of them. Name the service "
+                "exactly."
+            )}],
+            "is_error": True,
+        }
     target = await _resolve_service(name)
     if not target:
         return {
             "content": [{"type": "text", "text": f"No service matching {name!r}."}],
+            "is_error": True,
+        }
+    if target["service"].lower() in _NEVER_RESTART:
+        return {
+            "content": [{"type": "text", "text": (
+                f"Refusing to restart {target['service']!r} in project "
+                f"{target['project']!r}: it is a DATABASE. Restarting one "
+                "drops every live connection and can interrupt a write. "
+                "If it genuinely needs a restart, Kunal does it from the "
+                "Railway dashboard where he can see what is connected."
+            )}],
             "is_error": True,
         }
     data = await _gql(

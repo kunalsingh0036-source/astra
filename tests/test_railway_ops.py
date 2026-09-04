@@ -6,6 +6,8 @@ lock the destructive tiering of restart_agent."""
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 
@@ -144,3 +146,95 @@ async def test_resolve_never_picks_infra_for_project_match(monkeypatch):
 
     t = await r._resolve_service("helmtech")
     assert t["service"] == "Helm-Sales"
+
+
+# ── restart_agent target resolution (found 2026-09-04) ────
+#
+# `svc_hit = want == sname or want in sname or sname in want` and the
+# matching project_hit made "" a substring of every name, so
+# restart_agent({}) resolved to a real service and redeployed it — and
+# `_INFRA` was only consulted on the PROJECT branch, so a direct hit on
+# "postgres" went straight through to a production database. Across the
+# 7 projects on this account that included other businesses'.
+
+_FIXTURE = {"projects": {"edges": [
+    {"node": {"name": "astra",
+              "environments": {"edges": [{"node": {"id": "e1", "name": "production"}}]},
+              "services": {"edges": [
+                  {"node": {"id": "s1", "name": "stream"}},
+                  {"node": {"id": "s2", "name": "agents"}},
+                  {"node": {"id": "s3", "name": "Postgres"}},
+                  {"node": {"id": "s4", "name": "Redis"}},
+                  {"node": {"id": "s5", "name": "scheduler"}}]}}},
+    {"node": {"name": "BAY",
+              "environments": {"edges": [{"node": {"id": "e2", "name": "production"}}]},
+              "services": {"edges": [
+                  {"node": {"id": "b1", "name": "bay-nightly"}},
+                  {"node": {"id": "b2", "name": "Postgres"}}]}}},
+]}}
+
+
+def _with_fixture(monkeypatch, redeploys=None):
+    import astra.tools.railway_ops_tools as R
+
+    async def fake_gql(q, v=None):
+        if "serviceInstanceRedeploy" in q:
+            if redeploys is not None:
+                redeploys.append(v)
+            return {"serviceInstanceRedeploy": True}
+        return _FIXTURE
+
+    monkeypatch.setattr(R, "_gql", fake_gql)
+    monkeypatch.setenv("RAILWAY_API_TOKEN", "fake-for-test")
+    return R
+
+
+@pytest.mark.parametrize("probe", ["", " ", "a", "s", "pos", "ag"])
+def test_resolver_refuses_names_too_short_to_be_specific(monkeypatch, probe):
+    """The chokepoint both tools cross. An empty name matched EVERY
+    service; 'a' and 's' each matched a real one."""
+    R = _with_fixture(monkeypatch)
+    assert asyncio.run(R._resolve_service(probe)) is None
+
+
+@pytest.mark.parametrize("probe,expect", [
+    ("stream", "stream"), ("scheduler", "scheduler"),
+    ("bay-nightly", "bay-nightly"),
+])
+def test_resolver_still_finds_real_services(monkeypatch, probe, expect):
+    R = _with_fixture(monkeypatch)
+    t = asyncio.run(R._resolve_service(probe))
+    assert t is not None and t["service"] == expect
+
+
+def test_restart_refuses_short_and_empty(monkeypatch):
+    redeploys = []
+    R = _with_fixture(monkeypatch, redeploys)
+    for probe in ["", "a", "pos"]:
+        out = asyncio.run(R.restart_agent_tool.handler({"service": probe}))
+        assert out.get("is_error") is True, f"{probe!r} was not refused"
+        assert "too short or empty" in out["content"][0]["text"]
+    assert redeploys == [], "a refused restart still fired a redeploy"
+
+
+def test_restart_never_touches_a_database(monkeypatch):
+    """_INFRA was only applied to project-name matches, so a direct hit
+    on the service name went through and redeployed production
+    Postgres — in whichever of the 7 projects matched first."""
+    redeploys = []
+    R = _with_fixture(monkeypatch, redeploys)
+    for probe in ["postgres", "Postgres", "redis"]:
+        out = asyncio.run(R.restart_agent_tool.handler({"service": probe}))
+        assert out.get("is_error") is True, f"{probe!r} was not refused"
+        assert "DATABASE" in out["content"][0]["text"]
+    assert redeploys == [], "a database restart was actually issued"
+
+
+def test_restart_still_works_for_a_legitimate_service(monkeypatch):
+    """The guards must not break the tool — it is the only way Astra
+    can recover a wedged service without Kunal at a terminal."""
+    redeploys = []
+    R = _with_fixture(monkeypatch, redeploys)
+    out = asyncio.run(R.restart_agent_tool.handler({"service": "scheduler"}))
+    assert out.get("is_error") is not True
+    assert len(redeploys) == 1
