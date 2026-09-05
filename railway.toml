@@ -36,7 +36,7 @@ restartPolicyMaxRetries = 10
 # (RAILWAY_DOCKERFILE_PATH, Custom Start Command). Every prod service
 # builds from Dockerfile.scheduler; role is chosen by start command:
 #   scheduler → default CMD (scheduler-entrypoint.sh: migrate + boot)
-#   stream    → uvicorn stream.main:app
+#   stream    → uvicorn services.stream.main:app (custom start command in the dashboard; no healthcheck is configured there today, set Healthcheck Path=/health so a failed boot keeps the previous deployment)
 #   backup    → python /app/scripts/backup-postgres.py (cron 03:00 UTC)
 # The old [services.stream.build] here pointed at a Dockerfile.stream
 # that never existed — dead config, removed so nobody trusts it again.

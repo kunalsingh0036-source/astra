@@ -14,8 +14,11 @@ not a flaky test.
   §3  set_mode is not model-callable; full_auto cannot be permanent.
   §4  The unattended tool surface is a strict subset of the
       interactive one; self-modification is interactive-only.
-  §5  resolve_approval requires a human-typed token in the actual
-      inbound message.
+  §5  There is no approval tool. The chat-side token check that used
+      to live here went with the tool it guarded (Phase A5,
+      SECURITY-MODEL §1); the registry refuses the name at boot and
+      tests/test_broker/test_no_approval_tool.py is the acceptance
+      suite for that deletion.
 """
 
 from __future__ import annotations
@@ -159,13 +162,37 @@ def _autonomy_decide_fresh(agent_loop):
     )
 
 
-def test_gate_exempt_tools_still_allowed():
-    """The exemption list must keep working — resolve_approval IS the
-    approval mechanism until the broker replaces it (Workstream A)."""
+def test_resolve_approval_is_absent_and_not_exempt():
+    """Phase A5 inversion. Until A5 this asserted that the exemption
+    list kept resolve_approval un-gated because it WAS the approval
+    mechanism; its own docstring named the broker as its expiry. The
+    broker's Touch ID lane is live, the tool is gone, and with it the
+    exemption: the name is absent from the registry, a DESTRUCTIVE
+    stand-in by that name asks like any other DESTRUCTIVE tool, and a
+    stand-in with no tier fails closed. Nothing named
+    resolve_approval is ever 'allow'."""
+    import astra.runtime.tools  # noqa: F401
+    from astra.autonomy.manager import autonomy_manager
     from astra.runtime.agent_loop import _autonomy_decide
+    from astra.runtime.tool_registry import (
+        REGISTRY,
+        ActionTier as RegistryTier,
+    )
 
-    decision, _ = _autonomy_decide(_td(None), "resolve_approval")
-    assert decision == "allow"
+    assert REGISTRY.get("resolve_approval") is None
+
+    previous = autonomy_manager.mode
+    try:
+        for mode in (AutonomyMode.SEMI_AUTO, AutonomyMode.ALWAYS_ASK):
+            autonomy_manager.set_mode(mode, reason="test")
+            decision, reason = _autonomy_decide(
+                _td(RegistryTier.DESTRUCTIVE), "resolve_approval"
+            )
+            assert decision == "ask", (mode, reason)
+            decision, reason = _autonomy_decide(_td(None), "resolve_approval")
+            assert decision == "deny", (mode, reason)
+    finally:
+        autonomy_manager.set_mode(previous, reason="test cleanup")
 
 
 # ────────────────────────────────────────────────────────────
@@ -326,96 +353,32 @@ def test_fallback_matches_families():
 
 
 # ────────────────────────────────────────────────────────────
-# §5 — resolve_approval requires a human-typed token
+# §5: there is no approval tool (Phase A5, SECURITY-MODEL §1)
 # ────────────────────────────────────────────────────────────
+#
+# The six tests that lived here exercised the chat-side token check
+# inside the deleted approval tool, so the check has
+# nothing to guard; what replaces it is structural. The registry
+# refuses the name (tests/test_broker/test_no_approval_tool.py holds
+# the boot-assertion, grep and red-team cases); this file keeps the
+# same-shaped canary as §3's set_mode: the autonomy server itself
+# must not offer the tool.
 
-def _resolve(args, prompt):
-    """Run resolve_approval_tool with the turn context set to a
-    given human prompt, with the DB-backed core mocked out."""
-    from astra.autonomy.turn_context import current_user_prompt
-    from astra.tools import autonomy_tools
+def test_approval_tools_not_in_autonomy_server():
+    from astra.tools.autonomy_tools import create_autonomy_mcp_server
 
-    async def _fake_core(approval_id, decision, *, standing=False,
-                         source="web"):
-        return {
-            "ok": True, "tool_name": "some_tool",
-            "decision": decision, "standing": standing,
-        }
-
-    async def _run():
-        token = current_user_prompt.set(prompt)
-        try:
-            with mock.patch(
-                "astra.autonomy.approvals.resolve_approval",
-                _fake_core,
-            ):
-                return await autonomy_tools.resolve_approval_tool.handler(
-                    args
-                )
-        finally:
-            current_user_prompt.reset(token)
-
-    return asyncio.run(_run())
-
-
-def test_model_cannot_resolve_without_human_token():
-    """The model inventing 'Kunal approved it' must be refused when
-    his actual message contains no approve token."""
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved", "standing": True},
-        prompt="what's on my calendar tomorrow?",
+    server = create_autonomy_mcp_server()
+    names = {t.name for t in server.tools}
+    assert "resolve_approval" not in names, (
+        "resolve_approval is back in the autonomy server: the model can "
+        "approve its own actions again (SECURITY-MODEL §1)"
     )
-    assert out.get("is_error") is True
-    assert "REFUSED" in out["content"][0]["text"]
-
-
-def test_human_approve_token_releases():
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved"},
-        prompt="approve 12",
-    )
-    assert not out.get("is_error")
-
-
-def test_standing_requires_always_in_human_message():
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved", "standing": True},
-        prompt="approve 12",
-    )
-    assert out.get("is_error") is True
-    assert "STANDING" in out["content"][0]["text"]
-
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved", "standing": True},
-        prompt="approve 12 always",
-    )
-    assert not out.get("is_error")
-
-
-def test_wrong_id_in_human_message_refused():
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved"},
-        prompt="approve 13",
-    )
-    assert out.get("is_error") is True
-
-
-def test_empty_turn_context_refuses():
-    """Outside a turn (or with broken plumbing) there is no human
-    message — that is a failed check, never a passed one."""
-    out = _resolve(
-        {"approval_id": 12, "decision": "approved"},
-        prompt="",
-    )
-    assert out.get("is_error") is True
-
-
-def test_deny_token_works():
-    out = _resolve(
-        {"approval_id": 7, "decision": "denied"},
-        prompt="deny 7",
-    )
-    assert not out.get("is_error")
+    assert "revoke_tool_grant" not in names
+    # The survivors must still be here, or the namespace silently lost
+    # them (the CONTAINMENT §9 dead-capability class).
+    assert {
+        "get_mode", "get_audit_log", "audit_stats", "list_pending_approvals",
+    } <= names, names
 
 
 # ────────────────────────────────────────────────────────────
@@ -617,19 +580,30 @@ def test_standing_grant_still_works_for_ordinary_tools():
     assert reason == "standing grant"
 
 
-def test_approval_prompt_does_not_offer_always_for_no_standing_tools():
-    """The 'add always' hint must not appear for a tool whose
-    standing grant the resolver would refuse — telling Kunal to do
-    something the code rejects is the docstring-lies class."""
+def test_approval_prompt_offers_no_chat_token_and_no_always_hint():
+    """Phase A5 inversion. This test used to require the per-tool
+    'add always' hint in the ASK result. With the approval tool gone,
+    a chat token resolves nothing and 'always' is a choice made on
+    the /approvals page, so any instruction to type either is the
+    docstring-lies class in the other direction: telling Kunal to do
+    something that no longer does anything. The ASK result must
+    point at the human surface and nowhere else."""
     import inspect
 
     from astra.runtime import agent_loop
 
     src = inspect.getsource(agent_loop)
-    assert "NO_STANDING_TOOLS" in src, (
-        "the approval prompt no longer consults the no-standing list"
+    assert "NO_STANDING_TOOLS" not in src, (
+        "the ASK text consults the no-standing list again, which only "
+        "made sense when it offered an 'always' hint"
     )
-    assert "ONE CALL AT A TIME" in src
+    assert "ONE CALL AT A TIME" not in src
+    assert "add 'always'" not in src
+    assert "approve {approval_id}" not in src, (
+        "the ASK text tells the model a chat token can approve"
+    )
+    assert "_approvals_url()" in src
+    assert agent_loop._approvals_url().endswith("/approvals")
 
 
 # ────────────────────────────────────────────────────────────

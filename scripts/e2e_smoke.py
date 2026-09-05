@@ -42,6 +42,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,6 +51,16 @@ try:
 except ImportError:
     print("missing httpx — pip install httpx", file=sys.stderr)
     sys.exit(2)
+
+
+# Every turn the harness starts is tagged with this session-id prefix.
+# astra/scheduler/jobs.py::self_improve_scan excludes these sessions
+# when it counts expired approvals: test 16 leaves a pending approval
+# behind on purpose (no non-human path resolves it), the retention
+# sweep expires it, and that read as Kunal ignoring the gate and filed
+# an "over-asking" observation after every smoke run. A test pins the
+# two literals together (tests/test_harness_session_prefix.py).
+HARNESS_SESSION_PREFIX = "e2e-smoke-"
 
 
 # ── Result tracking ────────────────────────────────────────
@@ -69,11 +80,15 @@ class HarnessState:
     base_url: str
     cookie: str | None
     # The middleware (astra-web/middleware.ts) bypasses auth for any
-    # request that carries x-astra-secret matching ASTRA_SHARED_SECRET.
-    # That's a documented server-to-server path (scheduler, webhooks).
-    # The harness uses it so CI can run agent-path tests without
-    # exfiltrating a NextAuth cookie. Either auth mode unlocks
-    # tests 03-07; cookie wins if both are set.
+    # request that carries x-astra-secret matching ASTRA_SHARED_SECRET,
+    # EXCEPT its DECISION_ROUTES (resolve an approval, list or revoke a
+    # standing grant, approve/reject a catch-up or calendar proposal,
+    # act on a content draft, write the autonomy mode): those need a
+    # NextAuth session, and tests 11 and 16 assert the 401 there. Everything else is a documented
+    # server-to-server path (scheduler, webhooks). The harness uses it
+    # so CI can run agent-path tests without exfiltrating a NextAuth
+    # cookie. Either auth mode unlocks tests 03-07; cookie wins if
+    # both are set.
     shared_secret: str | None = None
     results: list[TestResult] = field(default_factory=list)
     # Cross-test state: the session_id from test 03 is reused in 04, 05, 06
@@ -112,6 +127,71 @@ def _headers(state: HarnessState) -> dict[str, str]:
     return h
 
 
+async def _approval_resolve_needs_session(
+    state: HarnessState, client: httpx.AsyncClient
+) -> str | None:
+    """Phase A5: the secret alone must never resolve an approval. The
+    middleware matches the route SHAPE, so no approval row is needed:
+    POST /api/approvals/0/resolve with only x-astra-secret must be 401
+    before any handler runs. Runs unconditionally so a regression that
+    lets the secret through is caught even when the mode-dependent half
+    of test 16 is skipped for want of a cookie."""
+    r = await client.post(
+        f"{state.base_url}/api/approvals/0/resolve",
+        headers={
+            "content-type": "application/json",
+            "x-astra-secret": state.shared_secret or "",
+        },
+        json={"decision": "denied"},
+        timeout=10.0,
+    )
+    if r.status_code != 401:
+        return (
+            f"POST /api/approvals/0/resolve with the secret: HTTP {r.status_code} "
+            "(expected 401; the secret must not authorise a decision)"
+        )
+    return None
+
+
+async def _mode_switch_needs_session(
+    state: HarnessState, client: httpx.AsyncClient
+) -> str | None:
+    """Phase A5: the x-astra-secret bypass never writes the autonomy
+    mode. POST /api/autonomy is the only HTTP writer of
+    app_settings.autonomy_mode, and a secret holder that can flip
+    full_auto has every DESTRUCTIVE tool running without an approvals
+    row, so the middleware treats a write there as a decision route:
+    401 with the secret alone, while GET stays open to server-to-server
+    readers. Returns an error string, or None when both hold. The probe
+    posts the CURRENT mode, so even a broken guard changes nothing."""
+    secret_only = {
+        "content-type": "application/json",
+        "x-astra-secret": state.shared_secret or "",
+    }
+    r = await client.get(
+        f"{state.base_url}/api/autonomy", headers=secret_only, timeout=10.0
+    )
+    if r.status_code != 200:
+        return (
+            f"GET /api/autonomy with the secret: HTTP {r.status_code} "
+            "(reads must stay open to server-to-server callers)"
+        )
+    current = (r.json() or {}).get("mode") or "semi_auto"
+    r = await client.post(
+        f"{state.base_url}/api/autonomy",
+        headers=secret_only,
+        json={"mode": current},
+        timeout=10.0,
+    )
+    if r.status_code != 401:
+        return (
+            "x-astra-secret alone reached the mode switch: "
+            f"{r.status_code} {r.text[:120]} (expected 401; middleware "
+            "must treat a write to /api/autonomy as a decision route)"
+        )
+    return None
+
+
 async def _post_chat_stream(
     state: HarnessState,
     client: httpx.AsyncClient,
@@ -133,9 +213,11 @@ async def _post_chat_stream(
     saw_terminal, final/error payloads, ok). Downstream tests
     don't change.
     """
-    body: dict[str, Any] = {"prompt": prompt}
-    if session_id:
-        body["session_id"] = session_id
+    body: dict[str, Any] = {
+        "prompt": prompt,
+        "session_id": session_id
+        or f"{HARNESS_SESSION_PREFIX}{uuid.uuid4().hex[:12]}",
+    }
 
     started = time.monotonic()
     seen: list[dict[str, Any]] = []
@@ -932,6 +1014,33 @@ async def test_11_autonomy_mode_sync(
             detail="SKIPPED — no auth",
         )
     started = time.monotonic()
+    # Phase A5: the mode switch is a decision route. With the secret,
+    # prove it is closed; without a cookie there is no way to flip the
+    # mode from here, so the sync half is skipped, not faked.
+    details: list[str] = []
+    if state.shared_secret:
+        err = await _mode_switch_needs_session(state, client)
+        if err:
+            return TestResult(
+                name="11 autonomy mode sync",
+                passed=False,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error=err,
+            )
+        details.append("secret-only mode switch 401")
+    if not state.cookie:
+        return TestResult(
+            name="11 autonomy mode sync",
+            passed=True,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            detail=", ".join(
+                details
+                + [
+                    "mode-flip half SKIPPED: only a NextAuth session may "
+                    "switch the mode; pass --cookie to run it"
+                ]
+            ),
+        )
     # ── snapshot current mode ──
     try:
         r = await client.get(
@@ -1014,7 +1123,9 @@ async def test_11_autonomy_mode_sync(
             name="11 autonomy mode sync",
             passed=True,
             duration_ms=elapsed,
-            detail=f"{original} → {target} reflected by agent",
+            detail=", ".join(
+                details + [f"{original} → {target} reflected by agent"]
+            ),
         )
     finally:
         # ── ALWAYS restore the original mode, even on failure ──
@@ -1443,13 +1554,22 @@ async def test_15_upstream_auth_enforced(
 async def test_16_approval_round_trip(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    """User journey: the autonomy gate actually asks, and a web
-    approval actually grants.
+    """User journey: the autonomy gate actually asks, and only a
+    signed-in human can answer.
 
-    Locks Phase C: flip to always_ask → a WRITE tool call must
-    surface an approval_request event + an 'awaiting approval'
-    tool_result instead of executing → resolving via the web API
-    flips the row. Mode is restored in finally, like test 11.
+    Locks Phase C: flip to always_ask, then a WRITE tool call must
+    surface an approval_request event plus an 'awaiting approval'
+    tool_result instead of executing. Then locks Phase A5 (astra-body
+    SECURITY-MODEL mechanisms 1 and 5): the x-astra-secret bypass in
+    astra-web/middleware.ts never covers /api/approvals/[id]/resolve,
+    so resolving with the secret alone MUST be a 401 and the row must
+    still be pending afterwards. That 401 is the positive assertion.
+    The human lane (deny via a NextAuth cookie, row leaves the pending
+    list) runs only when the harness holds a cookie. Mode is restored
+    in finally, like test 11. Since A5 the mode switch itself is a
+    decision route: with the secret the harness asserts the 401 on
+    POST /api/autonomy, and only a cookie can set always_ask; without
+    one the round-trip runs only if the mode already is always_ask.
     """
     if not state.has_auth:
         return TestResult(
@@ -1472,7 +1592,25 @@ async def test_16_approval_round_trip(
         except Exception:
             return False
 
-    # snapshot + flip
+    details: list[str] = []
+    if state.shared_secret:
+        for probe, label in (
+            (_approval_resolve_needs_session, "secret-only approval resolve 401"),
+            (_mode_switch_needs_session, "secret-only mode switch 401"),
+        ):
+            err = await probe(state, client)
+            if err:
+                return TestResult(
+                    name="16 approval round-trip",
+                    passed=False,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    error=err,
+                )
+            details.append(label)
+
+    # snapshot + flip. Only a NextAuth session may switch the mode
+    # (A5); without a cookie the gate can be exercised only when it is
+    # already at always_ask, otherwise this half is skipped, not faked.
     try:
         r = await client.get(
             f"{state.base_url}/api/autonomy", headers=_headers(state), timeout=10.0
@@ -1485,13 +1623,29 @@ async def test_16_approval_round_trip(
             duration_ms=int((time.monotonic() - started) * 1000),
             error=f"mode snapshot failed: {e}",
         )
-    if not await _set_mode("always_ask"):
-        return TestResult(
-            name="16 approval round-trip",
-            passed=False,
-            duration_ms=int((time.monotonic() - started) * 1000),
-            error="couldn't set always_ask",
-        )
+    flipped = False
+    if original != "always_ask":
+        if not state.cookie:
+            return TestResult(
+                name="16 approval round-trip",
+                passed=True,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                detail=", ".join(
+                    details
+                    + [
+                        f"mode is {original}; approval round-trip SKIPPED: "
+                        "needs --cookie to set always_ask"
+                    ]
+                ),
+            )
+        if not await _set_mode("always_ask"):
+            return TestResult(
+                name="16 approval round-trip",
+                passed=False,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                error="couldn't set always_ask",
+            )
+        flipped = True
     try:
         out = await _post_chat_stream(
             state,
@@ -1528,51 +1682,108 @@ async def test_16_approval_round_trip(
                 duration_ms=elapsed,
                 error="approval_request event missing id",
             )
-        # Resolve via the web API (the /approvals page path).
-        # DENY, deliberately: an approved row is a live one-shot
-        # grant, and leaving one behind made the NEXT smoke run's
-        # identical tool call consume it and execute without asking
-        # (exactly what the grant system is supposed to do — first
-        # live proof it works, and a non-idempotent test). Denial
-        # proves the round-trip and grants nothing.
-        rr = await client.post(
-            f"{state.base_url}/api/approvals/{approval_id}/resolve",
-            headers=_headers(state),
-            json={"decision": "denied"},
-            timeout=10.0,
-        )
-        if rr.status_code != 200 or not (rr.json() or {}).get("ok"):
+        # Only a signed-in human may answer. Two probes:
+        #
+        # 1. The shared secret alone must get a 401: Phase A5 closed
+        #    the middleware bypass for decision routes. The 401 IS the
+        #    pass. A 200 here means anything holding the mesh secret
+        #    can manufacture Kunal's consent again. Reads stay open to
+        #    the secret, so the row is then checked to still be pending.
+        # 2. With a NextAuth cookie, DENY through the human lane and
+        #    confirm the row leaves the pending list. Deny, not
+        #    approve: an approved row is a live one-shot grant that the
+        #    next smoke run's identical call would consume and execute
+        #    without asking. Without a cookie (CI) the row is left
+        #    pending on purpose: there is no non-human path to resolve
+        #    it any more, and the retention sweep expires it after 24h.
+        resolve_url = f"{state.base_url}/api/approvals/{approval_id}/resolve"
+        secret_only = {"content-type": "application/json"}
+        if state.shared_secret:
+            secret_only["x-astra-secret"] = state.shared_secret
+        cookie_only = {"content-type": "application/json"}
+        if state.cookie:
+            cookie_only["cookie"] = state.cookie
+
+        async def _pending(headers: dict[str, str]) -> bool | None:
+            """True/False: row is/isn't pending. None: list unreadable."""
+            rl = await client.get(
+                f"{state.base_url}/api/approvals",
+                headers=headers,
+                timeout=10.0,
+            )
+            if rl.status_code != 200:
+                return None
+            try:
+                rows = (rl.json() or {}).get("approvals", [])
+            except ValueError:
+                return None
+            return any(a.get("id") == approval_id for a in rows)
+
+        def _fail(error: str) -> TestResult:
             return TestResult(
                 name="16 approval round-trip",
                 passed=False,
                 duration_ms=int((time.monotonic() - started) * 1000),
-                error=f"resolve failed: {rr.status_code} {rr.text[:150]}",
+                error=error,
             )
-        # resolved row must leave the pending list
-        rl = await client.get(
-            f"{state.base_url}/api/approvals",
-            headers=_headers(state),
-            timeout=10.0,
-        )
-        still_pending = [
-            a for a in (rl.json() or {}).get("approvals", [])
-            if a.get("id") == approval_id
-        ]
-        if still_pending:
-            return TestResult(
-                name="16 approval round-trip",
-                passed=False,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                error=f"approval #{approval_id} still pending after resolve",
+
+        details.append(f"gate asked (#{approval_id})")
+
+        if state.shared_secret:
+            rr = await client.post(
+                resolve_url,
+                headers=secret_only,
+                json={"decision": "denied"},
+                timeout=10.0,
             )
+            if rr.status_code != 401:
+                return _fail(
+                    "x-astra-secret alone reached the resolver: "
+                    f"{rr.status_code} {rr.text[:150]} (expected 401; "
+                    "middleware DECISION_ROUTES must not honour the "
+                    "secret on /api/approvals/*/resolve)"
+                )
+            pending = await _pending(secret_only)
+            if pending is None:
+                return _fail(
+                    "GET /api/approvals with the secret is not readable; "
+                    "reads must stay open to server-to-server callers"
+                )
+            if not pending:
+                return _fail(
+                    f"approval #{approval_id} left pending after a 401 "
+                    "resolve: something wrote it"
+                )
+            details.append("secret-only resolve 401, row untouched")
+
+        if state.cookie:
+            rr = await client.post(
+                resolve_url,
+                headers=cookie_only,
+                json={"decision": "denied"},
+                timeout=10.0,
+            )
+            if rr.status_code != 200 or not (rr.json() or {}).get("ok"):
+                return _fail(
+                    f"session resolve failed: {rr.status_code} {rr.text[:150]}"
+                )
+            if await _pending(cookie_only) is not False:
+                return _fail(
+                    f"approval #{approval_id} still pending after session deny"
+                )
+            details.append("session deny cleared it")
+        else:
+            details.append("no cookie: row left pending, expires in 24h")
+
         return TestResult(
             name="16 approval round-trip",
             passed=True,
             duration_ms=int((time.monotonic() - started) * 1000),
-            detail=f"gate asked (#{approval_id}), web deny cleared it",
+            detail=", ".join(details),
         )
     finally:
-        await _set_mode(original)
+        if flipped:
+            await _set_mode(original)
 
 
 # ── Runner ─────────────────────────────────────────────────
@@ -1621,7 +1832,11 @@ async def main() -> int:
             "Shared secret matching astra-web's ASTRA_SHARED_SECRET. "
             "Lets the harness use the server-to-server middleware "
             "bypass (x-astra-secret header) instead of needing a "
-            "NextAuth cookie. Either auth path unlocks tests 03-07."
+            "NextAuth cookie. Either auth path unlocks tests 03-07. "
+            "Decision routes (approvals resolve, grants, catchup and "
+            "calendar approve/reject, POST /api/autonomy) ignore the "
+            "secret; tests 11 and 16 assert the 401 there and need "
+            "--cookie for the human lane."
         ),
     )
     parser.add_argument(

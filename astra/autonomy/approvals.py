@@ -6,9 +6,16 @@ Lifecycle:
      a pending row + an approval_request event; the tool gets an
      is_error result ("awaiting approval #N") so the TURN NEVER
      BLOCKS on a human.
-  2. Kunal resolves it — /approvals page, the resolve_approval chat
-     tool, or WhatsApp ("approve 12") — resolve_approval() flips the
-     row; standing=True also writes a tool_grants row.
+  2. Kunal resolves it on the /approvals page (astra-web, NextAuth).
+     `approvals` has exactly two writers of status='approved': that
+     web route (astra-web/app/api/approvals/[id]/resolve) and
+     resolve_approval() below, the Python human-lane library that
+     mirrors it. Neither is a model tool, and no tool may import
+     resolve_approval() or revoke_grant(): the resolver living inside
+     the model's action space was the self-approval hole
+     (SECURITY-MODEL §1, closed in A5). WhatsApp carries the
+     notification and the link, never the authorization.
+     standing=True also writes a tool_grants row.
   3. The next time the model calls the SAME tool, check_grant()
      consults: (a) standing tool_grants, (b) an unconsumed approved
      row for that tool — one-shot grants are marked consumed on use.

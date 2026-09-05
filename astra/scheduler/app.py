@@ -657,6 +657,15 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Phase A5 boot assertion. jobs.py::notes_sync reaches
+    # astra.runtime.tools.local at run time, which imports the whole tool
+    # package and its assertion (astra/runtime/tools/__init__.py). Inside
+    # a job, APScheduler's runner catches BaseException, so a refused
+    # registration would be one failed notes_sync every 30 minutes with
+    # the scheduler still running. Import here so the SystemExit lands
+    # at boot, before the scheduler starts, and terminates the process.
+    import astra.runtime.tools  # noqa: F401
+
     asyncio.run(_main_loop())
 
 

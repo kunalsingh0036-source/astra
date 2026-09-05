@@ -102,7 +102,7 @@ ENV PYTHONPATH=/app:/app/services
 
 # Default CMD = scheduler. Stream service overrides this in Railway
 # Settings → Deploy → Custom Start Command:
-#   sh -c 'cd /app && exec uvicorn stream.main:app --host 0.0.0.0 --port ${PORT:-8700}'
+#   sh -c 'cd /app && exec uvicorn services.stream.main:app --host 0.0.0.0 --port ${PORT:-8700}'
 # Note: stream.main imports `from stream.events ...` (bare top-level
 # `stream` package). To make that importable when the code is vendored
 # under /app/services/stream/, we add /app/services to PYTHONPATH.

@@ -45,6 +45,15 @@ if _astra_path:
         sys.path.insert(0, _astra_path)
     os.chdir(_astra_path)
 
+# Phase A5 boot assertion (astra/runtime/tools/__init__.py and the
+# registry's _FORBIDDEN check) runs when this package is first imported,
+# so import it at MODULE level, not inside /turns/start. uvicorn's
+# import_from_string only catches ImportError, so a SystemExit raised
+# here stops `uvicorn services.stream.main:app` (the Railway custom start command) before it binds. Raised inside a
+# handler instead, run_asgi's except BaseException swallowed it into a
+# 500 on the first turn while /health stayed green.
+import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
+
 _SHARED_SECRET = os.environ.get("STREAM_SHARED_SECRET", "").strip()
 
 logging.basicConfig(level=logging.INFO)
@@ -436,7 +445,14 @@ _CHANNEL_ADDENDA: dict[str, str] = {
         "from earlier in this conversation unless THIS message explicitly "
         "refers to them — if asked for the fleet status, answer ONLY about "
         "the fleet, not whatever was discussed before. Obey explicit length "
-        "asks literally ('in short lines' = a few lines, nothing more)."
+        "asks literally ('in short lines' = a few lines, nothing more).\n"
+        "- GATED ACTIONS: an 'awaiting approval (#N)' tool result cannot "
+        "be released from WhatsApp. No message sent here approves, denies "
+        "or revokes anything, and you have no tool that does. Say what is "
+        "waiting and send the /approvals link from the tool result as "
+        "plain text; a Mac action filed with submit_intent is approved by "
+        "Touch ID on his Mac instead. Never report a gated action as "
+        "approved or done because he replied 'approve'."
     ),
 }
 
@@ -452,7 +468,10 @@ def _channel_addendum(channel: str | None) -> str:
 # Per-channel history bound. WhatsApp is quick, topic-hopping phone chat:
 # loading the whole per-day session let an hours-old topic bleed into an
 # unrelated question. Bound it to the last few turns (immediate follow-ups
-# like "approve that" still work). Web/unknown = full history (None).
+# like "and the FHRAI one?" still work). WhatsApp is not an approval
+# channel: "approve 12" here resolves nothing, the model has no tool for
+# it, and the reply should carry the /approvals link instead (A5).
+# Web/unknown = full history (None).
 _CHANNEL_HISTORY_LIMIT = {"whatsapp": 5}
 
 
@@ -539,8 +558,9 @@ async def browser_enqueue(request: Request) -> dict[str, object]:
     """Queue a browser task. ACT kinds (click/type/navigate/scroll) are
     ALWAYS staged unapproved — an `approved` field in the body is
     ignored, because the caller holding the mesh secret is exactly who
-    the gate exists to stop. Release happens through the approvals
-    queue (/approvals, resolve_approval, or "approve N" on WhatsApp)."""
+    the gate exists to stop. Release happens only when a human resolves
+    the linked `approvals` row on the /approvals page (astra-web, under
+    NextAuth); there is no chat tool and no WhatsApp token that can."""
     _check_secret(request)
     try:
         raw = await request.json()
@@ -1282,8 +1302,9 @@ async def turns_start(req: StreamRequest, request: Request) -> dict[str, object]
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="prompt is empty")
 
+    # The tool registry is populated by the module-level import at the
+    # top of this file, where its boot assertion can terminate uvicorn.
     try:
-        import astra.runtime.tools  # type: ignore[import-not-found]  # noqa: F401
         from astra.runtime.agent_loop import run_lean_turn  # type: ignore[import-not-found]
         from astra.runtime.turn_store import create_turn_record  # type: ignore[import-not-found]
         from astra.core.system_prompt import get_system_prompt  # type: ignore[import-not-found]

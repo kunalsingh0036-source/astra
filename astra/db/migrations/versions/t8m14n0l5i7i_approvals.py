@@ -10,9 +10,11 @@ Three tables:
 `approvals` — one row per ASK decision. The runtime creates it,
 returns a "waiting for your approval" tool_result (non-blocking:
 turns never hang on a human), and the model relays. Kunal resolves
-via the /approvals page, the resolve_approval chat tool, or
-WhatsApp. An approved row is a one-shot grant consumed by the next
-identical call; "standing" approvals also write tool_grants.
+it on the /approvals page (astra-web, NextAuth); no model tool writes
+this table, and WhatsApp carries the notification and link only (the
+chat resolver was deleted in A5). An approved row is a one-shot grant
+consumed by the next identical call; "standing" approvals also write
+tool_grants.
 
 `tool_grants` — per-tool standing auto-allow, earned through real
 approvals. This is the trust ladder: everything starts at ask,

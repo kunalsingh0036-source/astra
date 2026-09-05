@@ -8,24 +8,32 @@ there is no column behind it to set.
 
 THE SURFACE DECISION, MADE EXPLICITLY
 -------------------------------------
-`submit_intent` is INTERACTIVE-ONLY. This is a decision, not an
-omission — doing nothing would have been a decision too, and the wrong
-one.
+`submit_intent` is on BOTH surfaces, interactive and unattended. That
+is a decision, not an omission: tool_surface.py deliberately leaves it
+out of `_EXTRA_INTERACTIVE_ONLY`, and the reasoning is recorded there.
 
-The reasoning: `exec.shell`, `fs.write` and `fs.edit` are already
-compiled into the shipped broker catalogue. They are `signedNoStanding`,
-so they cannot execute without Kunal's fingerprint — but an intent for
-one of them RAISES A TOUCH ID PROMPT on his Mac. Habituation is the
-attack software cannot eliminate, and precise control over when a human
-is asked is most of it. Today CONTAINMENT §4 means a prompt-injected
-WhatsApp turn cannot even NAME local_bash; without this line, A3 would
-hand that capability back through a new door.
+The case for blocking it on unattended turns was habituation: an
+intent for a `signedNoStanding` verb (`exec.shell`, `fs.write`,
+`fs.edit`) raises a Touch ID prompt on Kunal's Mac, and controlling
+WHEN a human is asked is most of that attack. That case assumed a
+prompt-injected WhatsApp message could start a turn. It cannot:
+services/gateway/api/webhook.py gates the whole chat path on
+`is_owner(phone)`, so only a number in ASTRA_OWNER_NUMBERS reaches
+the agent loop, and no scheduler starts turns at all. WhatsApp turns
+are therefore owner-gated, and blocking the verb there cost the thing
+a body is for (asking Astra to do something on the Mac from the phone)
+while defending against a path that does not exist.
 
-So: unattended turns (WhatsApp, schedulers, briefings) cannot file
-physical intents at all in A3. Widening that is a per-verb decision for
-a later phase, made deliberately, with the broker's rate limit in place
-first. `poll_status` is available everywhere — reading a status causes
-nothing.
+What the channel rule never covered, and still does not: inside an
+owner-initiated turn Astra may READ third-party content that tries to
+steer it, on the web surface as much as on WhatsApp. The defences for
+that are the broker's honest display, the digest bound to what
+executes, the fingerprint itself, and the broker's irreversible-action
+budget (`IrreversibleBudget` in Verify.swift). The approval for a
+physical intent is that Touch ID prompt and nothing else: no chat
+message, no WhatsApp reply and no tool on this surface can stand in
+for it. `poll_status` is how the outcome is learned; reading a status
+causes nothing.
 
 WHY BOTH ARE LOW TIER
 ---------------------

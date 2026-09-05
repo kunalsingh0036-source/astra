@@ -127,12 +127,25 @@ class TestModes:
         finally:
             autonomy_manager.set_mode(previous, reason="test cleanup")
 
-    def test_gate_exempt_tools_always_allow(self):
-        """resolve_approval must NEVER be gated — gating it deadlocks
-        (you'd need an approval to approve an approval)."""
+    def test_resolve_approval_is_absent_and_never_auto_allowed(self):
+        """Phase A5 inversion (SECURITY-MODEL §1). Until A5 this test
+        asserted the opposite: that resolve_approval was gate-exempt
+        because gating it would deadlock. There is no approval tool
+        now, so there is nothing to exempt. The name must be absent
+        from the registry, and a DESTRUCTIVE ToolDef by that name
+        reaching the gate must never come back 'allow' in either mode
+        that asks: the tier matrix applies to it like any other tool."""
+        import astra.runtime.tools  # noqa: F401
         from astra.autonomy.manager import autonomy_manager
         from astra.runtime.agent_loop import _autonomy_decide
-        from astra.runtime.tool_registry import ActionTier as RegistryTier, ToolDef
+        from astra.runtime.tool_registry import (
+            REGISTRY,
+            ActionTier as RegistryTier,
+            ToolDef,
+        )
+
+        assert REGISTRY.get("resolve_approval") is None
+        assert REGISTRY.get("revoke_tool_grant") is None
 
         async def fn(args: dict) -> str:
             return "ok"
@@ -142,13 +155,15 @@ class TestModes:
             description="",
             input_schema={"type": "object"},
             fn=fn,
-            tier=RegistryTier.WRITE,
+            tier=RegistryTier.DESTRUCTIVE,
         )
         previous = autonomy_manager.mode
         try:
-            autonomy_manager.set_mode(AutonomyMode.ALWAYS_ASK, reason="test")
-            decision, reason = _autonomy_decide(td, "resolve_approval")
-            assert decision == "allow", reason
+            for mode in (AutonomyMode.SEMI_AUTO, AutonomyMode.ALWAYS_ASK):
+                autonomy_manager.set_mode(mode, reason="test")
+                decision, reason = _autonomy_decide(td, "resolve_approval")
+                assert decision != "allow", (mode, reason)
+                assert decision == "ask", (mode, reason)
         finally:
             autonomy_manager.set_mode(previous, reason="test cleanup")
 

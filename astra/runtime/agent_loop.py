@@ -31,7 +31,7 @@ from typing import Any, AsyncIterator
 
 from anthropic import AsyncAnthropic
 
-from astra.config import settings
+from astra.config import settings, web_base_url
 
 from astra.runtime.event_emitter import (
     approval_request,
@@ -249,15 +249,6 @@ async def run_lean_turn(
     started = time.monotonic()
     sid = session_id or str(uuid.uuid4())
 
-    # CONTAINMENT §5: record the human's actual message where tool
-    # handlers can read it without trusting model-composed args.
-    # resolve_approval_tool refuses unless this text contains an
-    # explicit approve/deny token for the id being resolved.
-    try:
-        from astra.autonomy.turn_context import current_user_prompt
-        current_user_prompt.set(prompt or "")
-    except Exception:
-        logger.exception("[lean-runtime] turn_context set failed")
     yield await _emit(turn_id, session_event, session_id=sid)
 
     # Cross-service mode sync. The web UI's /settings toggle writes
@@ -685,8 +676,8 @@ async def run_lean_turn(
                 # Autonomy gate — three-way. ASK is real now: the
                 # turn never blocks on a human; the tool gets an
                 # "awaiting approval #N" result, an approval_request
-                # event reaches every surface (web chip, /approvals,
-                # WhatsApp via the chat channel), and Kunal's yes
+                # event reaches the web chip and /approvals (WhatsApp
+                # only ever carries the link), and Kunal's yes there
                 # becomes a one-shot or standing grant consumed on
                 # the next identical call.
                 decision, decision_reason = _autonomy_decide(td, tool_name)
@@ -741,29 +732,21 @@ async def run_lean_turn(
                             tool_name=tool_name,
                             reason=decision_reason,
                         )
-                        # The "always" hint is per-tool: offering it for
-                        # a no-standing tool would be instructing Kunal
-                        # to do something the resolver refuses.
-                        try:
-                            from astra.autonomy.approvals import (
-                                NO_STANDING_TOOLS,
-                            )
-                            _no_standing = tool_name in NO_STANDING_TOOLS
-                        except Exception:
-                            _no_standing = True  # fail closed on the hint
-                        _always = (
-                            f" This tool is approved ONE CALL AT A TIME — "
-                            f"'always' does not work on it."
-                            if _no_standing
-                            else f" (add 'always' to grant {tool_name} "
-                                 f"permanently)"
-                        )
+                        # Phase A5 (SECURITY-MODEL §1, §5): the model
+                        # holds no tool that resolves, and chat text on
+                        # any channel resolves nothing. The result names
+                        # what is waiting and where the human decides.
                         msg = (
-                            f"NOT EXECUTED — awaiting Kunal's approval "
-                            f"(#{approval_id}, {decision_reason}). Tell the "
-                            f"user: approve on /approvals, or by saying "
-                            f"'approve {approval_id}'.{_always} Re-run the "
-                            f"action after approval."
+                            f"NOT EXECUTED: {tool_name} needs Kunal's "
+                            f"approval and is waiting as approval "
+                            f"#{approval_id} ({decision_reason}). You have "
+                            f"no tool that approves, denies, or revokes, "
+                            f"and nothing typed in chat resolves it. Tell "
+                            f"Kunal what is waiting and send him to "
+                            f"{_approvals_url()} to decide. Mac actions "
+                            f"filed through submit_intent are approved by "
+                            f"a Touch ID prompt on his Mac, not on that "
+                            f"page. Re-run the action after he approves."
                         )
                     except Exception as e:
                         logger.exception(
@@ -1417,18 +1400,19 @@ def _compact_messages(
     return compacted, before, final_tokens
 
 
-# Tools that bypass the gate entirely. These ARE the approval
-# mechanism (gating resolve_approval would deadlock: you'd need an
-# approval to approve an approval) plus read-only introspection of
-# the autonomy state itself.
-_GATE_EXEMPT_TOOLS = {
-    "resolve_approval",
-    "list_pending_approvals",
-    "revoke_tool_grant",
-    "get_mode",
-    "get_audit_log",
-    "audit_stats",
-}
+# There is no gate-exempt set. The approval tools that once needed
+# one were deleted in Phase A5 (SECURITY-MODEL §1), and the read-only
+# autonomy introspection tools (get_mode, get_audit_log, audit_stats,
+# list_pending_approvals) are READ in TOOL_TIERS and flow through the
+# matrix like every other tool, so always_ask really asks for them.
+
+
+def _approvals_url() -> str:
+    """The human approval surface, built from settings so a deploy on
+    a new host never ships a stale link in every ASK result. Goes
+    through web_base_url() so an unset ASTRA_WEB_BASE_URL on Railway
+    is a logged fallback to the real host, not a localhost link."""
+    return f"{web_base_url()}/approvals"
 
 
 def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
@@ -1446,8 +1430,6 @@ def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
     cycle, a bad deploy) silently disabled the entire gate. A denied
     turn that says why is recoverable; a silently opened gate is not.
     """
-    if tool_name in _GATE_EXEMPT_TOOLS:
-        return "allow", "gate-exempt (approval/introspection tool)"
     try:
         from astra.autonomy.manager import autonomy_manager
         from astra.autonomy.modes import (

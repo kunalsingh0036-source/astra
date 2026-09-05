@@ -297,3 +297,37 @@ logger.info(
     len(_registry.all()),
     len({t.namespace for t in _registry.all()}),
 )
+
+# Phase A5 positive boot assertion. The bridges above catch Exception
+# and log, so a namespace whose factory raises (a stale name in a
+# tools=[...] list, an import error) silently vanishes from the model's
+# surface: that is how notes_sync sat unregistered for 40 days, and how
+# deleting the approval tools without editing the autonomy tools list
+# would have taken get_mode, get_audit_log, audit_stats and
+# list_pending_approvals with them. The registry refuses the forbidden
+# names at registration (astra/runtime/tool_registry.py); this is the
+# other half, asserting the survivors and the broker's two physical
+# verbs are actually here. SystemExit on purpose: it cannot be caught
+# by the bridges' except Exception. It does have to be raised at import
+# time to terminate anything: uvicorn's run_asgi and APScheduler's job
+# runner both catch BaseException, so a first import inside a request
+# handler becomes a 500 with /health green, and a first import inside a
+# job becomes one failed run every interval. The import sites are all
+# at boot for that reason: services/stream/main.py imports this package
+# at module level (before uvicorn binds), astra/scheduler/app.py main()
+# imports it before the scheduler starts (jobs.py::notes_sync reaches
+# astra.runtime.tools.local at run time, so the scheduler does register
+# tools), and the local CLI imports it on startup.
+_A5_REQUIRED: frozenset[str] = frozenset({
+    "list_pending_approvals",
+    "get_mode",
+    "get_audit_log",
+    "audit_stats",
+    "submit_intent",
+    "poll_status",
+})
+_a5_missing = sorted(_A5_REQUIRED - set(_registry.names()))
+if _a5_missing:
+    raise SystemExit(
+        f"BOOT ASSERTION: required tools missing from registry: {_a5_missing}"
+    )

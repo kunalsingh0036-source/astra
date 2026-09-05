@@ -864,7 +864,7 @@ async def evening_briefing() -> dict:
     import os as _os
     from pathlib import Path as _Path
 
-    from astra.config import settings as astra_settings
+    from astra.config import settings as astra_settings, web_base_url
     import anthropic
 
     api_key = astra_settings.anthropic_api_key or _os.environ.get(
@@ -1020,9 +1020,7 @@ Write the briefing now."""
     # The brief lives on /briefing in the web app; the notification
     # pulls Kunal there (URL on clipboard for cmd+V).
     channel = (astra_settings.briefing_channel or "notification").lower()
-    briefing_url = (
-        astra_settings.astra_web_base_url.rstrip("/") + "/briefing"
-    )
+    briefing_url = web_base_url() + "/briefing"
     notify_ok = False
     try:
         from astra.notifications import notify as _notify
@@ -1463,7 +1461,7 @@ async def inbox_preview() -> dict:
     from astra.memory.store import store_memory
     from astra.db.engine import async_session
     from astra.notifications import notify
-    from astra.config import settings as astra_settings
+    from astra.config import web_base_url
 
     digest = await daily_digest(window_hours=24)
     unanswered = await unanswered_incoming(days=14)
@@ -1513,7 +1511,7 @@ async def inbox_preview() -> dict:
     else:
         head = "inbox clean"
 
-    base = astra_settings.astra_web_base_url.rstrip("/")
+    base = web_base_url()
     notify(
         title="astra · inbox",
         subtitle="13:00 work window",
@@ -1908,12 +1906,20 @@ async def self_improve_scan() -> dict:
         # 3. Approvals nobody resolved (expired) — the ask flow is
         # generating questions Kunal isn't answering; either over-
         # asking or the surfaces aren't visible enough.
+        #
+        # Harness rows are not Kunal ignoring the gate: every turn
+        # scripts/e2e_smoke.py starts carries its HARNESS_SESSION_PREFIX
+        # as the session id, and test 16 leaves a pending approval
+        # behind on purpose (no non-human path resolves it) which the
+        # retention sweep then expires. Counting those filed an
+        # "over-asking" observation after every smoke run.
         r = await s.execute(
             _sql(
                 """
                 SELECT count(*) FROM approvals
                 WHERE status = 'expired'
                   AND created_at >= now() - interval '7 days'
+                  AND coalesce(session_id, '') NOT LIKE 'e2e-smoke-%'
                 """
             )
         )

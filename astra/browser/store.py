@@ -11,8 +11,8 @@ Safety model, deliberately narrow:
   - READ tasks (extract, screenshot, read_page) run unattended.
   - ACT tasks (click, type, navigate) are ALWAYS staged unapproved
     and are released only when the linked row in `approvals` has been
-    resolved by a human (the /approvals page, the resolve_approval
-    chat tool, or "approve N" on WhatsApp). Callers cannot pre-approve
+    resolved by a human on the /approvals page (there is no chat tool
+    and no WhatsApp token that can do it). Callers cannot pre-approve
     their own actions: `enqueue()` takes no approval argument, and
     `claim_next` reads the approvals table rather than a local flag.
   - There is NO task type that submits a form, sends a message, or
@@ -86,8 +86,8 @@ async def enqueue(
     HTTP surface — could stage a click and approve it in the same call.
     The docstring claimed "only a human can set" while the code let the
     caller assert it. An ACT task now opens a row in `approvals`, and
-    only resolve_approval() (the /approvals page, the chat tool, or
-    "approve N" over WhatsApp) can release it.
+    only a human resolving that row on the /approvals page can release
+    it; nothing on the model's tool surface writes `approvals`.
     """
     if kind not in ALL_KINDS:
         raise ValueError(f"unknown browser task kind: {kind}")
@@ -131,9 +131,10 @@ async def claim_next(url_hint: str = "") -> dict[str, Any] | None:
 
     An ACT task is released only when its linked `approvals` row reads
     'approved'. The gate is a JOIN, not a boolean on this row: the only
-    writer of that status is resolve_approval(), which a human drives.
-    The legacy `approved` column is no longer consulted — a task cannot
-    talk its own way past the gate."""
+    writers of that status are the human lane (the /approvals resolve
+    route in astra-web and the resolve_approval() library it mirrors),
+    and no model tool can reach either. The legacy `approved` column is
+    no longer consulted; a task cannot talk its own way past the gate."""
     await ensure_tables()
     async with async_session() as s:
         row = (await s.execute(text("""

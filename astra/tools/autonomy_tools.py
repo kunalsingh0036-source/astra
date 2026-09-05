@@ -3,9 +3,17 @@ MCP tools for Astra's autonomy system.
 
 Allows Astra (and the user through Astra) to:
 - Check the current autonomy mode
-- Switch modes (with time-based or task-based scoping)
 - View the audit log
 - Get audit statistics
+- List actions waiting for Kunal's approval
+
+Every tool here is READ. There is deliberately no tool that changes
+the autonomy mode, resolves an approval, or revokes a standing grant:
+those are human control surfaces (astra-web /settings and /approvals
+under NextAuth; Touch ID on the Mac for broker intents). A model that
+can approve its own actions is not gated, whatever the gate says.
+See SECURITY-MODEL §1 and the boot assertion in
+astra/runtime/tool_registry.py.
 """
 
 from astra.runtime.sdk_compat import tool, create_sdk_mcp_server
@@ -208,8 +216,11 @@ def create_autonomy_mcp_server():
             get_audit_log_tool,
             audit_stats_tool,
             list_pending_approvals_tool,
-            resolve_approval_tool,
-            revoke_tool_grant_tool,
+            # The approve/deny and revoke-grant tools were DELETED
+            # (Phase A5, SECURITY-MODEL §1): the approver must not live
+            # in the model's action space. Approvals are resolved on
+            # astra-web /approvals; standing grants are revoked there.
+            # The registry refuses those names at boot.
         ],
     )
 
@@ -218,7 +229,8 @@ def create_autonomy_mcp_server():
     "list_pending_approvals",
     "List actions waiting for Kunal's approval. Each entry shows id, "
     "tool, input summary, and why it was gated. Use when the user "
-    "asks 'what's waiting on me' or before resolving approvals.",
+    "asks 'what's waiting on me'. Read-only: he decides on the "
+    "/approvals page, never through you.",
     {},
 )
 async def list_pending_approvals_tool(args: dict) -> dict:
@@ -234,140 +246,3 @@ async def list_pending_approvals_tool(args: dict) -> dict:
             f"  #{r['id']} · {r['tool_name']} · {inp} · {r['reason']}"
         )
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
-
-
-@tool(
-    "resolve_approval",
-    "Approve or deny a pending action by id — THIS is how Kunal says "
-    "yes/no from chat or WhatsApp ('approve 12', 'deny 12', 'approve "
-    "12 always'). decision: 'approved' or 'denied'. standing=true "
-    "grants the tool permanently (no more asking for that tool). "
-    "After approving, re-run the original action — the grant is "
-    "consumed by the next identical tool call.",
-    {
-        "approval_id": int,
-        "decision": str,
-        "standing": bool,
-    },
-)
-async def resolve_approval_tool(args: dict) -> dict:
-    import re
-
-    from astra.autonomy.approvals import resolve_approval
-    from astra.autonomy.turn_context import current_user_prompt
-
-    decision = str(args.get("decision", "")).strip().lower()
-    if decision in ("approve", "yes", "y"):
-        decision = "approved"
-    if decision in ("deny", "no", "n", "reject"):
-        decision = "denied"
-
-    # CONTAINMENT §5: the model may only resolve an approval when the
-    # HUMAN'S OWN MESSAGE contains an explicit token for this id —
-    # "approve 12" / "deny 12" ("always" for a standing grant). The
-    # model composes these args, so the args prove nothing; the
-    # runtime-injected prompt is the only text the model did not
-    # write. Empty context (no turn, broken plumbing) REFUSES — an
-    # unavailable check is a failed check, never a passed one. The
-    # web /approvals page uses resolve_approval() directly and is
-    # unaffected. The broker (Workstream A) replaces all of this.
-    approval_id = int(args["approval_id"])
-    human_text = ""
-    try:
-        human_text = current_user_prompt.get() or ""
-    except Exception:
-        human_text = ""
-    _verb = (
-        r"(?:approve|approved|deny|denied|reject|rejected|yes|no|ok(?:ay)?)"
-    )
-    token_ok = bool(
-        re.search(
-            rf"\b{_verb}\b[^0-9]{{0,40}}#?\s*{approval_id}\b",
-            human_text,
-            re.IGNORECASE,
-        )
-    )
-    if not token_ok:
-        return {
-            "content": [{
-                "type": "text",
-                "text": (
-                    f"REFUSED: resolving approval #{approval_id} "
-                    "requires Kunal's own message to contain an "
-                    f"explicit token like 'approve {approval_id}' or "
-                    f"'deny {approval_id}'. His current message does "
-                    "not. Ask him to reply with exactly that — do "
-                    "not retry without it."
-                ),
-            }],
-            "is_error": True,
-        }
-    standing = bool(args.get("standing", False))
-    if standing and not re.search(
-        r"\b(?:always|permanently|standing)\b", human_text, re.IGNORECASE
-    ):
-        return {
-            "content": [{
-                "type": "text",
-                "text": (
-                    "REFUSED: a STANDING grant requires Kunal's own "
-                    f"message to say 'approve {approval_id} always'. "
-                    "It does not. Resolve as a one-shot instead "
-                    "(standing=false), or ask him to say 'always'."
-                ),
-            }],
-            "is_error": True,
-        }
-
-    result = await resolve_approval(
-        approval_id,
-        decision,
-        standing=standing,
-        source="chat",
-    )
-    if not result.get("ok"):
-        return {
-            "content": [{"type": "text", "text": f"Failed: {result.get('error')}"}],
-            "is_error": True,
-        }
-    if result.get("standing_refused"):
-        extra = (
-            " — a STANDING grant was REFUSED (this tool is on the "
-            "no-standing list and must be approved per call); "
-            "resolved as a one-shot instead"
-        )
-    elif result.get("standing"):
-        extra = " (standing grant — won't ask again)"
-    else:
-        extra = ""
-    return {
-        "content": [
-            {
-                "type": "text",
-                "text": (
-                    f"Approval #{args['approval_id']} → {result['decision']} "
-                    f"for {result['tool_name']}{extra}. Re-run the action "
-                    "now if approved."
-                ),
-            }
-        ]
-    }
-
-
-@tool(
-    "revoke_tool_grant",
-    "Remove a standing grant for a tool so it asks for approval "
-    "again — the demotion path on the trust ladder.",
-    {"tool_name": str},
-)
-async def revoke_tool_grant_tool(args: dict) -> dict:
-    from astra.autonomy.approvals import revoke_grant
-
-    found = await revoke_grant(str(args.get("tool_name", "")))
-    text = (
-        f"Standing grant for {args.get('tool_name')} revoked — it will "
-        "ask for approval again."
-        if found
-        else f"No standing grant found for {args.get('tool_name')}."
-    )
-    return {"content": [{"type": "text", "text": text}]}

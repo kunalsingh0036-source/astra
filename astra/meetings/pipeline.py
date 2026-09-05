@@ -229,10 +229,10 @@ async def _fire_notification(
 ) -> None:
     """Tell Kunal the meeting summary is ready (notification + clipboard URL)."""
     try:
-        from astra.config import settings
+        from astra.config import web_base_url
         from astra.notifications import notify
 
-        base = settings.astra_web_base_url.rstrip("/")
+        base = web_base_url()
         url = f"{base}/meetings/{meeting_id}"
         body = summary.gist[:160] if summary.gist else "Summary ready."
         notify(

@@ -114,6 +114,7 @@ async def browser_extract_tool(args: dict) -> dict:
 )
 async def browser_stage_action_tool(args: dict) -> dict:
     from astra.browser.store import enqueue
+    from astra.config import web_base_url
 
     action = (args.get("action") or "").strip().lower()
     if action not in ("click", "type", "navigate", "scroll"):
@@ -129,11 +130,12 @@ async def browser_stage_action_tool(args: dict) -> dict:
             "type": f"type into field {payload['index']}",
             "navigate": f"go to {payload['url']}",
             "scroll": "scroll"}[action]
+    approvals_url = web_base_url() + "/approvals"
     return _ok(
         f"Staged (NOT run): {what}.\nTask {t['id']}.\n"
-        f"Waiting on approval #{t.get('approval_id')} — approve it on the "
-        "/approvals page or reply \"approve " f"{t.get('approval_id')}\" on "
-        "WhatsApp. Astra cannot release this itself."
+        f"Waiting on approval #{t.get('approval_id')}: Kunal approves or "
+        f"denies it at {approvals_url}. Astra cannot release this itself, "
+        "and nothing said in chat or over WhatsApp can."
     )
 
 

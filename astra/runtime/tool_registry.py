@@ -53,6 +53,31 @@ class ActionTier(enum.Enum):
 ToolImpl = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
+# Phase A5 boot assertion (SECURITY-MODEL §1). These names are the
+# model-side approval and autonomy controls that were deleted from the
+# tool surface: a model that can resolve its own approvals, revoke or
+# grant standing trust, or raise its own autonomy mode is not gated,
+# whatever the gate says. Registering one is refused at the chokepoint
+# with SystemExit, deliberately not an Exception subclass: the
+# namespace bridges in astra/runtime/tools/__init__.py catch Exception
+# and log, which would turn a re-introduced approval tool into one
+# missing namespace and a warning nobody reads. SystemExit cannot be
+# swallowed there. It only terminates a process when raised at import
+# time, though: uvicorn's run_asgi and APScheduler's job runner both
+# catch BaseException, so a first import inside a request handler is a
+# 500 with /health green and a first import inside a job is one failed
+# run per interval. The registering import therefore happens at boot
+# everywhere: services/stream/main.py imports astra.runtime.tools at
+# module level (before uvicorn binds), astra/scheduler/app.py main()
+# imports it before the scheduler starts, and the local CLI imports it
+# on startup.
+_FORBIDDEN: frozenset[str] = frozenset({
+    "resolve_approval",
+    "revoke_tool_grant",
+    "set_mode",
+})
+
+
 @dataclass
 class ToolResult:
     """Normalized output of any tool dispatch.
@@ -114,6 +139,10 @@ class ToolRegistry:
     # ── Registration ────────────────────────────────────────
 
     def register(self, tool_def: ToolDef) -> None:
+        if tool_def.name in _FORBIDDEN:
+            raise SystemExit(
+                f"BOOT ASSERTION: forbidden tool registered: {tool_def.name}"
+            )
         if not isinstance(tool_def.tier, ActionTier):
             # CONTAINMENT §1: a tool that fails to declare a valid
             # tier fails to REGISTER — it must never reach the model's

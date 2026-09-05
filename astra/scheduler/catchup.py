@@ -87,12 +87,12 @@ async def training_catchup_prompt() -> dict[str, Any]:
     Secondary channel: Gmail, if `settings.briefing_channel` is
     "email" or "both".
     """
-    from astra.config import settings as astra_settings
+    from astra.config import settings as astra_settings, web_base_url
     from astra.notifications import notify
 
     now_ist = datetime.now(IST)
     channel = (astra_settings.briefing_channel or "notification").lower()
-    base = astra_settings.astra_web_base_url.rstrip("/")
+    base = web_base_url()
     tonight_url = f"{base}/tonight"
 
     # ── primary: macOS notification ──────────────────────
@@ -391,7 +391,7 @@ async def ingest_latest_reply() -> dict[str, Any]:
         }
 
     # Route based on the writeback mode.
-    from astra.config import settings as astra_settings
+    from astra.config import settings as astra_settings, web_base_url
 
     mode = (astra_settings.notes_writeback_mode or "approval").lower()
 
@@ -435,7 +435,7 @@ async def ingest_latest_reply() -> dict[str, Any]:
         hours=hours,
     )
 
-    base = astra_settings.astra_web_base_url.rstrip("/")
+    base = web_base_url()
     approval_url = f"{base}/catchup/{approval_id}"
 
     return {

@@ -6,6 +6,10 @@ This is the single source of truth for configuration — no settings
 are scattered across modules.
 """
 
+import logging
+import os
+from urllib.parse import urlparse
+
 from pydantic_settings import BaseSettings
 
 
@@ -52,8 +56,10 @@ class Settings(BaseSettings):
     #   "both"         — notification primary, email as redundancy
     briefing_channel: str = "both"
 
-    # Public URL for astra-web. Used by notifications and the
-    # briefing email to link to /tonight, /briefing, /catchup/:id.
+    # Public URL for astra-web. Used by notifications, the briefing
+    # email and every ASK result to link to /tonight, /briefing,
+    # /catchup/:id, /approvals. Read it through web_base_url() below,
+    # never directly: this default is a dead link on Railway.
     astra_web_base_url: str = "http://localhost:3000"
 
     # Web Push (VAPID) — browsers subscribe with the public key; the
@@ -107,3 +113,54 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+logger = logging.getLogger(__name__)
+
+# Production host of astra-web (astra-web/next.config.ts allowedHosts,
+# auth.ts cookie domain, the e2e harness default). Only used as the
+# Railway fallback in web_base_url(); ASTRA_WEB_BASE_URL is the
+# configured source.
+ASTRA_WEB_CANONICAL_URL = "https://astra.thearrogantclub.com"
+
+_LOCAL_WEB_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})
+_web_base_url_fallback_logged = False
+
+
+def _on_railway() -> bool:
+    return bool(
+        os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("RAILWAY_SERVICE_NAME")
+    )
+
+
+def web_base_url() -> str:
+    """Base URL for links into astra-web, without a trailing slash.
+
+    `astra_web_base_url` defaults to localhost for a single-host dev
+    install, and ASTRA_WEB_BASE_URL     when Phase A5 shipped, so each ASK result in production told Kunal
+    to decide at http://localhost:3000/approvals: a dead link on his
+    phone, in the one message that says something is waiting. On
+    Railway an empty or localhost base is never right, so it is
+    replaced with the canonical host and logged as an error once per
+    process; off Railway the configured value is returned as-is so a
+    local install keeps working.
+    """
+    global _web_base_url_fallback_logged
+    base = (settings.astra_web_base_url or "").strip().rstrip("/")
+    host = ""
+    if base:
+        parsed = urlparse(base if "://" in base else f"//{base}")
+        host = (parsed.hostname or "").lower()
+    if not _on_railway() or (base and host not in _LOCAL_WEB_HOSTS):
+        return base
+    if not _web_base_url_fallback_logged:
+        logger.error(
+            "ASTRA_WEB_BASE_URL is %r on Railway (service %s): every link "
+            "to astra-web would point at localhost. Falling back to %s; "
+            "set ASTRA_WEB_BASE_URL on this service.",
+            settings.astra_web_base_url,
+            os.environ.get("RAILWAY_SERVICE_NAME") or "?",
+            ASTRA_WEB_CANONICAL_URL,
+        )
+        _web_base_url_fallback_logged = True
+    return ASTRA_WEB_CANONICAL_URL

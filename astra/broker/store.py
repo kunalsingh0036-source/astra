@@ -11,10 +11,11 @@ approved` became, and why it had to be defused by a JOIN.
 What A3 claims, precisely, and no more: **a row in Postgres cannot
 become an authorization, and the cloud cannot fabricate an attested
 result.** It does NOT claim "no credential the cloud holds can cause a
-physical action" — that is false today and stays false until A5,
-because five of the eight catalogue verbs are `auto` (no fingerprint),
-`local_bash` is still registered, and `resolve_approval` is still
-gate-exempt. Say the narrow true thing.
+physical action": that is false today and stays false while five of
+the eight catalogue verbs are `auto` (no fingerprint) and `local_bash`
+is still registered (it goes with the bridge in A6). What A5 added: no
+model tool writes `approvals` any more; the resolver and its gate
+exemption are gone. Say the narrow true thing.
 
 Authority lives entirely on the Mac: the broker canonicalises the
 arguments itself, renders the display itself, and mints a token with a

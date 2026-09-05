@@ -117,9 +117,11 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "get_audit_log": ActionTier.READ,
     "audit_stats": ActionTier.READ,
     "list_pending_approvals": ActionTier.READ,
-    # Gate-exempt today (they ARE the approval mechanism until the
-    # capability broker replaces them) — classified DESTRUCTIVE so
-    # that if the exemption is ever removed they fail safe.
+    # Deleted from the model's tool surface in Phase A5 (SECURITY-MODEL
+    # §1) and refused at registration by astra/runtime/tool_registry.py.
+    # Tier kept, same precedent as set_mode below: an accidental
+    # re-registration that somehow reached the gate would still be
+    # DESTRUCTIVE (ask in semi_auto), never defaulted or exempt.
     "resolve_approval": ActionTier.DESTRUCTIVE,
     "revoke_tool_grant": ActionTier.DESTRUCTIVE,
     # Removed from the model's tool surface (CONTAINMENT §3); tier
