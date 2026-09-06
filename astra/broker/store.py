@@ -232,7 +232,7 @@ async def last_successful_probes(*, within_days: int = 7) -> dict[str, bool]:
     async with _engine.async_session() as s:
         rows = (await s.execute(
             text("""
-                SELECT args ->> 'target' AS target
+                SELECT args_raw ->> 'target' AS target
                 FROM intents
                 WHERE verb = 'body.probe'
                   AND status = 'succeeded'
