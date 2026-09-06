@@ -40,8 +40,8 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STREAM_URL="${STREAM_PUBLIC_URL:-https://stream.thearrogantclub.com}"
-REQUIRED_SERVICES=(stream scheduler)
-WATCH_SERVICES=(stream scheduler email whatsapp)
+REQUIRED_SERVICES="stream scheduler"
+WATCH_SERVICES="stream scheduler email whatsapp"
 WAIT=1
 for arg in "$@"; do
   case "$arg" in
@@ -93,47 +93,55 @@ fi
 echo
 echo "== waiting for Railway to build $short from GitHub =="
 deadline=$(( $(date +%s) + 900 ))
-declare -A final=()
+# No associative arrays: macOS ships bash 3.2 and `declare -A` is a
+# syntax error there, which killed this script mid-deploy once. A
+# newline-separated "svc=STATUS" list works on every bash.
+finals=""
+final_of() { printf '%s\n' "$finals" | sed -n "s/^$1=//p" | head -1; }
+
 while :; do
   pending=0
-  for svc in "${WATCH_SERVICES[@]}"; do
-    [[ -n "${final[$svc]:-}" ]] && continue
-    read -r status commit < <(
-      railway deployment list --service "$svc" --json 2>/dev/null | python3 -c '
+  for svc in $WATCH_SERVICES; do
+    [ -n "$(final_of "$svc")" ] && continue
+    line="$(railway deployment list --service "$svc" --json 2>/dev/null | python3 -c '
 import json, sys
 try:
     d = json.load(sys.stdin)
 except Exception:
-    print("?", ""); raise SystemExit
+    print("? "); raise SystemExit
 x = d[0] if d else {}
 m = x.get("meta") or {}
 print(x.get("status", "?"), (m.get("commitHash") or "") if isinstance(m, dict) else "")
-' 2>/dev/null || echo "? ")
-    if [[ "$commit" != "$sha"* ]]; then
-      # Not building our commit yet (or this service is not repo-backed).
-      pending=1; continue
-    fi
+' 2>/dev/null || echo "? ")"
+    status="${line%% *}"; commit="${line#* }"
+    case "$commit" in
+      "$sha"*) ;;
+      *) pending=1; continue ;;   # not building our commit (yet, or not repo-backed)
+    esac
     case "$status" in
-      SUCCESS)  final[$svc]=SUCCESS; echo "  $svc: SUCCESS at $short" ;;
-      FAILED|CRASHED|REMOVED) final[$svc]="$status"; echo "  $svc: $status at $short" >&2 ;;
+      SUCCESS)  finals="$finals
+$svc=SUCCESS"; echo "  $svc: SUCCESS at $short" ;;
+      FAILED|CRASHED|REMOVED) finals="$finals
+$svc=$status"; echo "  $svc: $status at $short" >&2 ;;
       *) pending=1 ;;
     esac
   done
-  # Every REQUIRED service must have reached a terminal state.
   req_done=1
-  for svc in "${REQUIRED_SERVICES[@]}"; do [[ -n "${final[$svc]:-}" ]] || req_done=0; done
-  [[ "$req_done" == "1" && "$pending" == "0" ]] && break
-  if (( $(date +%s) > deadline )); then
+  for svc in $REQUIRED_SERVICES; do [ -n "$(final_of "$svc")" ] || req_done=0; done
+  if [ "$req_done" = 1 ] && [ "$pending" = 0 ]; then break; fi
+  if [ "$(date +%s)" -gt "$deadline" ]; then
     echo "deploy.sh: timed out after 15 min waiting for $short" >&2
-    for svc in "${WATCH_SERVICES[@]}"; do echo "  $svc: ${final[$svc]:-still building or never started}" >&2; done
+    for svc in $WATCH_SERVICES; do
+      echo "  $svc: $(final_of "$svc" | grep . || echo 'still building or never started')" >&2
+    done
     exit 1
   fi
   sleep 15
 done
 
 bad=0
-for svc in "${REQUIRED_SERVICES[@]}"; do
-  [[ "${final[$svc]:-}" == "SUCCESS" ]] || { echo "deploy.sh: $svc is ${final[$svc]:-missing}" >&2; bad=1; }
+for svc in $REQUIRED_SERVICES; do
+  [ "$(final_of "$svc")" = "SUCCESS" ] || { echo "deploy.sh: $svc is $(final_of "$svc" | grep . || echo missing)" >&2; bad=1; }
 done
 [[ "$bad" == "0" ]] || { echo "deploy.sh: NOT deployed. Check the build logs in the Railway dashboard." >&2; exit 1; }
 
