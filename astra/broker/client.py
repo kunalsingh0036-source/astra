@@ -231,6 +231,19 @@ ALLOWED_ROOTS: tuple[str, ...] = (
     "/Users/kunalsingh/Claude Code",
     "/Users/kunalsingh/Documents",
     "/private/tmp",
+    # The personal stores, 2026-09-06, on Kunal's explicit instruction
+    # (capabilities first, gates later). Each is the directory behind
+    # one body.probe target — the narrowest widening that lets the
+    # probes mean anything, rather than opening ~/Library wholesale.
+    # Three independent layers still stand above every byte: the ACL
+    # (uid 451 has search on the ancestors and read here, nothing else),
+    # TCC (Full Disk Access, keyed to the executor's exact bytes), and
+    # policy (this list, the name deny-list, and the content gate on
+    # the way out).
+    "/Users/kunalsingh/Library/Messages",
+    "/Users/kunalsingh/Library/Safari",
+    "/Users/kunalsingh/Library/Mail",
+    "/Users/kunalsingh/Library/Group Containers/group.net.whatsapp.WhatsApp.shared",
 )
 _ROOT_ALIASES: tuple[tuple[str, str], ...] = (("/tmp", "/private/tmp"),)
 

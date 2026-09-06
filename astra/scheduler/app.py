@@ -59,6 +59,7 @@ from astra.scheduler.jobs import (
     run_retention_sweep,
     run_broker_reap,
     run_broker_notify,
+    run_body_capability_check,
     run_wa_dispatch,
     run_inbox_triage,
     run_voice_learning,
@@ -196,6 +197,26 @@ def _build_scheduler() -> AsyncIOScheduler:
         IntervalTrigger(seconds=30),
         id="broker_notify",
         name="Broker completion notices",
+        replace_existing=True,
+    )
+
+    # Full Disk Access is keyed to the executor's exact bytes, and the
+    # executor is signed ad hoc, so EVERY rebuild voids it. macOS does
+    # not announce a requirement that stopped matching — it just denies,
+    # and upstream that is indistinguishable from a missing file. Six
+    # hours is chosen against the cost of being wrong: the grant lapses
+    # at an install, when Kunal is at the keyboard and install.sh
+    # already proves and prompts. This is the net for when he was not.
+    #
+    # Alerts on the OUTCOME (a capability that used to work is gone),
+    # never on liveness: a Mac that is not polling is a closed laptop
+    # and must not page anyone. A capability that has NEVER worked is
+    # setup, not a regression, and is reported without a push.
+    scheduler.add_job(
+        run_body_capability_check,
+        IntervalTrigger(hours=6),
+        id="body_capability_check",
+        name="Prove the body still has the capabilities it was granted",
         replace_existing=True,
     )
 

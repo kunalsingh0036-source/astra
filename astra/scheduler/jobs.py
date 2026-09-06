@@ -1895,6 +1895,100 @@ async def broker_notify() -> dict:
     return {"status": "success", "notified": sent, "seen": len(rows)}
 
 
+# The capabilities that exist only because a TCC grant is in force, and
+# the ones that do not. The second kind are the CONTROLS: if `documents`
+# is unreadable the cause is POSIX or the ACL, and nothing else in the
+# matrix means anything. Mirrors Probe.targets in the Swift repo, pinned
+# by tests/test_broker/test_catalogue_mirror.py.
+_TCC_PROBES = ("messages", "safari", "mail")
+_CONTROL_PROBES = ("documents",)
+
+
+async def body_capability_check() -> dict:
+    """Notice when Full Disk Access stops applying, and say so once.
+
+    A TCC grant is keyed to the executor's cdhash. The executor is
+    signed ad hoc, so EVERY rebuild changes that hash and voids the
+    grant — and macOS does not announce a requirement that stopped
+    matching. It simply denies, and every read of a protected store
+    comes back EACCES, which upstream is indistinguishable from a file
+    that is not there. Without this job the body would quietly lose
+    half its senses and report nothing.
+
+    Alerts on the OUTCOME, never on a component's state: a Mac that is
+    not polling is a closed laptop, which is normal and must never page
+    anyone (feedback rule: no bridge-down pings). And a capability that
+    has NEVER worked is not a regression — it is setup that has not
+    happened yet, so it is reported in the result and not pushed.
+
+    The previous state is read back out of the intents table rather
+    than kept in memory or in a new table: the probe results ARE the
+    history, so a scheduler restart cannot lose it and there is nothing
+    to keep in sync.
+    """
+    from astra.broker import client, store
+
+    live = await store.sole_live_body()
+    if live is None:
+        return {"status": "skipped",
+                "reason": "the Mac is not polling (a closed laptop is normal); "
+                          "nothing was probed and nobody was told"}
+
+    now: dict[str, bool] = {}
+    detail: dict[str, str] = {}
+    for target in _CONTROL_PROBES + _TCC_PROBES:
+        r = await client.run_intent(
+            "body.probe", {"target": target},
+            why=f"scheduled capability check: can the body open the {target} store?",
+            actor="body_capability_check", wait_sec=25)
+        text = (bytes(r.result_bytes or b"").decode("utf-8", "replace")).strip()
+        now[target] = text.startswith("opened: yes")
+        detail[target] = text[:160] or (r.deny_reason or r.status or "no answer")
+
+    # The control decides whether the rest is even meaningful.
+    if not all(now.get(c) for c in _CONTROL_PROBES):
+        return {"status": "failed", "capabilities": now, "detail": detail,
+                "reason": "the control probe failed: the body cannot read an "
+                          "ordinary granted root, so this is POSIX or the ACL, "
+                          "not TCC. Nothing about the grant can be concluded."}
+
+    was = await store.last_successful_probes(within_days=7)
+    lost = sorted(t for t in _TCC_PROBES if was.get(t) and not now.get(t))
+    never = sorted(t for t in _TCC_PROBES if not was.get(t) and not now.get(t))
+
+    if lost:
+        from astra.push.sender import broadcast
+
+        await broadcast(
+            title="Astra: the body lost Full Disk Access",
+            body=(f"{', '.join(lost)} stopped being readable. The executor was "
+                  "almost certainly rebuilt, which voids the grant. Re-add it "
+                  "in Privacy & Security > Full Disk Access."),
+            url="/", tag="astra-body-tcc")
+        return {"status": "failed", "capabilities": now, "lost": lost,
+                "detail": detail,
+                "reason": "Full Disk Access stopped applying to this build of "
+                          "the executor; Kunal was pushed once. Remedy: re-add "
+                          "/usr/local/libexec/astra/AstraExecutor in System "
+                          "Settings, then `sudo launchctl kickstart -k "
+                          "system/com.astra.executor`."}
+
+    if never:
+        # Not a regression. Reported, never pushed: pushing about a
+        # capability nobody has granted yet is the cry-wolf class.
+        return {"status": "skipped", "capabilities": now, "pending": never,
+                "reason": f"{', '.join(never)} have never been readable — the "
+                          "grant has not been made yet, which is setup, not a "
+                          "fault"}
+
+    return {"status": "success", "capabilities": now,
+            "reason": "every probed capability is in force"}
+
+
+async def run_body_capability_check():
+    return await _safe("body_capability_check", body_capability_check)
+
+
 async def run_broker_notify():
     return await _safe("broker_notify", broker_notify)
 

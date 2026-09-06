@@ -335,3 +335,21 @@ def test_resolved_after_turn_query_returns_the_status_row_shape():
                                 store.list_resolved_after_turn_end])
 def test_resolved_listings_are_in_the_public_api(fn):
     assert fn.__name__ in store.__all__
+
+
+# ── the poll window is stated twice; it must not drift ───────────
+
+def test_the_poll_window_is_the_same_number_in_both_modules():
+    """store.sole_live_body inlines the 60 s window rather than
+    importing it: client imports store, so an import here would be a
+    cycle paid on every import. An inlined constant is a second fact,
+    and a second fact is the class of bug this project keeps finding —
+    so it is pinned rather than trusted."""
+    import inspect
+
+    from astra.broker import client, store
+
+    src = inspect.getsource(store.sole_live_body)
+    assert f"<= {client.BODY_POLL_WINDOW_SEC} " in src, (
+        f"store.sole_live_body no longer uses "
+        f"{client.BODY_POLL_WINDOW_SEC}s; the two windows have drifted")

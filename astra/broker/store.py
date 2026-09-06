@@ -194,6 +194,57 @@ async def body_liveness(body_id: int) -> BodyLiveness | None:
     )
 
 
+async def sole_live_body() -> BodyLiveness | None:
+    """The one enrolled body, if there is exactly one and it is polling.
+
+    For scheduled checks that have no body_id to hand. Returns None when
+    there is no body, more than one, or the body is not polling — all
+    three of which are reasons to do nothing quietly rather than guess.
+    A Mac that is not polling is a closed laptop, which is normal.
+    """
+    async with _engine.async_session() as s:
+        rows = (await s.execute(text(
+            "SELECT id FROM bodies WHERE revoked_at IS NULL ORDER BY id"
+        ))).all()
+    if len(rows) != 1:
+        return None
+    live = await body_liveness(int(rows[0][0]))
+    if live is None or live.poll_age_sec is None:
+        return None
+    # 60 s, the same window client.BODY_POLL_WINDOW_SEC uses. Not
+    # imported: client imports THIS module, and a cycle here would be
+    # paid at every import. tests/test_broker/test_client_refusals.py
+    # asserts the two stay equal.
+    return live if live.poll_age_sec <= 60 else None
+
+
+async def last_successful_probes(*, within_days: int = 7) -> dict[str, bool]:
+    """Which body.probe targets have answered "yes" recently.
+
+    The probe results ARE the history, so the previous state is read
+    back out of `intents` rather than kept in memory (lost on every
+    scheduler restart) or in a new table (a second fact to keep in
+    sync). A target absent from this map has never succeeded in the
+    window, which is NOT a regression — it is a grant nobody has made.
+
+    Read-only.
+    """
+    async with _engine.async_session() as s:
+        rows = (await s.execute(
+            text("""
+                SELECT args ->> 'target' AS target
+                FROM intents
+                WHERE verb = 'body.probe'
+                  AND status = 'succeeded'
+                  AND created_at > now() - make_interval(days => :d)
+                  AND encode(result_bytes, 'escape') LIKE 'opened: yes%'
+                GROUP BY 1
+            """),
+            {"d": int(within_days)},
+        )).all()
+    return {r[0]: True for r in rows if r[0]}
+
+
 async def open_intents(body_id: int, *, limit: int = 5) -> list[dict[str, Any]]:
     """Intents the broker has TAKEN and not finished: claimed,
     awaiting Kunal's fingerprint, or running, with a deadline still
