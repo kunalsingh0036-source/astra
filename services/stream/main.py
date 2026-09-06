@@ -82,36 +82,11 @@ app.add_middleware(
 
 
 def _build_info() -> dict[str, object]:
-    """Which commit is running, or an honest "unknown".
+    """Delegates to astra.build_info so stream and scheduler can never
+    report different identities for the same image."""
+    from astra.build_info import build_info
 
-    Railway injects RAILWAY_GIT_COMMIT_SHA into every service it builds
-    from the connected GitHub repo, so that is the first source: it is
-    written by whatever actually produced these bytes, not by whoever
-    ran a script. astra/_build.py is the fallback for a non-Railway run.
-    Never guess a sha here — "unknown" is the true answer, and the
-    reason /health is worth reading at all.
-    """
-    import os
-
-    sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "").strip()
-    if sha:
-        return {
-            "build_sha": sha,
-            "dirty": False,
-            "built_at_utc": os.environ.get("RAILWAY_DEPLOYMENT_CREATED_AT", "unknown"),
-            "build_source": "railway-git",
-        }
-    try:
-        from astra import _build  # type: ignore[import-not-found]
-    except Exception:
-        return {"build_sha": "unknown", "dirty": "unknown",
-                "built_at_utc": "unknown", "build_source": "none"}
-    return {
-        "build_sha": getattr(_build, "build_sha", "unknown"),
-        "dirty": getattr(_build, "dirty", "unknown"),
-        "built_at_utc": getattr(_build, "built_at_utc", "unknown"),
-        "build_source": "marker",
-    }
+    return build_info()
 
 
 @app.get("/health")

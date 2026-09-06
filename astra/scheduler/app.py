@@ -686,21 +686,13 @@ def main() -> None:
     # time, so this is the only place it can fire in this process.
     import astra.runtime.tools  # noqa: F401
 
-    # Deploy marker (the same fields /health reports on stream). The
-    # scheduler has no HTTP surface, so its build identity is only ever
-    # visible in this boot line. 'unknown' is honest for a dev run or a
-    # deploy that skipped scripts/deploy.sh.
-    try:
-        from astra import _build  # type: ignore[import-not-found]
+    # Build identity. The scheduler has no HTTP surface, so this boot
+    # line is the only place it is ever visible. Same function as
+    # /health on stream, deliberately: two deploys of one image must
+    # not be able to disagree about which commit they are.
+    from astra.build_info import build_line
 
-        logger.info(
-            "[scheduler] build %s dirty=%s built_at=%s",
-            getattr(_build, "build_sha", "unknown"),
-            getattr(_build, "dirty", "unknown"),
-            getattr(_build, "built_at_utc", "unknown"),
-        )
-    except Exception:
-        logger.info("[scheduler] build unknown (no astra/_build.py)")
+    logger.info("%s", build_line("scheduler"))
 
     asyncio.run(_main_loop())
 
