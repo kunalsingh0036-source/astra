@@ -12,6 +12,7 @@ crashing the scheduler. A single failing job must never break the rest.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
@@ -1901,7 +1902,29 @@ async def broker_notify() -> dict:
 # matrix means anything. Mirrors Probe.targets in the Swift repo, pinned
 # by tests/test_broker/test_catalogue_mirror.py.
 _TCC_PROBES = ("messages", "safari", "mail")
-_CONTROL_PROBES = ("documents",)
+# `documents` was chosen as a control on the belief that ~/Documents
+# needs no TCC grant. It does: macOS protects Documents, Desktop and
+# Downloads under Files-and-Folders, so a daemon without Full Disk
+# Access is refused there too. Measured 2026-09-06: every probe,
+# control included, came back errno 1, and the job concluded "cannot
+# tell" about a grant that was plainly gone.
+#
+# The errno is the discriminator and the probe already reports it:
+#   EPERM  (1) — refused by TCC. The grant is the missing piece.
+#   EACCES(13) — refused by POSIX/ACL, before TCC is consulted.
+# A control target outside every protected location (the granted
+# `Claude Code` root) belongs in the executor's probe list; until that
+# ships, `documents` is kept as a probe but is no longer treated as a
+# POSIX control.
+_CONTROL_PROBES: tuple[str, ...] = ()
+_ALL_PROBES = ("documents",) + _TCC_PROBES
+_EPERM, _EACCES = 1, 13
+
+
+def _probe_errno(text: str) -> int | None:
+    """The errno the executor reported, or None if it opened the file."""
+    m = re.search(r"errno=(\d+)", text or "")
+    return int(m.group(1)) if m else None
 
 
 async def body_capability_check() -> dict:
@@ -1911,7 +1934,7 @@ async def body_capability_check() -> dict:
     signed ad hoc, so EVERY rebuild changes that hash and voids the
     grant — and macOS does not announce a requirement that stopped
     matching. It simply denies, and every read of a protected store
-    comes back EACCES, which upstream is indistinguishable from a file
+    comes back EPERM, which upstream is indistinguishable from a file
     that is not there. Without this job the body would quietly lose
     half its senses and report nothing.
 
@@ -1936,7 +1959,8 @@ async def body_capability_check() -> dict:
 
     now: dict[str, bool] = {}
     detail: dict[str, str] = {}
-    for target in _CONTROL_PROBES + _TCC_PROBES:
+    errnos: dict[str, int | None] = {}
+    for target in _ALL_PROBES:
         r = await client.run_intent(
             "body.probe", {"target": target},
             why=f"scheduled capability check: can the body open the {target} store?",
@@ -1944,17 +1968,50 @@ async def body_capability_check() -> dict:
         text = (bytes(r.result_bytes or b"").decode("utf-8", "replace")).strip()
         now[target] = text.startswith("opened: yes")
         detail[target] = text[:160] or (r.deny_reason or r.status or "no answer")
+        errnos[target] = _probe_errno(text)
 
-    # The control decides whether the rest is even meaningful.
-    if not all(now.get(c) for c in _CONTROL_PROBES):
+    # Classify on the errno, not on which target failed. A refusal that
+    # never reaches the filesystem (EPERM) is TCC; one that does
+    # (EACCES) is POSIX or a missing ACL, and sending Kunal to the
+    # wrong pane costs an afternoon.
+    posix_blocked = sorted(t for t in _ALL_PROBES if errnos.get(t) == _EACCES)
+    if posix_blocked:
         return {"status": "failed", "capabilities": now, "detail": detail,
-                "reason": "the control probe failed: the body cannot read an "
-                          "ordinary granted root, so this is POSIX or the ACL, "
-                          "not TCC. Nothing about the grant can be concluded."}
+                "reason": "refused before TCC was consulted (EACCES) on "
+                          f"{', '.join(posix_blocked)}: uid 451 cannot traverse "
+                          "there, so this is the ACL, not the grant. Run "
+                          "deploy/grant-protected-roots.sh from an application "
+                          "that holds Full Disk Access."}
+
+    # Every probe refused by the system, control included, means the
+    # executor holds no Full Disk Access at all — not that four separate
+    # capabilities each broke.
+    all_eperm = _ALL_PROBES and all(errnos.get(t) == _EPERM for t in _ALL_PROBES)
 
     was = await store.last_successful_probes(within_days=7)
     lost = sorted(t for t in _TCC_PROBES if was.get(t) and not now.get(t))
     never = sorted(t for t in _TCC_PROBES if not was.get(t) and not now.get(t))
+
+    if all_eperm and (lost or was):
+        # The whole grant is gone, which is what a rebuild does. Say
+        # that once, with the two commands that fix it.
+        from astra.push.sender import broadcast
+
+        await broadcast(
+            title="Astra: the body lost Full Disk Access",
+            body=("Every protected store is refused by the system, so the "
+                  "executor's grant no longer matches its bytes — that is what "
+                  "a rebuild does. Re-add /usr/local/libexec/astra/AstraExecutor "
+                  "in Privacy & Security > Full Disk Access, then restart it."),
+            url="/", tag="astra-body-tcc")
+        return {"status": "failed", "capabilities": now, "detail": detail,
+                "lost": lost or sorted(_TCC_PROBES),
+                "reason": "every probe returned EPERM: Full Disk Access does "
+                          "not apply to this build of the executor. Kunal was "
+                          "pushed once. Remedy: remove the old AstraExecutor "
+                          "entry, add /usr/local/libexec/astra/AstraExecutor, "
+                          "then `sudo launchctl kickstart -k "
+                          "system/com.astra.executor`."}
 
     if lost:
         from astra.push.sender import broadcast

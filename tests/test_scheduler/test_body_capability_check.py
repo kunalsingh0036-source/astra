@@ -93,7 +93,11 @@ def test_a_lost_capability_pages_once_with_the_remedy(monkeypatch):
     assert "rebuil" in text, "the push must name the cause, not just the symptom"
 
 
-def test_a_failed_control_refuses_to_conclude_anything(monkeypatch):
+def test_eacces_is_reported_as_the_acl_not_the_grant(monkeypatch):
+    """EACCES means the refusal happened in the filesystem, before TCC
+    was consulted: uid 451 cannot traverse there. Sending Kunal to the
+    Full Disk Access pane for that costs an afternoon, so this case must
+    name the ACL and must not push."""
     pushed: list = []
     answers = dict(ALL_YES)
     answers["documents"] = "opened: no   target=documents  errno=13 (Permission denied)"
@@ -102,8 +106,42 @@ def test_a_failed_control_refuses_to_conclude_anything(monkeypatch):
           was={"messages": True}, pushed=pushed)
     out = _run_job()
     assert out["status"] == "failed"
-    assert "control" in out["reason"] and "not TCC" in out["reason"]
-    assert pushed == [], "with the control down, nothing about TCC is knowable"
+    low = out["reason"].lower()
+    assert "eacces" in low and "acl" in low and "not the grant" in low
+    assert "grant-protected-roots" in out["reason"], "name the script that fixes it"
+    assert pushed == [], "an ACL problem is not a lost grant; do not push about TCC"
+
+
+def test_every_probe_eperm_is_one_lost_grant_not_four_lost_senses(monkeypatch):
+    """The case measured in production on 2026-09-06: a rebuild voided
+    the grant, so EVERY probe — including the one on ~/Documents, which
+    macOS also protects — returned EPERM. The old control logic called
+    that 'cannot conclude' and stayed silent about a grant that was
+    plainly gone."""
+    pushed: list = []
+    answers = {t: f"opened: no   target={t}  errno=1 (Operation not permitted)"
+               for t in ("documents", "messages", "safari", "mail")}
+    _stub(monkeypatch, live=_Live(), answers=answers,
+          was={"messages": True, "safari": True, "mail": True}, pushed=pushed)
+    out = _run_job()
+    assert out["status"] == "failed"
+    assert out["lost"] == ["mail", "messages", "safari"]
+    assert len(pushed) == 1, "one push, naming the whole grant — not one per store"
+    text = (pushed[0]["title"] + " " + pushed[0]["body"]).lower()
+    assert "full disk access" in text and "rebuil" in text
+    assert "kickstart" in out["reason"], "the remedy must include the restart"
+
+
+def test_eperm_everywhere_before_anything_ever_worked_is_setup_not_a_regression(monkeypatch):
+    """Same signal, no history: nobody has granted it yet. Reported,
+    never pushed — that is the cry-wolf class."""
+    pushed: list = []
+    answers = {t: f"opened: no   target={t}  errno=1 (Operation not permitted)"
+               for t in ("documents", "messages", "safari", "mail")}
+    _stub(monkeypatch, live=_Live(), answers=answers, was={}, pushed=pushed)
+    out = _run_job()
+    assert pushed == []
+    assert out["status"] == "skipped"
 
 
 def test_everything_in_force_is_quiet(monkeypatch):
