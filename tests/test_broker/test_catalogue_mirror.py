@@ -57,7 +57,7 @@ def _parse_catalog(src: str) -> list[dict]:
         r'\s*irreversible:\s*(true|false),\s*runsInJail:\s*(true|false),'
         r'\s*argKeys:\s*\[([^\]]*)\],\s*requiredKeys:\s*\[([^\]]*)\],'
         r'\s*pathKeys:\s*\[([^\]]*)\],\s*patternKeys:\s*\[([^\]]*)\],'
-        r'\s*intKeys:\s*\[([^\]]*)\]\s*\)', re.S,
+        r'\s*intKeys:\s*\[([^\]]*)\],\s*enumKeys:\s*\[([^\]]*)\]\s*\)', re.S,
     )
     out = []
     for m in pat.finditer(src):
@@ -70,6 +70,10 @@ def _parse_catalog(src: str) -> list[dict]:
             "path_keys": _strings(m.group(10)),
             "pattern_keys": _strings(m.group(11)),
             "int_keys": _strings(m.group(12)),
+            # A closed-enum argument: the executor resolves the name to
+            # a compiled path. Mirrored so the cloud cannot start
+            # treating one as a free string.
+            "enum_keys": _strings(m.group(13)),
         })
     return out
 
@@ -115,7 +119,12 @@ def _swift_table(src: str, name: str) -> frozenset[str]:
 @requires_broker
 def test_verb_table_matches_catalog_swift():
     swift = _parse_catalog(_CATALOG.read_text())
-    assert len(swift) == 8, "Catalog.swift parse found the wrong number of verbs"
+    assert len(swift) == len(client.CATALOGUE), (
+        f"Catalog.swift parse found {len(swift)} verbs, the cloud mirror has "
+        f"{len(client.CATALOGUE)}. A parse of 0 means the Swift literal grew a "
+        f"field this regex does not know about — fix the regex, do not relax it."
+    )
+    assert len(swift) >= 8, "the parser matched too few verbs to be believable"
     assert [v["name"] for v in swift] == [v.name for v in client.CATALOGUE], (
         "verb order (ids) differs"
     )

@@ -28,6 +28,9 @@ _ARG_ORDER: dict[str, tuple[str, ...]] = {
     "fs.write": ("path", "content"),
     "fs.edit": ("path", "old", "new"),
     "exec.shell": ("command", "cwd", "timeout_ms"),
+    # body.probe answers "can the body open X" with yes/no and never
+    # bytes. `target` is a closed set of capability names, not a path.
+    "body.probe": ("target",),
 }
 
 # Per-verb guidance the model needs beyond policy and wired state. Keys

@@ -125,6 +125,13 @@ class VerbSpec:
     path_keys: frozenset[str]      # single filesystem targets: root-checked
     pattern_keys: frozenset[str]   # glob patterns: literal prefix root-checked
     int_keys: frozenset[str]       # must be non-negative integers
+    # A CLOSED ENUM the executor resolves to a compiled path. Mirrors
+    # VerbSpec.enumKeys in Catalog.swift. The shape is enforced on both
+    # sides (a bare identifier, never a path) because a probe that could
+    # name its own path would be an oracle for walking the filesystem
+    # one open() at a time, under a policy that returns no bytes and so
+    # looks harmless.
+    enum_keys: frozenset[str]
     max_arg_bytes: int
     wired: bool                    # execute() in AstraExecutor handles it
     # Per-key integer ceilings the EXECUTOR enforces (FileVerbs.swift),
@@ -138,11 +145,12 @@ class VerbSpec:
 
 def _v(name: str, policy: str, args: str, required: str, paths: str,
        patterns: str, ints: str, max_arg_bytes: int, *, wired: bool,
+       enums: str = "",
        int_max: tuple[tuple[str, int], ...] = ()) -> VerbSpec:
     split = lambda s: frozenset(k for k in s.split() if k)  # noqa: E731
     return VerbSpec(name, policy, split(args), split(required), split(paths),
-                    split(patterns), split(ints), max_arg_bytes, wired,
-                    int_max)
+                    split(patterns), split(ints), split(enums), max_arg_bytes,
+                    wired, int_max)
 
 
 # Mirror of FileVerbs.maxReadLimit (640 KiB): the reply frame is 1 MiB
@@ -184,6 +192,16 @@ CATALOGUE: tuple[VerbSpec, ...] = (
        "path", "", "", 1_048_576, wired=False),
     _v("exec.shell", "signedNoStanding", "command cwd timeout_ms",
        "command", "cwd", "", "", 8192, wired=False),
+    # "Can the body open X?", answered yes or no and never with bytes.
+    # `target` is a CLOSED ENUM (messages, safari, mail, whatsapp,
+    # documents) that the executor resolves to a compiled path; it is
+    # deliberately not a path argument, because a probe that could name
+    # its own path would be an oracle for walking the filesystem one
+    # open() at a time under a policy that returns nothing and so looks
+    # harmless. The canonicaliser enforces the shape (a bare
+    # identifier) before anything is signed.
+    _v("body.probe", "auto", "target", "target", "", "", "", 256,
+       wired=True, enums="target"),
 )
 
 CATALOGUE_BY_NAME: dict[str, VerbSpec] = {v.name: v for v in CATALOGUE}
@@ -651,6 +669,23 @@ def validate_args(spec: VerbSpec, args: dict[str, Any]) -> None:
             raise ArgsInvalid(
                 f"args.{k} contains a NUL character (U+0000), which neither "
                 "the canonical encoding nor Postgres JSONB can hold. "
+                "Nothing was filed."
+            )
+    for k in spec.enum_keys & set(args):
+        v = args[k]
+        # Exactly Canonicalizer.swift's rule: a bare identifier, at most
+        # 32 characters, lowercase letters, digits and underscore. The
+        # executor still checks the name against its own table; this is
+        # the SHAPE check, and it exists so a path-shaped value can
+        # never reach a signature.
+        if (not isinstance(v, str) or not v or len(v) > 32
+                or not all(c.islower() and c.isascii() or c.isdigit() or c == "_"
+                           for c in v)):
+            raise ArgsInvalid(
+                f"args.{k} must be one of a closed set of names (lowercase "
+                f"letters, digits and _, at most 32) for {spec.name}, got "
+                f"{v!r}. It names a capability; the path it stands for is "
+                "compiled into the body and cannot be chosen here. "
                 "Nothing was filed."
             )
     for k in spec.int_keys & set(args):
