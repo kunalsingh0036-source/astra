@@ -58,6 +58,7 @@ from astra.scheduler.jobs import (
     run_gmail_auth_check,
     run_retention_sweep,
     run_broker_reap,
+    run_broker_notify,
     run_wa_dispatch,
     run_inbox_triage,
     run_voice_learning,
@@ -174,9 +175,9 @@ def _build_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    # Retention sweep — daily 03:30 IST (off-peak). Windows approved
-    # 2026-06-11: turn_events 30d, bridge_calls 14d, previews per-row
-    # TTL (finally calling sweep_expired), turns.messages forever.
+    # Broker reaper — every minute, on every platform, like notes_sync:
+    # the reaper runs in the CLOUD precisely because the body may be
+    # the thing that is missing.
     scheduler.add_job(
         run_broker_reap,
         IntervalTrigger(minutes=1),
@@ -185,13 +186,28 @@ def _build_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    # Every platform, like notes_sync: the reaper runs in the CLOUD
-    # precisely because the body may be the thing that is missing.
+    # Completion notices — every 30 s. An intent filed from a chat turn
+    # resolves after that turn has ended (a signed verb takes as long
+    # as Kunal takes to reach the sensor) and nothing in the turn
+    # waits, so this pushes one web-push per resolved intent. Outcomes
+    # only; body liveness is never pushed (a closed laptop is normal).
+    scheduler.add_job(
+        run_broker_notify,
+        IntervalTrigger(seconds=30),
+        id="broker_notify",
+        name="Broker completion notices",
+        replace_existing=True,
+    )
+
+    # Retention sweep — daily 03:30 IST (off-peak). Windows approved
+    # 2026-06-11: turn_events 30d, previews per-row TTL (finally
+    # calling sweep_expired), turns.messages forever. The retired
+    # bridge's bridge_calls window went with the bridge (Phase A6).
     scheduler.add_job(
         run_retention_sweep,
         _ist_cron(hour=3, minute=30),
         id="retention_sweep",
-        name="Retention sweep (turn_events/bridge_calls/previews)",
+        name="Retention sweep (turn_events/previews)",
         replace_existing=True,
     )
 
@@ -323,8 +339,8 @@ def _build_scheduler() -> AsyncIOScheduler:
             "missed_session_snapshot, training_catchup_prompt*, "
             "apply_approved_catchups, meetings_pipeline, "
             "meeting_capture_trigger) — no osascript on %s. "
-            "notes_sync is NO LONGER in this list: it routes through "
-            "the Mac bridge and runs everywhere. "
+            "notes_sync is NO LONGER in this list: it files a broker "
+            "intent for the Mac body and runs everywhere. "
             "*catchup prompt still posts the web notification path.",
             _sys.platform,
         )
@@ -342,9 +358,12 @@ def _build_scheduler() -> AsyncIOScheduler:
     # 36 days stale, 54 rows — frozen exactly as it froze at 50 once
     # before.
     #
-    # Safe on Linux: the cloud path returns a clean "skipped" when the
-    # bridge is offline (laptop closed — its normal state), and never
-    # a fake success.
+    # Phase A6: the bridge is retired; the cloud path now files a
+    # `notes.sync` broker intent. Safe on Linux: it returns a clean
+    # "skipped" when the body is not polling (laptop closed, its
+    # normal state) or the verb is not wired yet, and never a fake
+    # success. A staleness alarm in the job pages Kunal if the mirror
+    # is old while the body is demonstrably alive.
     scheduler.add_job(
         run_notes_sync,
         IntervalTrigger(minutes=30),
@@ -657,14 +676,31 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    # Phase A5 boot assertion. jobs.py::notes_sync reaches
-    # astra.runtime.tools.local at run time, which imports the whole tool
-    # package and its assertion (astra/runtime/tools/__init__.py). Inside
-    # a job, APScheduler's runner catches BaseException, so a refused
-    # registration would be one failed notes_sync every 30 minutes with
-    # the scheduler still running. Import here so the SystemExit lands
-    # at boot, before the scheduler starts, and terminates the process.
+    # Phase A5 boot assertion. The tool package's assertion
+    # (astra/runtime/tools/__init__.py) only terminates a process when
+    # it fires at import time: inside a job, APScheduler's runner
+    # catches BaseException, so a refused registration would be one
+    # failed job per interval with the scheduler still running. Import
+    # here so the SystemExit lands at boot, before the scheduler
+    # starts. Since Phase A6 no job imports the tool package at run
+    # time, so this is the only place it can fire in this process.
     import astra.runtime.tools  # noqa: F401
+
+    # Deploy marker (the same fields /health reports on stream). The
+    # scheduler has no HTTP surface, so its build identity is only ever
+    # visible in this boot line. 'unknown' is honest for a dev run or a
+    # deploy that skipped scripts/deploy.sh.
+    try:
+        from astra import _build  # type: ignore[import-not-found]
+
+        logger.info(
+            "[scheduler] build %s dirty=%s built_at=%s",
+            getattr(_build, "build_sha", "unknown"),
+            getattr(_build, "dirty", "unknown"),
+            getattr(_build, "built_at_utc", "unknown"),
+        )
+    except Exception:
+        logger.info("[scheduler] build unknown (no astra/_build.py)")
 
     asyncio.run(_main_loop())
 

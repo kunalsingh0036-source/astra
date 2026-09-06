@@ -226,28 +226,23 @@ TOOL_TIERS: dict[str, ActionTier] = {
     "list_agents": ActionTier.READ,
     "recommend_agent": ActionTier.READ,
 
-    # ── local (Mac bridge; these also declare tiers at
-    #    registration in astra/runtime/tools/local.py) ───────
-    "local_read": ActionTier.READ,
-    "local_glob": ActionTier.READ,
-    "local_grep": ActionTier.READ,
-    "local_bridge_status": ActionTier.READ,
-    # Spawns headless Chrome on the Mac — a physical act, not a lookup.
-    "screenshot_url": ActionTier.WRITE,
-    # Arbitrary file writes on the Mac — launchd plists, shell rc
-    # files, the sidecar's plaintext trust root. Not "recoverable".
-    "local_edit": ActionTier.DESTRUCTIVE,
-    "local_write": ActionTier.DESTRUCTIVE,
-    "local_bash": ActionTier.DESTRUCTIVE,
-
-    # ── capability broker (A3) ────────────────────────────
+    # ── capability broker (A3; the only way to the Mac since A6) ──
+    # The Mac bridge's seven local_* tools and screenshot_url had
+    # entries here until Phase A6 retired them. They are deliberately
+    # NOT kept as "historical" tiers the way set_mode is: the registry
+    # refuses those names at boot (tool_registry._FORBIDDEN), so a tier
+    # for them would describe a surface that cannot exist, and the
+    # next reader would infer the tools do. w1p47q2n8l0l's DB trigger
+    # still names them; that is history, not a surface.
+    #
     # The gate is the BROKER, not the tier: submit_intent files a row
     # and causes nothing, and no part of Astra can approve it. But WRITE
     # rather than READ, because it inserts a durable row that interrupts
     # a human — READ means "changes nothing", and queueing work for
-    # someone changes something.
+    # someone changes something. poll_status and body_status read rows.
     "submit_intent": ActionTier.WRITE,
     "poll_status": ActionTier.READ,
+    "body_status": ActionTier.READ,
 
     # ── memory ──────────────────────────────────────────────
     "recall_memories": ActionTier.READ,
@@ -336,12 +331,13 @@ def get_permission_for_tier(
     This is the path the lean runtime uses: the tool registry already
     declares every tool's tier at registration (ToolDef.tier), so the
     gate must trust that — not the name-keyed TOOL_TIERS map below.
-    The map only knows 36 legacy names out of 117 registered tools;
-    everything else silently fell to WRITE, which auto-allowed
-    local_bash (arbitrary shell on Kunal's Mac, registered
-    DESTRUCTIVE) in semi_auto because the map only listed the old
-    SDK name "Bash". Same split-brain class as the autonomy-mode bug
-    fixed in 7374fd7: two sources of truth, the stale one consulted.
+    The map only knew 36 legacy names out of 117 registered tools;
+    everything else silently fell to WRITE, which auto-allowed the
+    since-retired Mac shell tool (arbitrary shell on Kunal's Mac,
+    registered DESTRUCTIVE) in semi_auto because the map only listed
+    the old SDK name "Bash". Same split-brain class as the
+    autonomy-mode bug fixed in 7374fd7: two sources of truth, the
+    stale one consulted.
     """
     return PERMISSION_MATRIX[mode][tier]
 

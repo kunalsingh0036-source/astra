@@ -306,8 +306,9 @@ async def _probe(name: str, spec: str | None) -> tuple[str, str]:
     "THE single honest status of every service + agent connected to "
     "Astra. Use for 'how is everything', 'is anything down', 'fleet "
     "status', or any whole-system health question. Covers Tier-1 "
-    "direct children (stream/scheduler/email/finance/whatsapp/bridge) "
-    "and Tier-2 federated agents (helmtech/apex). "
+    "direct children (stream/scheduler/email/finance/whatsapp/agents), "
+    "Tier-2 federated agents (helmtech/apex), and the Mac body's "
+    "liveness (when it last polled and last completed an intent). "
     "Prefer this over any service_* / agent_status / fleet_summary "
     "tool — those probe a decommissioned laptop topology and lie.",
     {},
@@ -337,31 +338,60 @@ async def fleet_status_tool(args: dict) -> dict:
         f"\nSummary: {healthy_ct}/{total} healthy"
         + (f" · DOWN: {', '.join(down)}" if down else " · all green")
     )
-    # Local bridge daemon (the Mac connection) — distinct from the
-    # cloud `bridge` A2A service above. "Online" = a bridge token was
-    # seen polling within the last 2 minutes (it long-polls ~every
-    # few seconds when the Mac is awake).
+    # The Mac body (the capability broker's enrolled body). Two facts,
+    # both from the `bodies` row: when it last asked for work, and when
+    # it last COMPLETED an intent. The retired bridge reported a single
+    # "online" from a poll timestamp, which read healthy for months
+    # while it served nothing; a poll is not an outcome.
+    lines.append(_body_line(await _body_row()))
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+
+async def _body_row() -> tuple[datetime | None, datetime | None] | None:
+    """(last_poll_at, last_completed_at) for the enrolled body, or None
+    when none is enrolled or the table is unreachable."""
     try:
         from sqlalchemy import text as _sql2
 
         from astra.db.engine import async_session
 
         async with async_session() as s:
-            recent = (
-                await s.execute(
-                    _sql2(
-                        "SELECT count(*) FROM bridge_tokens "
-                        "WHERE last_seen_at > now() - interval '2 minutes'"
-                    )
-                )
-            ).scalar() or 0
-        lines.append(
-            "Local bridge daemon: "
-            + ("online" if recent else "offline (Mac asleep / not running)")
-        )
+            row = (await s.execute(_sql2(
+                "SELECT last_poll_at, last_completed_at FROM bodies "
+                "WHERE revoked_at IS NULL ORDER BY id DESC LIMIT 1"
+            ))).first()
     except Exception:
-        pass
-    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+        return None
+    if row is None:
+        return None
+    return row[0], row[1]
+
+
+def _ago(ts: datetime | None) -> str:
+    if ts is None:
+        return "never"
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    secs = max(0, int((datetime.now(timezone.utc) - ts).total_seconds()))
+    if secs < 90:
+        return f"{secs} s ago"
+    if secs < 5400:
+        return f"{secs // 60} min ago"
+    if secs < 172800:
+        return f"{secs // 3600} h ago"
+    return f"{secs // 86400} d ago"
+
+
+def _body_line(row: tuple[datetime | None, datetime | None] | None) -> str:
+    if row is None:
+        return "Mac body: none enrolled (or the broker tables are unreachable)"
+    last_poll, last_done = row
+    polled = _ago(last_poll)
+    fresh = last_poll is not None and polled.endswith("s ago")
+    state = f"polled {polled}" if fresh else (
+        f"not polling (last poll {polled}; a closed laptop is normal)"
+    )
+    return f"Mac body: {state}, last completed intent {_ago(last_done)}"
 
 
 def create_business_state_mcp_server():

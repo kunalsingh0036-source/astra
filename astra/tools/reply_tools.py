@@ -18,6 +18,8 @@ instruction IS the per-send human approval. Nothing auto-sends.
 
 from __future__ import annotations
 
+import dataclasses
+
 import httpx
 
 from astra.email.client import BASE_URL, mesh_headers
@@ -238,23 +240,220 @@ async def learn_my_voice_tool(args: dict) -> dict:
     )
 
 
+# ── Reading an export off the Mac, byte-paged through fs.read ──
+#
+# fs.read is BYTE-addressed (the body's catalogue: offset/limit are
+# bytes, ceiling 640 KiB per intent). Pages are concatenated as bytes
+# and decoded once, so a page boundary that splits a line or a
+# multibyte character is harmless: the cloud reassembles lines.
+#
+# THE BUDGET, DERIVED (docs/timeout_hierarchy.md "ingest_voice_export"):
+#   measured auto-intent latency on the live loop: 6-12 s (GROUND-TRUTH
+#   2026-09-05, DB clock). One page = one intent.
+#   per page   : wait <= _READ_WAIT_SEC (2x the measured worst; a page
+#                slower than that means the Mac is asleep or wedged and
+#                the honest move is to stop, not to wait) plus
+#                _READ_PAGE_OVERHEAD_SEC for the client's three DB round
+#                trips (body, liveness, depth) and the insert.
+#   pages/turn : _READ_MAX_PAGES, so read phase <= _READ_PHASE_SEC by
+#                construction (a monotonic deadline backs it up).
+#   POST       : _INGEST_POST_SEC for the corpus endpoint (one parse,
+#                one executemany).
+#   tool       : _INGEST_TOOL_SEC = read phase + POST + 20 s margin.
+#   registry   : SLOW_EXACT["ingest_voice_export"] in
+#                astra/runtime/sdk_adapter.py must be >= _INGEST_TOOL_SEC,
+#                and the 240 s turn cap must be >= registry + 60 s
+#                (tests/test_runtime/test_timeout_hierarchy_broker.py
+#                pins both). The first version paged 64 x 256 KiB under
+#                a 180 s registry cap: at 8 s a page the registry
+#                cancelled the tool around page 22 and every chunk was
+#                discarded; a 16 MB export also blew the broker's
+#                60-auto-intents-per-hour ceiling.
+#   rate       : _READ_MAX_PAGES auto intents per call, against the
+#                broker's AUTO_INTENTS_PER_HOUR (60): a caller cannot
+#                exhaust the hour in one turn.
+# A larger export is read across turns: the tool returns the bytes it
+# read, ingests the whole lines among them, and names the resume
+# offset for the next call. Nothing is silently truncated.
+_READ_PAGE_BYTES = 655360         # == astra.broker.client.FS_READ_MAX_LIMIT
+_READ_WAIT_SEC = 25
+_READ_PAGE_OVERHEAD_SEC = 2
+_READ_MAX_PAGES = 4               # 2.5 MiB per turn
+_READ_PHASE_SEC = _READ_MAX_PAGES * (_READ_WAIT_SEC + _READ_PAGE_OVERHEAD_SEC)
+_INGEST_POST_SEC = 40
+_INGEST_TOOL_SEC = _READ_PHASE_SEC + _INGEST_POST_SEC + 20
+
+_OPEN_STATES = frozenset({"pending", "claimed", "awaiting_human", "running"})
+
+
+@dataclasses.dataclass
+class _ReadOutcome:
+    """What one call to _read_mac_file established. `complete` means
+    the end of the file was reached; otherwise `resume_offset` is the
+    byte the next call should start at and `data` holds every byte
+    read so far (never discarded). `error` is set when nothing usable
+    was read and says what to do."""
+    start: int
+    data: bytes = b""
+    pages: int = 0
+    complete: bool = False
+    resume_offset: int | None = None
+    error: str = ""
+
+
+def _refusal_text(path: str, res) -> str:
+    """The message for a client refusal (no row exists), keyed on
+    `refusal_code`, never on the words of `deny_reason`. The remedy
+    must be one that can work: telling Kunal to open a laptop that is
+    already polling is the class this replaces."""
+    code = str(getattr(res, "refusal_code", "") or "")
+    reason = str(getattr(res, "deny_reason", None) or "").strip()
+    if code == "offline":
+        return (
+            f"Could not read {path}: Kunal's Mac is not polling right now "
+            f"({reason}). A closed laptop is normal; say so at this point "
+            "of need only, and offer to retry when it is awake or to "
+            "add_task it tagged 'body'."
+        )
+    if code == "args":
+        return (
+            f"The body refuses to read {path}: {reason} This is policy "
+            "compiled into the Mac, not a permission to ask for; a "
+            "different path or a copy under an allowed root is the fix."
+        )
+    if code in ("no_body", "ambiguous_body"):
+        return (
+            f"Could not read {path}: {reason} This is a broker enrolment "
+            "problem, not a closed laptop; do not tell Kunal to open it."
+        )
+    if code == "queue_full":
+        return f"Could not read {path}: {reason}"
+    if code == "unwired":
+        return (
+            f"Could not read {path}: {reason} (fs.read is expected to be "
+            "wired; report this as a catalogue mismatch)."
+        )
+    return (
+        f"Could not read {path}: the broker client refused before filing "
+        f"({code or 'no code'}: {reason or 'no reason given'})."
+    )
+
+
+async def _read_mac_file(path: str, offset: int = 0) -> _ReadOutcome:
+    """Read a file from Kunal's Mac through the body, byte-paged, within
+    this turn's budget.
+
+    Returns a _ReadOutcome. `actor` is a keyword the model cannot set;
+    it names this caller in the audit line. The executor's content
+    gate withholds the WHOLE read when the bytes contain anything
+    secret-shaped, naming the byte offset; that refusal is surfaced
+    verbatim with what to do, never paged around. Executor text is
+    matched ONLY on the deny_reason of a FILED row, where the executor
+    wrote it; client refusals are branched on their code.
+    """
+    import time
+
+    from astra.broker.client import run_intent
+
+    out = _ReadOutcome(start=int(offset))
+    chunks: list[bytes] = []
+    cur = int(offset)
+    t0 = time.monotonic()
+    for _ in range(_READ_MAX_PAGES):
+        elapsed = time.monotonic() - t0
+        if elapsed + _READ_WAIT_SEC + _READ_PAGE_OVERHEAD_SEC > _READ_PHASE_SEC:
+            break                              # deadline: keep what we have
+        try:
+            res = await run_intent(
+                "fs.read",
+                {"path": path, "offset": cur, "limit": _READ_PAGE_BYTES},
+                why=f"ingest_voice_export: read {path} into the voice corpus",
+                actor="ingest_voice_export",
+                wait_sec=_READ_WAIT_SEC,
+            )
+        except Exception as e:
+            out.error = (
+                f"could not read {path}: the broker client is unavailable ({e})"
+            )
+            break
+        status = str(getattr(res, "status", "") or "").lower()
+        reason = str(getattr(res, "deny_reason", None) or "")
+        iid = getattr(res, "intent_id", None)
+        if status == "refused":
+            out.error = _refusal_text(path, res)
+            break
+        if status in _OPEN_STATES:
+            out.error = (
+                f"Reading {path} from the Mac is still in progress at byte "
+                f"{cur} (intent #{iid} {status} after {_READ_WAIT_SEC} s); "
+                "the Mac is slow or asleep. Retry when it is awake"
+                + (f", from offset={cur}." if chunks else ".")
+            )
+            break
+        if status != "succeeded":
+            # A FILED row: deny_reason is the broker's or the executor's
+            # text (client._from_row surfaces an executor error there).
+            if "past the end" in reason:
+                out.complete = True            # size was an exact page multiple
+                break
+            if "result withheld" in reason:
+                out.error = (
+                    f"The export at {path} was not read: {reason.strip()} "
+                    "Open the file, strip the credential-shaped span at that "
+                    "byte offset (a token, API key, or 'password: ...' line "
+                    "someone pasted into the chat), save, and ask me to "
+                    "ingest again. The body withholds the whole read rather "
+                    "than sending part of it."
+                )
+                break
+            out.error = (
+                f"could not read {path} from the Mac at byte {cur} "
+                f"(intent #{iid} {status}): {reason or 'no reason given'}"
+            )
+            break
+        data = bytes(getattr(res, "result_bytes", None) or b"")
+        chunks.append(data)
+        out.pages += 1
+        cur += len(data)
+        if len(data) < _READ_PAGE_BYTES:
+            out.complete = True
+            break
+    out.data = b"".join(chunks)
+    if not out.complete and not out.error:
+        out.resume_offset = cur
+    return out
+
+
 @tool(
     "ingest_voice_export",
     "Ingest a WhatsApp chat export (.txt) or Instagram DM export (JSON) "
     "into Kunal's voice corpus so the miner learns his TEXTING voice. "
-    "channel: whatsapp_personal | instagram. Provide path (file on his "
-    "Mac — read via the bridge) OR raw text for small pastes. self_name "
-    "= his display name exactly as it appears in the export (WhatsApp: "
-    "his profile name; Instagram: his account display name). Keeps ONLY "
-    "his own messages; deduped, re-runnable. After ingesting exports, "
-    "run learn_my_voice or wait for the weekly re-mine.",
-    {"channel": str, "path": str, "text": str, "self_name": str},
+    "channel: whatsapp_personal | instagram. Provide path (an absolute "
+    "path on his Mac under Claude Code, Documents or /private/tmp, read "
+    "through the body's fs.read verb in 640 KiB pages, at most 4 pages "
+    "(2.5 MiB) per call) OR raw text for small pastes. self_name = his "
+    "display name exactly as it appears in the export (WhatsApp: his "
+    "profile name; Instagram: his account display name). A WhatsApp "
+    "export larger than one call's pages is ingested in parts: the "
+    "result names the resume offset; call again with offset=<that "
+    "number> to continue (ingestion is deduped, so overlap is harmless). "
+    "An Instagram JSON export must fit in one call. Keeps ONLY his own "
+    "messages; deduped, re-runnable. After ingesting exports, run "
+    "learn_my_voice or wait for the weekly re-mine.",
+    {"channel": str, "path": str, "text": str, "self_name": str,
+     "offset": int},
 )
 async def ingest_voice_export_tool(args: dict) -> dict:
     channel = (args.get("channel") or "").strip().lower()
     self_name = (args.get("self_name") or "").strip()
     path = (args.get("path") or "").strip()
     raw = (args.get("text") or "").strip()
+    try:
+        offset = int(args.get("offset") or 0)
+    except (TypeError, ValueError):
+        return _err("offset must be an integer byte offset")
+    if offset < 0:
+        return _err("offset must be a non-negative byte offset")
     if channel not in ("whatsapp_personal", "instagram"):
         return _err("channel must be whatsapp_personal or instagram")
     if not self_name:
@@ -263,41 +462,58 @@ async def ingest_voice_export_tool(args: dict) -> dict:
     if not path and not raw:
         return _err("provide path (file on the Mac) or text (pasted export)")
 
+    fmt = "instagram_json" if channel == "instagram" else "whatsapp_txt"
+    partial_note = ""
     if path:
         # Path wins if both given — the file is the real export,
-        # a paste is usually a small sample. Read via the Mac bridge in 2000-line pages. The
-        # content stays inside this tool — it never enters chat context.
-        import re as _re
-
-        from astra.runtime.tools.local import _dispatch
-
-        parts: list[str] = []
-        offset, total = 1, None
-        for _ in range(200):  # hard cap ~400k lines
-            res = await _dispatch(
-                "local_read", {"path": path, "offset": offset, "limit": 2000},
-                timeout_sec=30.0,
-                on_behalf_of="ingest_voice_export",
+        # a paste is usually a small sample. The content stays inside
+        # this tool — it never enters chat context.
+        outcome = await _read_mac_file(path, offset)
+        if outcome.error:
+            return _err(outcome.error)
+        data = outcome.data
+        if not outcome.complete:
+            # The per-turn page bound was reached with more file left.
+            # Say so explicitly; never truncate silently, never run
+            # into the registry cap.
+            span = f"bytes {outcome.start}-{outcome.resume_offset}"
+            if fmt == "instagram_json":
+                return _err(
+                    f"Export too large for one turn: {path} is more than "
+                    f"{outcome.pages} pages of {_READ_PAGE_BYTES} bytes "
+                    f"({span} read, more remains), and an Instagram JSON "
+                    "export must be read whole to parse. Split the JSON "
+                    "into smaller files (each a complete messages array) "
+                    "or paste the messages in parts as text."
+                )
+            nl = data.rfind(b"\n")
+            if nl < 0:
+                return _err(
+                    f"Export too large for one turn: {path} read {span} "
+                    "without a single line break, so no complete message "
+                    "can be ingested from this part. Check the file is a "
+                    "WhatsApp .txt export."
+                )
+            resume = outcome.start + nl + 1
+            data = data[:nl + 1]
+            partial_note = (
+                f" This was a PARTIAL read: bytes {outcome.start}-{resume} of "
+                f"{path} ({outcome.pages} pages of {_READ_PAGE_BYTES} bytes, "
+                "the per-turn bound), cut at the last complete line; more "
+                f"remains. Call ingest_voice_export again with offset={resume} "
+                "to continue."
             )
-            txt = (res.get("content") or [{}])[0].get("text", "")
-            if res.get("is_error"):
-                return _err(txt)  # incl. the contextual bridge-offline message
-            m = _re.match(r"# .*? \((\d+) lines, showing (\d+)[–-](\d+)\)\n?", txt)
-            if not m:
-                parts.append(txt)
-                break
-            total, end = int(m.group(1)), int(m.group(3))
-            parts.append(txt[m.end():])
-            if end >= total:
-                break
-            offset = end + 1
-        raw = "".join(parts)
+        raw = data.decode("utf-8", errors="replace")
         if not raw.strip():
+            if offset:
+                return _ok(
+                    f"Nothing left to read at offset {offset} of {path}; the "
+                    "export is fully ingested."
+                )
             return _err(f"file at {path} read empty — check the path")
 
-    fmt = "instagram_json" if channel == "instagram" else "whatsapp_txt"
     try:
-        async with httpx.AsyncClient(timeout=120.0) as c:
+        async with httpx.AsyncClient(timeout=float(_INGEST_POST_SEC)) as c:
             r = await c.post(
                 f"{BASE_URL}/api/v1/voice/corpus",
                 json={"channel": channel, "format": fmt, "content": raw,
@@ -314,7 +530,8 @@ async def ingest_voice_export_tool(args: dict) -> dict:
     return _ok(
         f"Ingested {channel}: parsed {d.get('parsed')} of Kunal's messages, "
         f"{d.get('new')} new ({d.get('duplicates')} already known). "
-        f"Channel corpus now {d.get('channel_total')} messages. "
+        f"Channel corpus now {d.get('channel_total')} messages."
+        f"{partial_note} "
         f"Say “mine my voice” to rebuild the profiles now (needs ≥20 "
         f"messages per channel), or the Saturday job will."
     )

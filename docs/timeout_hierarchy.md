@@ -12,9 +12,11 @@ When an outer layer's timeout fires before an inner layer's, the
 inner work is cancelled mid-flight without the chance to clean up,
 mark its state, or report a useful error. That's the bug class
 behind:
-- Bridge calls stuck at status='running' (registry's outer
-  asyncio.wait_for cancelled the inner wait_for_result before its
-  internal deadline check could run)
+- The retired Mac bridge's calls stuck at status='running' (the
+  registry's outer asyncio.wait_for cancelled the inner
+  wait_for_result before its internal deadline check could run)
+- ingest_voice_export's first broker version: 64 pages under a 180s
+  registry cap, cancelled around page 22 with every chunk discarded
 - Tools timing out before their underlying API calls (we'd see
   partial state and no error message)
 
@@ -49,7 +51,7 @@ The remaining timeouts form a much shorter chain.
   └──[ runner per-turn         ]   240s   actual ceiling on agent work
        └──[ registry per-tool  ]   5-150s tool budget
             └──[ tool internal ]   varies by tool
-                 └──[ daemon per-action ] (bridge tools)
+                 └──[ broker intent wait ] (fs.read pages, notes.sync)
 ```
 
 The poll-loop's max duration sits *outside* the runner — if the
@@ -69,13 +71,18 @@ turns (e.g. DB unreachable so events never land).
 | `/turns/start` upstream timeout | **8s** | `astra-web/app/api/chat/route.ts` AbortSignal | Tighter than Vercel maxDuration so we surface upstream issues fast |
 | Runner per-turn hard | **240s** | `astra/runtime/agent_loop.py` `_TURN_HARD_TIMEOUT_SEC` | The actual ceiling on a single turn's work |
 | Registry per-tool — fast | **15s** | `astra/runtime/sdk_adapter.py` `_guess_timeout` | DB-bound or pure-CPU tools (recall_*, list_*, simple lookups) |
-| Registry per-tool — moderate | **30s** | same | Network-bound (browser_fetch, email_search) |
+| Registry per-tool — moderate | **30s** | same | Network-bound (browser_read, email_search) |
 | Registry per-tool — slow | **120s** | same | Generation/render (draft_*, render_*, analyze_reference_site) |
-| Registry per-tool — bridge | **inner + 20s** (local_bash 160s, screenshot 75s, grep 50s, read/glob 40s, write/edit 35s) | `astra/runtime/tools/local.py` | Outer registry wait_for starts before _dispatch's DB round-trips, so it MUST exceed the inner wait_for_result deadline or it fires first and leaves bridge_calls rows stuck at 'running'. Regressed to zero margin once; restored 2026-06-11. |
-| Bridge wait_for_result (inner) | **per-tool** (local_bash 140s, screenshot 55s, grep 30s, read/glob 20s, write/edit 15s) | `astra/runtime/tools/local.py` `_dispatch(...)` | Must stay 20s UNDER the registry timeout above |
-| Bridge daemon glob | **10s** | `astra/bridge_daemon.py` | Wall-clock cap on os.walk |
-| Bridge daemon grep | **15s** | `astra/bridge_daemon.py` | Wall-clock cap on os.walk |
-| Bridge daemon bash | **30s default, 120s max** | `astra/bridge_daemon.py` | User-controllable per call |
+| Registry per-tool — submit_intent / poll_status | **20s** | `astra/runtime/tools/physical.py` `timeout_sec` | A few DB round trips each (file a row / read a row). submit_intent never waits on the Mac (`wait_sec=0`); the outcome arrives through poll_status or the `<kunal_now>` resolved-intents block |
+| Registry per-tool — body_status | **10s** | same | One `bodies` read plus the catalogue text |
+| Registry per-tool — ingest_voice_export | **180s** | `astra/runtime/sdk_adapter.py` SLOW_EXACT | Derived: 4 fs.read pages × (25 s wait + 2 s overhead) = 108 s read phase + 40 s corpus POST + 20 s margin = 168 ≤ 180; runner 240 − 180 = 60 ✓. Constants in `astra/tools/reply_tools.py` (_READ_PAGE_BYTES 655360 = executor ceiling, _READ_MAX_PAGES 4 → 4 auto intents per call against the broker's 60/h), pinned by `tests/test_runtime/test_timeout_hierarchy_broker.py`. A larger export returns its bytes + resume offset, never a cancelled tool. |
+| ingest per-page wait (inner) | **25s** | `astra/tools/reply_tools.py` _READ_WAIT_SEC | 2× the measured 6–12 s auto-intent loop latency (GROUND-TRUTH 2026-09-05, DB clock); slower means the Mac is asleep, so the tool stops and reports |
+| Registry per-tool — notes_sync | **110s** | `astra/runtime/sdk_adapter.py` SLOW_EXACT | _CHAT_WAIT_SEC (90) + 20 s; the scheduler job waits 240 s outside any turn |
+| notes_sync chat wait (inner) | **90s** | `astra/tools/notes_tools.py` _CHAT_WAIT_SEC | One `notes.sync` intent watched from chat; moot while the verb is unwired (refused before filing) |
+| Scheduler notes_sync job wait | **240s** | `astra/scheduler/jobs.py` `notes_sync` | Outside any turn, so no registry cap sits above it; an intent still open at the deadline is reported `skipped`, never a success |
+| Body poll window | **60s** | `astra/broker/client.py` BODY_POLL_WINDOW_SEC | run_intent refuses `offline` when `bodies.last_poll_at` is older (DB clock). The broker long-polls `/broker/intents/next` (route holds 25 s, client timeout 40 s), so a live body touches it at least every ~40 s |
+| Broker intent TTL | **300s auto / 3600s signed** | `astra/broker/client.py` TTL_* | Reaped by broker_reap; the cloud watcher store.wait_for_intent never writes |
+| Auto intent loop latency (measured, not a limit) | **6–12s** | GROUND-TRUTH 2026-09-05, DB clock | Claim → execute → status while the Mac is awake. Every broker wait above is derived from it |
 | Health endpoint per-check | **2.5s** | `astra-web/app/api/health/deep/route.ts` | Tight so a stuck dependency can't hang the whole probe |
 | Health endpoint maxDuration | **15s** | same | Generous outer cap on the parallel checks |
 
@@ -99,16 +106,18 @@ batch of events.
 ### Margin verification table
 
 ```
-poll cap (600)  - runner (240)        = 360s  ✓ huge
-runner (240)    - registry slow (120) = 120s  ✓
-registry bridge outer - inner          = 20s   enforced margin, all 7 bridge tools
-inner bash (140) - daemon bash (120)  = 20s   margin over daemon's own cap
+poll cap (600)  - runner (240)               = 360s  ✓ huge
+runner (240)    - registry slow (120)        = 120s  ✓
+runner (240)    - ingest registry (180)      = 60s   ✓ exactly the margin
+ingest registry (180) - inner (168)          = 12s   on top of the 20s inside inner
+runner (240)    - notes_sync registry (110)  = 130s  ✓
+notes_sync registry (110) - chat wait (90)   = 20s   enforced margin
 ```
 
-The two tight margins are bridge-internal — they only matter when
-a bash command runs at its 120s ceiling. In practice the bash
-default is 30s; users who pass timeout=120 are explicitly opting
-in to the tight margin.
+The ingest budget is the tight one, by construction: its page count
+and per-page wait are derived from the measured loop latency, and
+`tests/test_runtime/test_timeout_hierarchy_broker.py` recomputes the
+derivation from the constants so neither side can move alone.
 
 ### Idle-state timeouts
 
@@ -128,7 +137,9 @@ Separate from per-call duration limits, these fire on inactivity:
 - The e2e harness (`scripts/e2e_smoke.py`) probes whether long-
   running tools complete within their declared budgets. Failures
   here usually mean a timeout was tuned too low.
-- The `tests/test_timeout_hierarchy.py` (added in commit q5j81k7…)
-  asserts the relationships at import time — if anyone changes a
-  number that violates the hierarchy, the test catches it before
-  deploy.
+- `tests/test_runtime/test_timeout_hierarchy.py` (added in commit
+  q5j81k7…) asserts the relationships at import time, and
+  `tests/test_runtime/test_timeout_hierarchy_broker.py` pins the two
+  broker-backed tool budgets to the constants they are derived from —
+  if anyone changes a number that violates the hierarchy, the tests
+  catch it before deploy.

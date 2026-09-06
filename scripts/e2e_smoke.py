@@ -9,7 +9,7 @@ this script doesn't pass, no commit lands.
 Usage:
     python scripts/e2e_smoke.py
     python scripts/e2e_smoke.py --base https://astra.thearrogantclub.com
-    python scripts/e2e_smoke.py --skip-bridge --skip-pdf
+    python scripts/e2e_smoke.py --list
 
 Tests, in order:
     01  /api/sessions           — list endpoint reachable
@@ -18,7 +18,7 @@ Tests, in order:
     04  /api/chat (tool-using)  — recall_recent_turns → tool_call + tool_result
     05  /api/chat (multi-turn)  — second turn rehydrates session history
     06  /api/sessions/<id>      — full session content reachable
-    07  /api/bridge/expand      — error when no daemon (or success when online)
+    07  /api/health/deep body   — Mac body liveness shape (asleep must read cloud_only)
     08  /api/chat (PDF flow)    — draft_doc + render_doc_pdf produces an artifact
 
 Every test prints PASS/FAIL with timing. Final summary exits non-zero
@@ -699,56 +699,73 @@ async def test_06_session_detail(
         )
 
 
-async def test_07_bridge_expand_handling(
+async def test_07_body_liveness_shape(
     state: HarnessState, client: httpx.AsyncClient
 ) -> TestResult:
-    """Either the bridge is online (expand succeeds) or offline
-    (returns 404 with a structured error). Both are valid; the test
-    fails only if the endpoint crashes or shape is wrong."""
-    if not state.has_auth:
-        return TestResult(
-            name="07 /api/bridge/expand",
-            passed=True,
-            duration_ms=0,
-            detail="SKIPPED",
-        )
+    """The Mac body's liveness as /api/health/deep reports it.
+
+    Replaces the old bridge-expand probe: the bridge is retired (A6)
+    and the body's roots are compiled in, so there is nothing to
+    expand. Both body states are valid: polling (ok) or asleep
+    (degraded). What must hold is the shape and the aggregation:
+      - a check named `body` exists with a status and a non-empty
+        detail (an un-redeployed web fails here, listing what it has)
+      - a sleeping body with every other check ok reads `cloud_only`
+        at the top level, never `degraded` or `down`
+      - a polling body never reads `cloud_only`
+    Public endpoint, so this runs without auth."""
+    name = "07 /api/health/deep body"
     started = time.monotonic()
     try:
-        r = await client.post(
-            f"{state.base_url}/api/bridge/expand",
-            headers=_headers(state),
-            json={"paths": ["/Users/kunalsingh/Documents"]},
-        )
+        r = await client.get(f"{state.base_url}/api/health/deep", timeout=15.0)
         elapsed = int((time.monotonic() - started) * 1000)
-        body: dict[str, Any] = {}
-        try:
-            body = r.json()
-        except Exception:
-            pass
-        if r.status_code == 200:
+        if r.status_code != 200:
             return TestResult(
-                name="07 /api/bridge/expand",
-                passed=isinstance(body.get("allowed_paths"), list),
-                duration_ms=elapsed,
-                detail="bridge online + expanded",
+                name=name, passed=False, duration_ms=elapsed,
+                error=f"HTTP {r.status_code}",
             )
-        if r.status_code == 404:
+        payload = r.json()
+        top = payload.get("status")
+        checks = payload.get("checks", []) or []
+        names = [c.get("name") for c in checks]
+        body = next((c for c in checks if c.get("name") == "body"), None)
+        if body is None:
             return TestResult(
-                name="07 /api/bridge/expand",
-                passed="error" in body,
-                duration_ms=elapsed,
-                detail="bridge offline (404 with error msg)",
+                name=name, passed=False, duration_ms=elapsed,
+                error=f"no `body` check in {names}",
+            )
+        status = body.get("status")
+        detail = body.get("detail")
+        if status not in ("ok", "degraded", "down") or not (
+            isinstance(detail, str) and detail
+        ):
+            return TestResult(
+                name=name, passed=False, duration_ms=elapsed,
+                error=f"malformed body check: {body}",
+            )
+        others_ok = all(
+            c.get("status") == "ok" for c in checks if c is not body
+        )
+        if status == "degraded" and others_ok and top != "cloud_only":
+            return TestResult(
+                name=name, passed=False, duration_ms=elapsed,
+                error=(
+                    f"sleeping body with every cloud check ok reads "
+                    f"{top!r}, expected cloud_only"
+                ),
+            )
+        if status == "ok" and top == "cloud_only":
+            return TestResult(
+                name=name, passed=False, duration_ms=elapsed,
+                error="body polling but top-level status is cloud_only",
             )
         return TestResult(
-            name="07 /api/bridge/expand",
-            passed=False,
-            duration_ms=elapsed,
-            error=f"unexpected HTTP {r.status_code}: {body}",
+            name=name, passed=True, duration_ms=elapsed,
+            detail=f"body {status} · top {top} · {detail[:70]}",
         )
     except Exception as e:
         return TestResult(
-            name="07 /api/bridge/expand",
-            passed=False,
+            name=name, passed=False,
             duration_ms=int((time.monotonic() - started) * 1000),
             error=f"{type(e).__name__}: {e}",
         )
@@ -1797,7 +1814,7 @@ TESTS = [
     test_04_tool_using_turn,
     test_05_session_continuity,
     test_06_session_detail,
-    test_07_bridge_expand_handling,
+    test_07_body_liveness_shape,
     test_08_email_data_endpoint,
     test_09_agent_state_per_agent,
     # User-journey regression locks (added 2026-05-16).

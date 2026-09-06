@@ -44,7 +44,19 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
-FORBIDDEN = {"resolve_approval", "revoke_tool_grant", "set_mode"}
+# Phase A5 deleted the three model-side controls; Phase A6 (2026-09-06)
+# added the retired Mac bridge's eight tools: every `local_*` verb and
+# `screenshot_url` reached the Mac with no broker, no display binding
+# and no fingerprint, and `local_bash` was unstructured shell. The
+# registry refuses all eleven at boot; the only physical verbs are
+# submit_intent, poll_status and the read-only body_status.
+FORBIDDEN = {
+    # A5
+    "resolve_approval", "revoke_tool_grant", "set_mode",
+    # A6
+    "local_read", "local_write", "local_edit", "local_bash",
+    "local_glob", "local_grep", "local_bridge_status", "screenshot_url",
+}
 SURVIVORS = {
     "list_pending_approvals",
     "get_mode",
@@ -52,6 +64,7 @@ SURVIVORS = {
     "audit_stats",
     "submit_intent",
     "poll_status",
+    "body_status",
 }
 
 
@@ -66,7 +79,7 @@ def _py_files(*roots: str):
 # ── (a) the chokepoint refuses, and cannot be swallowed ───────
 
 
-def test_forbidden_set_is_exactly_the_three_deleted_controls():
+def test_forbidden_set_is_exactly_the_a5_and_a6_deletions():
     from astra.runtime import tool_registry
 
     assert isinstance(tool_registry._FORBIDDEN, frozenset)
@@ -225,7 +238,7 @@ def test_resolver_scan_sees_code_not_prose():
     assert _resolver_reaches(
         ast.parse("from astra.autonomy.approvals import resolve_approval")
     )
-    assert _resolver_reaches(ast.parse("await revoke_grant('local_bash')"))
+    assert _resolver_reaches(ast.parse("await revoke_grant('send_reply_draft')"))
     assert _resolver_reaches(ast.parse("fn = approvals.resolve_approval"))
     assert not _resolver_reaches(
         ast.parse(
@@ -312,7 +325,7 @@ def _red_team_frames(channel: str):
                     type="tool_use",
                     id="tu_revoke",
                     name="revoke_tool_grant",
-                    input={"tool_name": "local_bash"},
+                    input={"tool_name": "send_reply_draft"},
                 ),
             ],
         },

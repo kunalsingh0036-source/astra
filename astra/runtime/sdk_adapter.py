@@ -111,12 +111,23 @@ def _guess_timeout(tool_name: str, namespace: str) -> int:
     """Per-tool timeout heuristic. Most tools are fast lookups (10s);
     a few are known slow paths (LLM-adjacent generation, multi-step
     fetch+analyze). Tunable per-name later if needed."""
-    # Slow by exact name — their bodies own longer inner budgets (bridge
-    # reads / LLM distillation / multi-stage research) that prefix or
+    # Slow by exact name — their bodies own longer inner budgets (broker
+    # intents / LLM distillation / multi-stage research) that prefix or
     # default timeouts would cancel. Checked FIRST so exact names beat
     # the SLOW prefixes (draft_linkedin_now must not fall into draft_=120).
+    #
+    # The two broker-backed entries are DERIVED, not chosen, and pinned
+    # by tests/test_runtime/test_timeout_hierarchy_broker.py:
+    #   ingest_voice_export: astra/tools/reply_tools.py _INGEST_TOOL_SEC
+    #     = 4 fs.read pages x (25 s wait + 2 s overhead) + 40 s corpus
+    #     POST + 20 s margin = 168; registry 180 >= 168, and the 240 s
+    #     turn cap >= 180 + 60. Derivation in docs/timeout_hierarchy.md.
+    #   notes_sync: astra/tools/notes_tools.py _CHAT_WAIT_SEC (90) + 20.
+    #     Without this entry the 15 s default cancelled the tool while
+    #     the wait was 90 s (invisible until notes.sync is wired).
     SLOW_EXACT = {
-        "ingest_voice_export": 180,   # paged Mac-bridge reads + parse + POST
+        "ingest_voice_export": 180,   # byte-paged fs.read intents + parse + POST
+        "notes_sync": 110,            # one notes.sync intent, 90 s wait + margin
         "learn_my_voice": 150,        # LLM distillation
         "mine_my_voice": 300,         # kicks off background mine
         "browser_read": 100,      # extension polls once a minute

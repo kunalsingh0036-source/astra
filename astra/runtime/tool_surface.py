@@ -26,11 +26,15 @@ SELF_IMPROVE_TOOLS), so a tool added to those families later is
 excluded automatically — the list cannot drift. A hardcoded fallback
 covers the case where those imports break: fail closed, never open.
 
-The Mac-bridge writing verbs (local_edit / local_write / local_bash)
-are also interactive-only: an unattended agent that can write
+The Mac is not a surface concern any more. Phase A6 retired the
+bridge and its writing verbs (they used to be listed below as
+interactive-only, because an unattended agent that can write
 arbitrary files on Kunal's Mac can write launchd plists, shell rc
-files, and the sidecar's trust-root config — self-modification
-through the side door.
+files and the sidecar's trust-root config). The only physical verbs
+are submit_intent / poll_status / body_status, on BOTH surfaces by
+decision (see _EXTRA_INTERACTIVE_ONLY); a write on the Mac is gated by
+Kunal's fingerprint on the Mac, not by which channel asked, and the
+registry refuses the retired names at boot (tool_registry._FORBIDDEN).
 """
 
 from __future__ import annotations
@@ -73,12 +77,13 @@ _FALLBACK_INTERACTIVE_ONLY = frozenset({
     "dismiss_self_improvement",
 })
 
-# Interactive-only tools that live outside the three families.
-_EXTRA_INTERACTIVE_ONLY = frozenset({
-    "local_edit",
-    "local_write",
-    "local_bash",
-
+# Interactive-only tools that live outside the three families. Empty
+# since Phase A6: the three Mac-bridge writing verbs that lived here
+# are gone from the registry (tool_registry._FORBIDDEN refuses them at
+# boot), so listing them would be a claim about a surface that does
+# not exist. Kept as a set so the next genuinely interactive-only tool
+# has a home; a name added here must be a registered tool.
+_EXTRA_INTERACTIVE_ONLY: frozenset[str] = frozenset({
     # submit_intent is deliberately NOT here. Kunal challenged the
     # first version, which blocked it, and he was right.
     #

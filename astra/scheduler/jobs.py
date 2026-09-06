@@ -12,7 +12,7 @@ crashing the scheduler. A single failing job must never break the rest.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -502,29 +502,215 @@ async def cost_report() -> dict:
     return {"status": "success", "report": text}
 
 
+_INTENT_OPEN_STATES = frozenset({"pending", "claimed", "awaiting_human", "running"})
+
+
+def _notes_sync_outcome(res) -> dict:
+    """Map an IntentResult to the job's honest status.
+
+    'success' only for a receipted executor result. 'skipped' for the
+    states that are expected and not this job's fault: the client
+    refused before filing (body not polling because the laptop is
+    closed, which is its normal state; no body enrolled; the jobs-only
+    verb rule), the verb is catalogued but not wired in the executor
+    yet (notes.sync waits on the GUI helper: the executor is a daemon
+    with no Aqua session and cannot drive Notes.app), or the intent was
+    still open at the deadline. 'failed' when the executor denied or
+    failed it or the reaper expired it. Nothing here is ever reported
+    as a sync that happened.
+
+    Client refusals are told apart by `refusal_code`
+    (astra.broker.client.REFUSAL_CODES), never by the words of
+    `deny_reason`: the first version matched "not wired" in the
+    reason, which is the executor's phrase and not the client's, so
+    the branch was dead.
+    """
+    status = str(getattr(res, "status", "") or "").lower()
+    reason = str(getattr(res, "deny_reason", None) or "")
+    code = str(getattr(res, "refusal_code", "") or "")
+    iid = getattr(res, "intent_id", None)
+    if status == "succeeded":
+        raw = getattr(res, "result_bytes", None) or b""
+        detail = bytes(raw).decode("utf-8", "replace")[:300]
+        return {
+            "status": "success", "intent_id": iid,
+            "receipt": getattr(res, "receipt_verdict", None), "detail": detail,
+        }
+    if status in _INTENT_OPEN_STATES:
+        return {
+            "status": "skipped", "intent_id": iid,
+            "reason": f"intent #{iid} still {status} at the deadline; "
+                      "the reaper will expire it",
+        }
+    if status in ("denied", "failed", "expired"):
+        # A FILED row: the reason is what the broker or executor wrote.
+        return {"status": "failed", "intent_id": iid, "reason": reason or status}
+    if status == "refused":
+        if code == "unwired":
+            return {
+                "status": "skipped", "intent_id": None, "refusal": code,
+                "reason": "notes.sync is catalogued but not wired in the "
+                          "executor yet (waits on the GUI helper); nothing "
+                          "was filed",
+            }
+        if code == "busy":
+            return {
+                "status": "skipped", "intent_id": None, "refusal": code,
+                "reason": reason or "Mac body busy inside another intent "
+                                    "(one at a time); nothing was filed",
+            }
+        if code == "offline":
+            return {
+                "status": "skipped", "intent_id": None, "refusal": code,
+                "reason": "Mac body not polling (laptop closed is normal); "
+                          "nothing was filed",
+            }
+        if code in ("no_body", "ambiguous_body", "queue_full",
+                    "signed_outside_turn", "args", "unknown_verb"):
+            return {
+                "status": "skipped", "intent_id": None, "refusal": code,
+                "reason": reason or code,
+            }
+        return {
+            "status": "skipped", "intent_id": None, "refusal": code or "unknown",
+            "reason": reason or "refused by the broker client",
+        }
+    return {
+        "status": "skipped", "intent_id": iid,
+        "reason": reason or status or "unrecognised intent status",
+    }
+
+
+# In-memory: when the mirror-stale alarm last fired. Re-armed when the
+# mirror is fresh again, and at most once a day while it stays stale.
+_NOTES_STALE_ALERTED_AT: datetime | None = None
+
+
+async def _notes_mirror_staleness_check() -> dict:
+    """Alarm on the OUTCOME (the mirror is old) while the body is
+    demonstrably alive. Never on liveness: a Mac that is not polling is
+    a closed laptop, which is normal and must not page anyone
+    (feedback rule: no bridge-down pings). The mirror froze silently
+    twice while every component reported healthy; this is the check
+    that would have caught both.
+    """
+    global _NOTES_STALE_ALERTED_AT
+    from sqlalchemy import text as _t
+
+    from astra.db.engine import async_session
+
+    async with async_session() as s:
+        last_sync = (await s.execute(
+            _t("SELECT max(last_synced_at) FROM apple_notes")
+        )).scalar()
+        last_poll = (await s.execute(
+            _t("SELECT max(last_poll_at) FROM bodies WHERE revoked_at IS NULL")
+        )).scalar()
+
+    now = datetime.now(timezone.utc)
+
+    def _utc(v):
+        return v if v is None or v.tzinfo else v.replace(tzinfo=timezone.utc)
+
+    last_sync, last_poll = _utc(last_sync), _utc(last_poll)
+    mirror_age = (now - last_sync) if last_sync else None
+    stale = mirror_age is None or mirror_age > timedelta(hours=2)
+    body_fresh = last_poll is not None and (now - last_poll) < timedelta(minutes=2)
+
+    age_txt = (
+        f"{int(mirror_age.total_seconds() // 3600)}h old" if mirror_age
+        else "never synced"
+    )
+    if not stale:
+        _NOTES_STALE_ALERTED_AT = None
+        return {"mirror": "fresh", "age_min": int(mirror_age.total_seconds() // 60)}
+    if not body_fresh:
+        return {"mirror": "stale", "age": age_txt,
+                "body": "not polling (normal when closed)"}
+    if not _notes_sync_wired():
+        # The verb cannot run in this build, so the mirror cannot
+        # advance whatever anyone does: alerting here is a daily "the
+        # Mac is online" push dressed as an outcome, the cries-wolf
+        # class (learnings_monitor_must_prove_itself). Report the age
+        # in the job result; the first page is the first real one.
+        logger.info(
+            "[scheduler] notes mirror %s with body polling; alert "
+            "suppressed: notes.sync unwired", age_txt,
+        )
+        return {"mirror": "stale", "age": age_txt, "body": "polling",
+                "alerted": "suppressed: notes.sync unwired"}
+    if _NOTES_STALE_ALERTED_AT and (now - _NOTES_STALE_ALERTED_AT) < timedelta(hours=24):
+        return {"mirror": "stale", "age": age_txt, "body": "polling",
+                "alerted": "already"}
+
+    try:
+        from astra.notifications import notify
+
+        notify(
+            title="astra · notes mirror",
+            body=(
+                f"Apple Notes mirror is {age_txt} while the Mac body is "
+                "polling. The mirror stands as of its last sync; notes.sync "
+                "waits on the GUI helper."
+            ),
+            url="/today", tag="notes-stale", also_push=True,
+        )
+        _NOTES_STALE_ALERTED_AT = now
+        logger.warning("[scheduler] notes mirror stale (%s) with body polling; alerted", age_txt)
+    except Exception as e:
+        logger.info("[scheduler] notes staleness alert skipped: %s", e)
+    return {"mirror": "stale", "age": age_txt, "body": "polling", "alerted": "now"}
+
+
+def _notes_sync_wired() -> bool:
+    """Whether the executor can perform notes.sync in this build, from
+    the catalogue mirror (pinned to the Swift sources by
+    tests/test_broker/test_catalogue_mirror.py). Read at call time so a
+    test, or a later build, flips it without touching this module."""
+    from astra.broker import client
+    return "notes.sync" in client.WIRED_VERBS
+
+
 async def notes_sync() -> dict:
     """Pull the latest from Apple Notes into the `apple_notes` mirror.
 
-    Incremental: only notes whose modification date changed are
-    re-fetched. Typical run: <2s for no-op, 10–30s on a full re-sync.
+    On the Mac (osascript present) the harvester runs in-process:
+    incremental, <2s for a no-op, 10-30s on a full re-sync.
+
+    In the cloud, Notes lives on Kunal's Mac, so the job files a
+    `notes.sync` intent with the capability broker and waits for the
+    body. Every outcome is reported as what it is (see
+    _notes_sync_outcome); never a fake success. This path used to call
+    sync_all directly, which silently returned zeros in the cloud, and
+    later ran the harvester through the Mac bridge, which was retired
+    in Phase A6. Either way the mirror froze twice (50 rows in July,
+    54 rows for 36 days) while everything reported healthy; the
+    staleness check below is the alarm for that class. CHARTER §8.
+
+    Scheduler jobs may file only `auto` verbs. That is a habituation
+    control (a job must never raise a Touch ID prompt on its own
+    schedule), not a security gate: the fingerprint is the gate.
     """
     import shutil
 
     if shutil.which("osascript") is None:
-        # Cloud scheduler: Notes lives on the Mac — route via bridge.
-        # This path used to call sync_all directly, which silently
-        # returned zeros in the cloud: every scheduled sync since the
-        # Railway migration was a phantom (how the mirror froze at 50
-        # while Kunal had 53/54). Bridge offline = laptop closed =
-        # normal: skip quietly, never a fake success.
-        from astra.tools.notes_tools import _bridge_sync
+        from astra.tools.notes_tools import sync_via_body
 
-        res = await _bridge_sync(force=False)
-        txt = " ".join(c.get("text", "") for c in (res.get("content") or []))
-        if "Mac is offline" in txt or "BRIDGE_OFFLINE" in txt:
-            return {"status": "skipped", "reason": "bridge offline (laptop closed — normal)"}
-        logger.info("[scheduler] notes_sync via bridge: %s", txt[:200])
-        return {"status": "success", "detail": txt[:300]}
+        try:
+            res = await sync_via_body(
+                why="scheduled Apple Notes mirror", wait_sec=240,
+            )
+        except Exception as e:
+            logger.warning("[scheduler] notes_sync: broker client unavailable: %s", e)
+            out = {"status": "skipped", "reason": f"broker client unavailable: {e}"}
+        else:
+            out = _notes_sync_outcome(res)
+            logger.info("[scheduler] notes_sync via body: %s", out)
+        try:
+            out["mirror"] = await _notes_mirror_staleness_check()
+        except Exception as e:
+            logger.info("[scheduler] notes staleness check skipped: %s", e)
+        return out
 
     from astra.notes.harvester import sync_all
 
@@ -1581,14 +1767,15 @@ async def retention_sweep() -> dict:
     Windows approved by Kunal 2026-06-11:
       - turn_events: 30 days (replay/resume only needs recent turns;
         the turns table keeps the conversation itself)
-      - bridge_calls: 14 days (includes rows stuck at 'running' from
-        the old zero-margin timeout bug)
       - previews: TTL already on each row (default 7d) — this finally
         CALLS sweep_expired(), which existed since the previews table
         landed but had zero call sites while multi-MB base64 uploads
         accumulated.
       - turns.messages: kept forever, deliberately — it's the
         conversation history.
+      - the retired bridge's bridge_calls table is no longer swept
+        (Phase A6); it is dropped, with bridge_tokens, in a later
+        release. intent_events is APPEND-ONLY and never swept.
     """
     from astra.db.engine import async_session
     from astra.runtime.preview_store import sweep_expired
@@ -1603,13 +1790,6 @@ async def retention_sweep() -> dict:
             )
         )
         counts["turn_events"] = r.rowcount or 0
-        r = await session.execute(
-            _text(
-                "DELETE FROM bridge_calls "
-                "WHERE created_at < now() - interval '14 days'"
-            )
-        )
-        counts["bridge_calls"] = r.rowcount or 0
         await session.commit()
 
     counts["previews"] = await sweep_expired()
@@ -1643,6 +1823,80 @@ async def broker_reap() -> dict:
 
 async def run_broker_reap():
     return await _safe("broker_reap", broker_reap)
+
+
+# In-memory high-water mark (resolved_at, id) of the last intent this
+# process notified about. Chosen over a `notified_at` column (a
+# migration) or a marker table: the per-intent push `tag` makes a
+# replay collapse in the tray rather than stack, so losing the mark on
+# restart costs at most one duplicate notice per intent resolved in
+# the two-minute look-back, never a missed one.
+_BROKER_NOTIFY_MARK: tuple[datetime, int] | None = None
+
+
+async def broker_notify() -> dict:
+    """Push one web-push per chat-filed intent that resolved AFTER the
+    turn that filed it had ended.
+
+    The old Mac tools were synchronous: the turn waited for the result.
+    A broker intent is not. submit_intent returns immediately and a
+    signed verb resolves whenever Kunal reaches the sensor, usually
+    long after the turn that filed it. Without this, a result landed in
+    `intents` and nobody was told.
+
+    Scope is exactly store.list_resolved_after_turn_end: session_claim
+    'turn:<id>' joined to turns.ended_at, resolved_at later than that.
+    An auto verb that finished inside its turn (every fs.read page of a
+    chat ingest, every poll_status'd read) was consumed there and is
+    NOT pushed; the first version pushed each of those within 30 s,
+    which trains the one channel that will carry signed-verb outcomes
+    to be dismissed. Job-filed intents report through their own job
+    result.
+
+    Alerts on OUTCOMES only (succeeded / denied / failed / expired).
+    Body liveness is never pushed: a Mac that is not polling is a
+    closed laptop, which is normal.
+    """
+    global _BROKER_NOTIFY_MARK
+
+    now = datetime.now(timezone.utc)
+    if _BROKER_NOTIFY_MARK is None:
+        _BROKER_NOTIFY_MARK = (now - timedelta(minutes=2), 0)
+    since_ts, since_id = _BROKER_NOTIFY_MARK
+
+    try:
+        from astra.broker import store
+        rows = await store.list_resolved_after_turn_end(
+            since_ts, since_id=since_id, limit=20,
+        )
+    except Exception as e:
+        logger.warning("[scheduler] broker_notify unavailable: %s", e)
+        return {"status": "skipped", "reason": f"broker transport: {e}"}
+    if not rows:
+        return {"status": "success", "notified": 0}
+
+    from astra.push import broadcast
+
+    sent = 0
+    for r in rows:
+        iid, verb, status = r["id"], r["verb"], r["status"]
+        reason = r.get("deny_reason")
+        body = f"#{iid} {verb} {status}"
+        if reason:
+            body += f": {str(reason)[:100]}"
+        try:
+            await broadcast(
+                title="astra · Mac", body=body, url="/", tag=f"intent-{iid}",
+            )
+            sent += 1
+        except Exception as e:
+            logger.warning("[scheduler] broker_notify push failed for #%s: %s", iid, e)
+        _BROKER_NOTIFY_MARK = (r["resolved_at"], int(iid))
+    return {"status": "success", "notified": sent, "seen": len(rows)}
+
+
+async def run_broker_notify():
+    return await _safe("broker_notify", broker_notify)
 
 
 async def run_retention_sweep():

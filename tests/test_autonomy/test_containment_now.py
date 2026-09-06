@@ -19,6 +19,13 @@ not a flaky test.
       SECURITY-MODEL §1); the registry refuses the name at boot and
       tests/test_broker/test_no_approval_tool.py is the acceptance
       suite for that deletion.
+  §8  There is no bridge. The chokepoint tests that lived here
+      (surface guard on local._dispatch, on_behalf_of, the
+      token-scoped finalize) guarded code that Phase A6 deleted; what
+      replaces them are absence assertions: the modules are gone,
+      nothing imports them, the routes are gone, the names are
+      absent from the registry and every policy map, and the broker's
+      status route is scoped to the presenting body.
 """
 
 from __future__ import annotations
@@ -288,20 +295,37 @@ def test_unattended_excludes_all_self_mod_families():
         "edit_astra_file", "write_astra_file", "commit_code_changes",
         "run_creator_tests", "revert_last_code_commit",
         "commit_kit_changes", "apply_self_improvement",
-        "local_bash", "local_edit", "local_write",
     ):
         assert name in blocked, f"{name} missing from interactive-only set"
 
-    all_names = ["recall_memories", "edit_astra_file", "local_bash"]
+    all_names = ["recall_memories", "edit_astra_file", "submit_intent"]
     allowed, excluded = allowed_tool_names(all_names, "unattended")
-    assert allowed == ["recall_memories"]
-    assert set(excluded) == {"edit_astra_file", "local_bash"}
+    assert allowed == ["recall_memories", "submit_intent"]
+    assert set(excluded) == {"edit_astra_file"}
+
+
+def test_interactive_only_set_names_only_registered_tools():
+    """Phase A6. The set used to carry the three Mac-bridge writing
+    verbs; they are gone from the registry, and a surface rule about a
+    tool that cannot register is a rule about nothing, which the next
+    reader takes as evidence the tool exists."""
+    import astra.runtime.tools  # noqa: F401
+    from astra.runtime.tool_registry import REGISTRY, _FORBIDDEN
+    from astra.runtime.tool_surface import _EXTRA_INTERACTIVE_ONLY
+
+    names = set(REGISTRY.names())
+    assert not (set(_EXTRA_INTERACTIVE_ONLY) & _FORBIDDEN)
+    unregistered = sorted(set(_EXTRA_INTERACTIVE_ONLY) - names)
+    assert unregistered == [], (
+        f"_EXTRA_INTERACTIVE_ONLY names tools that do not exist: "
+        f"{unregistered}"
+    )
 
 
 def test_interactive_keeps_the_full_surface():
     from astra.runtime.tool_surface import allowed_tool_names
 
-    all_names = ["recall_memories", "edit_astra_file", "local_bash"]
+    all_names = ["recall_memories", "edit_astra_file", "submit_intent"]
     allowed, excluded = allowed_tool_names(all_names, "interactive")
     assert allowed == all_names
     assert excluded == []
@@ -478,12 +502,12 @@ def test_no_standing_list_covers_the_charter_categories():
 
     for name in (
         # shell / execution
-        "local_bash", "Bash", "run_creator_tests",
+        "Bash", "run_creator_tests",
         # sends + publishes
         "send_reply_draft", "approve_content_draft", "send_a2a_task",
         # self-modification + deploy
-        "edit_astra_file", "write_astra_file", "local_edit",
-        "local_write", "commit_code_changes", "commit_kit_changes",
+        "edit_astra_file", "write_astra_file",
+        "commit_code_changes", "commit_kit_changes",
         "apply_self_improvement",
         # deletes
         "forget_memory", "restart_agent",
@@ -493,6 +517,24 @@ def test_no_standing_list_covers_the_charter_categories():
         "start_tunnel", "stop_tunnel",
     ):
         assert name in NO_STANDING_TOOLS, f"{name} must be no-standing"
+
+
+def test_no_standing_list_names_no_retired_tool():
+    """Phase A6. The three Mac-bridge writing verbs were on this list;
+    they are refused at registration now, so an entry for them would
+    describe a surface that cannot exist (and astra-web's mirror of
+    this list, checked below, would have to carry the lie too). The
+    DB trigger in w1p47q2n8l0l still names them: history at the
+    chokepoint, not a surface."""
+    from astra.autonomy.approvals import NO_STANDING_TOOLS
+    from astra.runtime.tool_registry import _FORBIDDEN
+
+    # The A5 controls stay (a re-registered set_mode must still be
+    # no-standing); only the A6 bridge names must be gone.
+    bridge_names = _FORBIDDEN - {"resolve_approval", "revoke_tool_grant", "set_mode"}
+    assert bridge_names, "the registry no longer forbids the bridge names"
+    leaked = sorted(NO_STANDING_TOOLS & bridge_names)
+    assert leaked == [], f"no-standing list still names retired tools: {leaked}"
 
 
 def test_every_no_standing_tool_is_destructive():
@@ -508,8 +550,10 @@ def test_every_no_standing_tool_is_destructive():
 
 
 def test_standing_grant_ignored_for_no_standing_tool():
-    """A tool_grants row for local_bash (one exists in production,
-    granted 2026-06-12 via chat) must not authorise anything."""
+    """A tool_grants row for a no-standing tool must not authorise
+    anything. (The production row that motivated this, granted
+    2026-06-12 via chat, was for the Mac shell tool retired in A6; the
+    property is the same for every name on the list.)"""
     from astra.autonomy import approvals
 
     class _FakeResult:
@@ -539,11 +583,11 @@ def test_standing_grant_ignored_for_no_standing_tool():
         with mock.patch.object(
             approvals, "async_session", lambda: _FakeSession()
         ):
-            return await approvals.check_grant("local_bash")
+            return await approvals.check_grant("send_reply_draft")
 
     granted, reason = asyncio.run(_run())
     assert granted is False, (
-        "a standing grant on local_bash still authorised a call — "
+        "a standing grant on send_reply_draft still authorised a call — "
         "the no-standing list is not being enforced on read"
     )
     assert reason == "no grant"
@@ -607,138 +651,190 @@ def test_approval_prompt_offers_no_chat_token_and_no_always_hint():
 
 
 # ────────────────────────────────────────────────────────────
-# §8 — the bridge chokepoint (found 2026-08-30: the surface
-# split was enforced in the agent loop only, and two production
-# paths reached the Mac bridge without crossing it)
+# §8 — there is no bridge (Phase A6). The chokepoint found on
+# 2026-08-30 (two production paths reached the Mac bridge without
+# crossing the surface guard) is closed by deletion: the bridge, its
+# tools, its routes and its tables' callers are gone, and the only
+# way to the Mac is astra/broker/client.py::run_intent. Each test
+# here pins an ABSENCE, and the one positive property that replaced
+# the finalize-scoping check.
 # ────────────────────────────────────────────────────────────
 
-def _dispatch_on_surface(tool_name, surface, on_behalf_of=None):
-    """Call local._dispatch with a given surface, with the bridge
-    resolution mocked out so we only exercise the guard."""
-    from astra.autonomy.turn_context import current_surface
-    from astra.runtime.tools import local
+_RETIRED_MODULES = (
+    "astra.runtime.tools.local",
+    "astra.runtime.bridge",
+    "astra.runtime.bridge.store",
+    "astra.bridge_daemon",
+)
 
-    async def _no_bridge():
-        return None, []          # bridge offline — never reached if refused
+# The registry refuses these at boot; see tool_registry._FORBIDDEN.
+_RETIRED_TOOLS = frozenset({
+    "local_read", "local_write", "local_edit", "local_bash",
+    "local_glob", "local_grep", "local_bridge_status", "screenshot_url",
+})
 
-    async def _run():
-        token = current_surface.set(surface)
-        try:
-            with mock.patch.object(
-                local, "_active_bridge_token_id", _no_bridge
-            ):
-                return await local._dispatch(
-                    tool_name, {"command": "echo hi"},
-                    timeout_sec=5.0, on_behalf_of=on_behalf_of,
-                )
-        finally:
-            current_surface.reset(token)
-
-    return asyncio.run(_run())
+_REPO = __import__("pathlib").Path(__file__).resolve().parents[2]
 
 
-def test_bridge_refuses_shell_on_unattended_surface():
-    out = _dispatch_on_surface("local_bash", "unattended")
-    assert out.get("is_error") is True
-    assert "REFUSED" in out["content"][0]["text"]
+def _py_sources(*roots):
+    for root in roots:
+        for path in (_REPO / root).rglob("*.py"):
+            if "__pycache__" in path.parts or ".venv" in path.parts:
+                continue
+            yield path
 
 
-def test_bridge_allows_shell_on_interactive_surface():
-    """Interactive passes the guard and falls through to the bridge
-    (which is mocked offline here) — the point is it is NOT refused
-    by the surface check."""
-    out = _dispatch_on_surface("local_bash", "interactive")
-    assert "REFUSED" not in out["content"][0]["text"]
+def _importable(mod: str) -> bool:
+    """find_spec imports the PARENT package, so a missing parent raises
+    rather than returning None; both mean 'not importable'."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(mod) is not None
+    except ModuleNotFoundError:
+        return False
 
 
-def test_bridge_default_surface_is_unattended():
-    """Code paths outside a turn — schedulers, jobs — must be treated
-    as unattended. The ContextVar default carries this."""
-    from astra.autonomy.turn_context import current_surface
+def test_bridge_modules_are_gone():
+    for mod in _RETIRED_MODULES:
+        assert not _importable(mod), f"{mod} is back"
+    for rel in (
+        "astra/bridge_daemon.py",
+        "astra/runtime/bridge",
+        "astra/runtime/tools/local.py",
+        "scripts/issue_bridge_token.py",
+    ):
+        assert not (_REPO / rel).exists(), f"{rel} is back"
+
+
+def test_nothing_imports_the_bridge_or_names_itself_to_it():
+    """AST, not grep: a docstring may recount the old chokepoint and
+    its `on_behalf_of=` keyword (the intent client's does, to explain
+    what `actor` replaced); code may not import the old modules, and
+    no function may accept or pass `on_behalf_of`. `actor` is the
+    replacement and is keyword-only there."""
+    import ast
+
+    offenders: list[str] = []
+    for path in _py_sources("astra", "services", "scripts"):
+        rel = str(path.relative_to(_REPO))
+        text = path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(text, filename=rel)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.keyword) and node.arg == "on_behalf_of":
+                offenders.append(f"{rel}:{node.lineno}: on_behalf_of= passed")
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                params = node.args.args + node.args.kwonlyargs + node.args.posonlyargs
+                if any(a.arg == "on_behalf_of" for a in params):
+                    offenders.append(f"{rel}:{node.lineno}: def takes on_behalf_of")
+            mods: list[str] = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                mods = [node.module] + [
+                    f"{node.module}.{a.name}" for a in node.names
+                ]
+            for m in mods:
+                if any(m == r or m.startswith(r + ".") for r in _RETIRED_MODULES):
+                    offenders.append(f"{rel}:{node.lineno}: import {m}")
+    assert offenders == [], f"the bridge is still reachable: {offenders}"
+
+
+def test_retired_mac_tools_are_absent_from_the_registry():
+    import astra.runtime.tools  # noqa: F401
+    from astra.runtime.tool_registry import REGISTRY, _FORBIDDEN
+
+    names = set(REGISTRY.names())
+    assert not (_RETIRED_TOOLS & names), sorted(_RETIRED_TOOLS & names)
+    assert _RETIRED_TOOLS <= _FORBIDDEN, (
+        "a retired Mac tool is not refused at boot: "
+        f"{sorted(_RETIRED_TOOLS - _FORBIDDEN)}"
+    )
+    # The replacement is present, or the Mac is unreachable and nothing
+    # says so (the CONTAINMENT §9 dead-capability class).
+    for name in ("submit_intent", "poll_status", "body_status"):
+        assert name in names, f"{name} is not registered"
+
+
+def test_retired_names_have_no_tier_and_the_body_tools_do():
+    """A tier for a name that cannot register reads as evidence the
+    tool exists. The A5 controls keep theirs on purpose (a re-
+    registration must still be gated); the A6 names must not."""
+    for name in _RETIRED_TOOLS:
+        assert name not in TOOL_TIERS, f"{name} still has a tier"
+    assert TOOL_TIERS["submit_intent"] is ActionTier.WRITE
+    assert TOOL_TIERS["poll_status"] is ActionTier.READ
+    assert TOOL_TIERS["body_status"] is ActionTier.READ
+
+
+def test_bridge_routes_are_gone_and_broker_routes_survived():
+    """Acceptance criterion 2 of the A6 brief, at the source: the
+    poll/result routes and their body model are gone; the broker's
+    routes, which a naive grep-and-delete on 'bridge' would not touch
+    but a careless one might, are present."""
+    main = (_REPO / "services/stream/main.py").read_text()
+    for gone in (
+        '"/bridge/poll"', '"/bridge/result"',
+        "async def bridge_poll", "async def bridge_result",
+        "class BridgeResultBody",
+    ):
+        assert gone not in main, f"{gone} is back in services/stream/main.py"
+    for kept in (
+        '"/broker/intents/next"', '"/broker/intents/{intent_id}/status"',
+        '"/broker/audit"', '"/broker/catalog"',
+    ):
+        assert kept in main, f"{kept} missing from services/stream/main.py"
+
+
+def test_unrelated_bridge_identifiers_survived_the_deletion():
+    """The A2A router, the Kimi failover and the SDK namespace bridge
+    all carry the word 'bridge' and are not the Mac bridge. A
+    grep-and-delete that took them is a regression this pins."""
+    assert (_REPO / "astra/agents/external/bridge_server.py").exists()
+    assert "def maybe_bridge" in (_REPO / "astra/llm/failover.py").read_text()
+    assert "def _bridge_constructor" in (
+        _REPO / "astra/runtime/tools/__init__.py"
+    ).read_text()
+
+
+def test_broker_status_route_is_scoped_to_the_presenting_body():
+    """The property the deleted finalize_call test pinned, on its
+    successor: the body's outcome write carries the presenting body's
+    id unconditionally, and a mismatch is a loud 404, never ok:true."""
+    main = (_REPO / "services/stream/main.py").read_text()
+    idx = main.find("async def broker_status")
+    assert idx != -1
+    body = main[idx:idx + 2000]
+    assert "body_id=b.id" in body, (
+        "the status route no longer scopes record_status to the caller"
+    )
+    assert "404" in body, "a rejected status write must fail loudly"
+
+
+def test_default_surface_and_turn_outside_a_turn_are_least_privilege():
+    """Code paths outside a turn — schedulers, jobs — are unattended
+    and not-a-turn. The ContextVar defaults carry this; the intent
+    client keys the jobs-may-file-only-auto-verbs rule on the second."""
+    from astra.autonomy.turn_context import current_surface, current_turn
 
     assert current_surface.get() == "unattended"
+    assert current_turn.get() == ""
 
 
-def test_preauthorised_internal_caller_allowed_but_named():
-    """notes_sync is a reviewed, fixed-argument job. It passes; an
-    anonymous caller doing the same thing does not."""
-    ok = _dispatch_on_surface("local_bash", "unattended",
-                              on_behalf_of="notes_sync")
-    assert "REFUSED" not in ok["content"][0]["text"]
-
-    anon = _dispatch_on_surface("local_bash", "unattended",
-                                on_behalf_of="something_new")
-    assert anon.get("is_error") is True
-    assert "REFUSED" in anon["content"][0]["text"]
-
-
-def test_notes_sync_declares_itself_to_the_chokepoint():
-    """The scheduler's 30-minute job must pass on_behalf_of — without
-    it the call is anonymous and gets refused, silently freezing the
-    Notes mirror (it froze at 50 once already)."""
-    import inspect
-
-    from astra.tools import notes_tools
-
-    src = inspect.getsource(notes_tools)
-    assert 'on_behalf_of="notes_sync"' in src
-
-
-def test_reply_tools_declares_itself_to_the_chokepoint():
-    import inspect
-
-    from astra.tools import reply_tools
-
-    src = inspect.getsource(reply_tools)
-    assert 'on_behalf_of="ingest_voice_export"' in src
-
-
-def test_no_anonymous_bridge_callers_remain():
-    """Class check: nothing outside astra/runtime/tools/local.py may
-    reach the bridge helpers without naming itself. A new anonymous
-    caller re-opens the exact hole found on 2026-08-30."""
-    import pathlib
+def _web_no_standing_list(src: str) -> set[str]:
     import re
 
-    root = pathlib.Path(__file__).resolve().parents[2]
-    offenders = []
-    for path in root.rglob("astra/**/*.py"):
-        if ".venv" in str(path) or "__pycache__" in str(path):
-            continue
-        if path.name == "local.py" and "runtime/tools" in str(path):
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        # Negative lookbehind so `wa_dispatch(` and friends do not
-        # masquerade as the bridge's `_dispatch(`.
-        for m in re.finditer(
-            r"(?<![A-Za-z0-9_])(?:local\.)?(?:_dispatch|local_bash_impl|"
-            r"local_write_impl|local_edit_impl)\s*\(", text
-        ):
-            window = text[m.start():m.start() + 400]
-            if "on_behalf_of" not in window:
-                line = text[:m.start()].count("\n") + 1
-                offenders.append(f"{path.relative_to(root)}:{line}")
-    assert offenders == [], (
-        "anonymous bridge callers (must pass on_behalf_of=): "
-        f"{offenders}"
-    )
-
-
-def test_screenshot_url_is_not_read_tier():
-    """It spawns headless Chrome on the Mac. READ meant auto-allowed
-    in semi_auto for a tool that starts a local process."""
-    import astra.runtime.tools  # noqa: F401
-    from astra.runtime.tool_registry import REGISTRY
-
-    td = REGISTRY.get("screenshot_url")
-    assert td is not None
-    assert td.tier is not td.tier.READ
-    assert TOOL_TIERS["screenshot_url"] is not ActionTier.READ
+    m = re.search(r"NO_STANDING_TOOLS\s*=\s*new Set\(\[(.*?)\]\)", src, re.S)
+    assert m, "NO_STANDING_TOOLS Set not found in the web resolver"
+    return set(re.findall(r'"([^"]+)"', m.group(1)))
 
 
 def test_web_resolver_enforces_no_standing():
     """astra-web has its OWN resolver. It drifted from the Python one
-    and wrote standing grants for local_bash. Both must agree."""
+    once and wrote standing grants for the Mac shell tool. The two
+    lists must be EQUAL in both directions: a name only the web knows
+    is one the Python resolver would grant, and a name only Python
+    knows is one the web would grant."""
     import pathlib
 
     from astra.autonomy.approvals import NO_STANDING_TOOLS
@@ -750,15 +846,12 @@ def test_web_resolver_enforces_no_standing():
     if not route.exists():          # astra-web not checked out beside astra
         pytest.skip("astra-web not present")
     src = route.read_text()
-    assert "NO_STANDING_TOOLS" in src, (
-        "the web resolver does not know about the no-standing list — "
-        "clicking 'approve N always' there grants what the Python "
-        "resolver refuses"
+    web = _web_no_standing_list(src)
+    assert web == set(NO_STANDING_TOOLS), (
+        f"web-only: {sorted(web - set(NO_STANDING_TOOLS))}; "
+        f"python-only: {sorted(set(NO_STANDING_TOOLS) - web)}"
     )
-    missing = [t for t in NO_STANDING_TOOLS if f'"{t}"' not in src]
-    assert missing == [], (
-        f"web resolver's no-standing list is missing: {missing}"
-    )
+    assert not (web & _RETIRED_TOOLS), sorted(web & _RETIRED_TOOLS)
 
 
 # ────────────────────────────────────────────────────────────
@@ -800,55 +893,3 @@ def test_truncation_is_disclosed_not_silent():
     out = json.loads(_clamp_tool_input({"command": "x" * 25_000}))
     assert "__truncated__" in out
     assert "TRUNCATED" in out["command"]
-
-
-def test_finalize_call_is_scoped_to_the_presenting_token():
-    """/bridge/result took call_id straight from the request body with
-    no ownership predicate, so any holder of any valid bridge token
-    could write a result for any call — forging the outcome of work it
-    never performed. Theoretical with one body; a live forgery path the
-    moment a second body registers (WORKSTREAMS §G)."""
-    import inspect
-
-    from astra.runtime.bridge import store
-
-    import re
-
-    src = inspect.getsource(store.finalize_call)
-    assert "bridge_token_id" in src, (
-        "finalize_call no longer scopes to the presenting token"
-    )
-    # Assert the PROPERTY, not the spelling. The first version pinned
-    # the literal "bridge_token_id = :tok" and went red when the cast
-    # changed to CAST(:tok AS INTEGER) — a guard that fails on a
-    # rewording trains people to edit the guard. What must hold is that
-    # the UPDATE's WHERE clause constrains bridge_token_id at all.
-    where = src[src.find("WHERE"):] if "WHERE" in src else ""
-    assert re.search(r"bridge_token_id\s*=", where), (
-        "the UPDATE lost its ownership predicate — any bridge token "
-        "could finalize any call"
-    )
-    # And the parameter must actually be bound. An unbound :tok is a
-    # 500 on every request, which is exactly what shipped once.
-    assert '"tok"' in src, (
-        "the :tok parameter is referenced but never bound — this is a "
-        "guaranteed 500 on every call, not a subtle bug"
-    )
-
-
-def test_bridge_result_route_passes_the_token_and_fails_loudly():
-    import pathlib
-
-    main = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "services/stream/main.py"
-    ).read_text()
-    idx = main.find("async def bridge_result")
-    assert idx != -1
-    body = main[idx:idx + 2000]
-    assert "bridge_token_id=bt.id" in body, (
-        "the route does not scope the finalize to the caller's token"
-    )
-    assert "404" in body, (
-        "a rejected finalize must fail loudly, not return ok:true"
-    )

@@ -47,10 +47,10 @@ EXPIRY_HOURS = 24
 #
 # Some capabilities must be approved EVERY time, per call. A standing
 # grant on them is a permanent, argument-blind bypass: check_grant()
-# compares only the tool NAME, so one "approve 9 always" on local_bash
-# in June authorises every shell command on Kunal's Mac forever. That
-# grant was found live in production on 2026-08-28 (tool_grants row,
-# source="chat", granted 2026-06-12).
+# compares only the tool NAME, so one "approve 9 always" on the Mac
+# shell tool in June authorised every shell command on Kunal's Mac
+# until August. That grant was found live in production on 2026-08-28
+# (tool_grants row, source="chat", granted 2026-06-12).
 #
 # These tools may still be approved — one call at a time — but a
 # standing grant is refused at write time AND ignored at read time, so
@@ -61,9 +61,19 @@ EXPIRY_HOURS = 24
 # publishes, anything that deletes, anything that changes autonomy or
 # permissions, anything that edits/commits Astra's own code, and
 # anything that exposes the machine.
+#
+# Phase A6: the three Mac-bridge verbs that used to be here (shell,
+# edit, write) are gone from the registry and refused at boot
+# (astra/runtime/tool_registry.py::_FORBIDDEN). This list names only
+# tools that can register: an entry for a name that cannot exist is a
+# list that lies about the surface, and astra-web's resolver mirrors
+# this list (tests/test_autonomy/test_containment_now.py pins the two
+# equal). The DB trigger from w1p47q2n8l0l still carries the old
+# names; that is history at the chokepoint, not a surface. Mac actions
+# are approved by Kunal's fingerprint on the Mac, per intent, and the
+# broker has no standing-grant type at all (Catalog.swift Policy).
 NO_STANDING_TOOLS: frozenset[str] = frozenset({
     # arbitrary execution
-    "local_bash",
     "Bash",
     "run_creator_tests",
     # sends / publishes
@@ -73,8 +83,6 @@ NO_STANDING_TOOLS: frozenset[str] = frozenset({
     # self-modification + deploy
     "edit_astra_file",
     "write_astra_file",
-    "local_edit",
-    "local_write",
     "commit_code_changes",
     "commit_kit_changes",
     "revert_last_code_commit",

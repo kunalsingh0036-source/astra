@@ -63,9 +63,11 @@ jobs:
         if: ${{ !inputs.skip_wait }}
         run: |
           # 240s: the shared image now rebuilds for 6 services
-          # (stream/scheduler/email/whatsapp/finance/bridge) and they
-          # serialize — 150s raced the tail end and smoked a
-          # half-deployed stack (false-failed on 86f2a60).
+          # (stream/scheduler/email/whatsapp/finance/bridge, where
+          # "bridge" is the A2A router service, not the retired Mac
+          # bridge daemon) and they serialize; 150s raced the tail
+          # end and smoked a half-deployed stack (false-failed on
+          # 86f2a60).
           echo "sleeping 240s for Railway deploys to land…"
           sleep 240
 

@@ -231,15 +231,22 @@ def test_submit_intent_is_reachable_from_whatsapp():
         allowed_tool_names, interactive_only_tool_names,
     )
 
+    import astra.runtime.tools  # noqa: F401
+    from astra.runtime.tool_registry import REGISTRY
+
     io = interactive_only_tool_names()
     assert "submit_intent" not in io
     assert "poll_status" not in io
+    assert "body_status" not in io
     allowed, _ = allowed_tool_names(
-        ["submit_intent", "poll_status", "local_bash"], "unattended")
-    assert "submit_intent" in allowed and "poll_status" in allowed
-    # local_bash stays blocked: it is unstructured shell with no
-    # broker, no display binding and no fingerprint.
-    assert "local_bash" not in allowed
+        ["submit_intent", "poll_status", "body_status", "edit_astra_file"],
+        "unattended")
+    assert {"submit_intent", "poll_status", "body_status"} <= set(allowed)
+    # The unstructured Mac shell tool used to be the negative case here
+    # ("stays blocked on unattended"). Since A6 it is not a surface
+    # question: the name is absent from the registry on every surface
+    # and refused at boot (tool_registry._FORBIDDEN).
+    assert "local_bash" not in REGISTRY.names()
 
 
 def test_absent_or_unknown_channel_is_least_privilege():
@@ -285,9 +292,11 @@ def test_submit_intent_refuses_when_no_body_is_registered(monkeypatch):
     conftest refuses any non-local DB session, because tests writing to
     production has already happened here (40 approval rows carry
     resolution_source='test'). A unit test must not need that guard to
-    save it.
+    save it. Since A6 the lookup lives in astra.broker.client, the one
+    chokepoint the model's tool and every code caller share.
     """
     import asyncio
+    from astra.broker import client
     from astra.runtime.tools import physical
 
     async def _none():
@@ -296,7 +305,7 @@ def test_submit_intent_refuses_when_no_body_is_registered(monkeypatch):
             "out. Tell Kunal — do not retry."
         )
 
-    monkeypatch.setattr(physical, "_only_body", _none)
+    monkeypatch.setattr(client, "_only_body", _none)
     out = asyncio.run(physical.submit_intent_impl(
         {"verb": "fs.read", "args": {"path": "/private/tmp"}, "why": "t"}))
     assert out.get("is_error") is True
@@ -307,22 +316,34 @@ def test_submit_intent_refuses_when_no_body_is_registered(monkeypatch):
 
 def test_submit_intent_validates_before_touching_the_database(monkeypatch):
     """Bad input must be refused with a readable message, and the
-    refusal must not depend on reaching Postgres."""
+    refusal must not depend on reaching Postgres: neither the body
+    lookup nor the insert may be reached."""
     import asyncio
+    from astra.broker import client, store
     from astra.runtime.tools import physical
 
-    async def _boom():
-        raise AssertionError("must not reach the body lookup")
+    async def _boom(*a, **k):
+        raise AssertionError("must not reach the database")
 
-    monkeypatch.setattr(physical, "_only_body", _boom)
+    monkeypatch.setattr(client, "_only_body", _boom)
+    monkeypatch.setattr(store, "submit_intent", _boom)
     for bad, expect in [
         ({"verb": "", "args": {}, "why": "x"}, "verb is required"),
         ({"verb": "fs.read", "args": "nope", "why": "x"}, "must be an object"),
         ({"verb": "fs.read", "args": {}, "why": ""}, "why is required"),
+        # the client's own pre-validation, named path and all
+        ({"verb": "fs.read", "args": {}, "why": "x"}, "requires ['path']"),
+        ({"verb": "fs.read", "args": {"path": "/x", "bogus": 1}, "why": "x"},
+         "not an argument of fs.read"),
+        ({"verb": "fs.read", "args": {"path": "/x", "limit": 1.5}, "why": "x"},
+         "float"),
+        ({"verb": "fs.read", "args": {"path": "/x", "reason": "no"}, "why": "x"},
+         "forbidden key"),
+        ({"verb": "nope.verb", "args": {}, "why": "x"}, "not a catalogue verb"),
     ]:
         out = asyncio.run(physical.submit_intent_impl(bad))
-        assert out.get("is_error") is True
-        assert expect in out["content"][0]["text"]
+        assert out.get("is_error") is True, bad
+        assert expect in out["content"][0]["text"], (bad, out)
 
 
 def test_nul_in_args_is_refused_before_the_insert():
@@ -343,19 +364,247 @@ def test_nul_in_args_is_refused_before_the_insert():
             _reject_unstorable(bad)
 
 
-def test_poll_status_never_claims_an_unverifiable_receipt_is_verified():
+# ── the intent client: refusals before any row, and the claim ──
+
+
+async def _db_must_not_be_reached(*a, **k):
+    raise AssertionError("the database must not be reached for this refusal")
+
+
+def test_run_intent_refuses_a_signed_verb_outside_a_turn(monkeypatch):
+    """The habituation control: outside a turn (scheduler jobs) only
+    auto verbs may be filed, so no job can ever raise a Touch ID
+    prompt. Refused before the body lookup; nothing filed. A control,
+    not a gate: the fingerprint on the Mac is the gate."""
+    import asyncio
+    from astra.broker import client, store
+    from astra.autonomy.turn_context import current_turn
+
+    monkeypatch.setattr(client, "_only_body", _db_must_not_be_reached)
+    monkeypatch.setattr(store, "submit_intent", _db_must_not_be_reached)
+    assert current_turn.get() == ""
+    r = asyncio.run(client.run_intent(
+        "fs.write", {"path": "/private/tmp/x", "content": "y"},
+        why="t", actor="some_job"))
+    assert r.status == "refused" and not r.filed
+    assert "not inside a turn" in r.deny_reason
+    assert "Kunal was not asked" in r.deny_reason
+
+
+def test_run_intent_refuses_an_unwired_verb_before_the_body_lookup(monkeypatch):
+    """Intent #10 class: a real Touch ID tap, then 'not wired yet'. An
+    unwired verb is refused before filing so nobody is ever asked for
+    an action the executor will refuse. The mirror that says which
+    verbs are wired is pinned to the Swift sources by
+    test_catalogue_mirror.py."""
+    import asyncio
+    from astra.broker import client, store
+
+    monkeypatch.setattr(client, "_only_body", _db_must_not_be_reached)
+    monkeypatch.setattr(store, "submit_intent", _db_must_not_be_reached)
+    unwired_auto = sorted(client.AUTO_VERBS - client.WIRED_VERBS)
+    if not unwired_auto:
+        pytest.skip("every auto verb is wired in this build")
+    verb = unwired_auto[0]
+    spec = client.CATALOGUE_BY_NAME[verb]
+    args = {k: "/private/tmp/x" for k in spec.required_keys}
+    r = asyncio.run(client.run_intent(verb, args, why="t", actor="chat"))
+    assert r.status == "refused" and not r.filed
+    assert "cannot perform" in r.deny_reason and verb in r.deny_reason
+    assert "Kunal was not asked" in r.deny_reason
+
+
+def test_run_intent_actor_is_keyword_only_and_required():
+    """`actor` names the code path filing the intent. It is keyword-
+    only and never a tool argument: the model composes every tool
+    argument, so a fact about who is calling can never come from the
+    args (the property `on_behalf_of` had at the retired chokepoint)."""
+    import inspect
+    from astra.broker import client
+
+    p = inspect.signature(client.run_intent).parameters["actor"]
+    assert p.kind is inspect.Parameter.KEYWORD_ONLY
+    assert p.default is inspect.Parameter.empty
+    tool_args = client.CATALOGUE_BY_NAME["fs.read"].arg_keys
+    assert "actor" not in tool_args
+
+
+def _wired_auto_verb():
+    from astra.broker import client
+
+    for v in client.CATALOGUE:
+        if v.wired and not v.signed and v.required_keys:
+            return v
+    pytest.skip("no wired auto verb with a required key in this build")
+
+
+def test_run_intent_session_claim_is_turn_inside_and_job_outside(monkeypatch):
+    """The claim written to intents.session_claim: `turn:<id>` inside
+    a turn, `job:<actor>` outside. A claim, asserted by the cloud about
+    itself; the broker_notify job and the resolved-intents block key
+    on the prefix, so its shape is load-bearing."""
+    import asyncio
+    from astra.broker import client, store
+    from astra.autonomy.turn_context import current_turn
+
+    captured: list[dict] = []
+
+    async def _one_body():
+        return 1, ""
+
+    async def _live(body_id):
+        return store.BodyLiveness(
+            body_id=1, label="test", last_poll_at=None,
+            last_completed_at=None, poll_age_sec=5.0, revoked=False,
+        )
+
+    async def _depth(body_id):
+        return 0
+
+    async def _submit(**kw):
+        captured.append(kw)
+        return 77
+
+    monkeypatch.setattr(client, "_only_body", _one_body)
+    monkeypatch.setattr(store, "body_liveness", _live)
+    monkeypatch.setattr(store, "pending_depth", _depth)
+    monkeypatch.setattr(store, "submit_intent", _submit)
+
+    v = _wired_auto_verb()
+    args = {k: "/private/tmp/x" for k in v.required_keys}
+
+    r = asyncio.run(client.run_intent(v.name, args, why="t", actor="notes_sync"))
+    assert r.filed and r.intent_id == 77 and r.status == "pending"
+    assert captured[-1]["session_claim"] == "job:notes_sync"
+    assert captured[-1]["body_id"] == 1
+
+    async def _in_turn():
+        tok = current_turn.set("turn:42")
+        try:
+            return await client.run_intent(v.name, args, why="t", actor="chat")
+        finally:
+            current_turn.reset(tok)
+
+    r = asyncio.run(_in_turn())
+    assert r.filed
+    assert captured[-1]["session_claim"] == "turn:42"
+
+
+def test_run_intent_refuses_a_body_that_is_not_polling(monkeypatch):
+    """A closed laptop is normal and is refused in one round trip,
+    never a 300 s wait on a row nothing will claim. The message
+    carries Kunal's standing rule (offer retry or a task tagged
+    'body'; never volunteer 'the Mac is offline')."""
+    import asyncio
+    from astra.broker import client, store
+
+    async def _one_body():
+        return 1, ""
+
+    async def _stale(body_id):
+        return store.BodyLiveness(
+            body_id=1, label="test", last_poll_at=None,
+            last_completed_at=None,
+            poll_age_sec=client.BODY_POLL_WINDOW_SEC + 1, revoked=False,
+        )
+
+    monkeypatch.setattr(client, "_only_body", _one_body)
+    monkeypatch.setattr(store, "body_liveness", _stale)
+    monkeypatch.setattr(store, "submit_intent", _db_must_not_be_reached)
+    v = _wired_auto_verb()
+    args = {k: "/private/tmp/x" for k in v.required_keys}
+    r = asyncio.run(client.run_intent(v.name, args, why="t", actor="chat"))
+    assert r.status == "refused" and not r.filed
+    assert "body offline" in r.deny_reason
+    assert "'body'" in r.deny_reason and "Do not volunteer" in r.deny_reason
+
+
+def test_wait_for_intent_only_reads():
+    """The watcher never writes: the retired bridge's wait_for_result
+    marked rows 'timeout' on the courier's own patience, which made
+    the cloud's deadline part of the row's truth. Here None means 'not
+    finished as far as this caller waited', nothing more."""
+    import inspect
+
+    src = inspect.getsource(store.wait_for_intent)
+    for kw in ("UPDATE", "INSERT", "DELETE"):
+        assert kw not in src.upper().replace("UPDATED", ""), (
+            f"wait_for_intent contains {kw}: the watcher must not write"
+        )
+    assert "get_intent_status" in src
+
+
+# ── receipts: recomputed, never stored ────────────────────
+
+
+def test_poll_status_never_claims_an_unverifiable_receipt_is_verified(monkeypatch):
     """The verdict is RECOMPUTED, and 'cannot check' must never render
     as a pass. There is no receipt_verified column precisely because the
-    brain is a superuser and would be writing it about itself."""
-    from astra.runtime.tools import physical
+    brain is a superuser and would be writing it about itself. Since A6
+    the verifier is astra.broker.client.verify_receipt and the key is
+    settings.executor_pubkey_hex (env EXECUTOR_PUBKEY_HEX)."""
+    from astra.broker import client
 
-    assert physical.EXECUTOR_PUBKEY_HEX == "", "test assumes no key pinned yet"
-    v = physical._verify_receipt({"receipt_bytes": b"\x00" * 194})
-    assert "UNVERIFIED" in v and "not treat" in v.lower() or "Do not treat" in v
+    monkeypatch.setattr(client.settings, "executor_pubkey_hex", "")
+    v = client.verify_receipt({"receipt_bytes": b"\x00" * 194})
+    assert "UNVERIFIED" in v
+    assert "not treat" in v.lower()
 
-    assert physical._verify_receipt({"receipt_bytes": None}) == "none present"
-    assert "MALFORMED" in physical._verify_receipt(
-        {"receipt_bytes": b"\x00" * 100})
+    assert client.verify_receipt({"receipt_bytes": None}) == "none present"
+    assert "MALFORMED" in client.verify_receipt({"receipt_bytes": b"\x00" * 100})
+
+
+def _signed_receipt(priv, result: bytes) -> bytes:
+    """Receipt.swift layout: [0:130] payload, of which [94:126] is
+    SHA-256 of the result bytes; [130:194] the Ed25519 signature."""
+    import hashlib
+
+    payload = bytearray(b"\x01" * 130)
+    payload[94:126] = hashlib.sha256(result).digest()
+    payload = bytes(payload)
+    return payload + priv.sign(payload)
+
+
+def test_receipt_verifies_only_with_the_pinned_key_and_matching_result(monkeypatch):
+    """The positive half: with EXECUTOR_PUBKEY_HEX pinned, a receipt
+    signed by that key over the result's digest is 'verified'; a
+    tampered result or a foreign key is named as forged, never as a
+    pass or as 'unverified'."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+    )
+    from cryptography.hazmat.primitives import serialization
+
+    from astra.broker import client
+
+    priv = Ed25519PrivateKey.generate()
+    pub_hex = priv.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw,
+    ).hex()
+    monkeypatch.setattr(client.settings, "executor_pubkey_hex", pub_hex)
+
+    result = b"hello from the executor"
+    rb = _signed_receipt(priv, result)
+    assert len(rb) == 194
+    assert client.verify_receipt(
+        {"receipt_bytes": rb, "result_bytes": result}) == "verified"
+
+    tampered = client.verify_receipt(
+        {"receipt_bytes": rb, "result_bytes": result + b"!"})
+    assert "DOES NOT MATCH" in tampered and "forged" in tampered
+
+    other = Ed25519PrivateKey.generate()
+    foreign = client.verify_receipt(
+        {"receipt_bytes": _signed_receipt(other, result),
+         "result_bytes": result})
+    assert "DID NOT VERIFY" in foreign and "forged" in foreign
+
+    # And the status path uses the same verifier for a succeeded row.
+    r = client._from_row({
+        "id": 1, "status": "succeeded", "verb": "fs.read",
+        "receipt_bytes": rb, "result_bytes": result,
+    })
+    assert r.receipt_verdict == "verified"
 
 
 def test_submit_intent_description_tells_the_model_not_to_poll_in_a_loop():

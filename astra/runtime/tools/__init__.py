@@ -42,11 +42,10 @@ from astra.runtime.sdk_adapter import import_sdk_tools
 # don't need the adapter.
 from astra.runtime.tools import memory  # noqa: F401
 
-# Phase 7: local-machine bridge tools — operate on Kunal's Mac via
-# the bridge daemon. Side-effect-registers local_read, local_write,
-# local_edit, local_bash, local_glob, local_grep, local_bridge_status,
-# screenshot_url.
-from astra.runtime.tools import local  # noqa: F401
+# Phase A6 retired the Mac bridge (astra/runtime/tools/local.py and its
+# seven local_* tools plus screenshot_url). The body is reached only
+# through the capability broker below; the registry refuses the old
+# names at registration.
 
 # Workstream A3: the capability broker's transport. Side-effect-registers
 # submit_intent and poll_status.
@@ -315,16 +314,21 @@ logger.info(
 # job becomes one failed run every interval. The import sites are all
 # at boot for that reason: services/stream/main.py imports this package
 # at module level (before uvicorn binds), astra/scheduler/app.py main()
-# imports it before the scheduler starts (jobs.py::notes_sync reaches
-# astra.runtime.tools.local at run time, so the scheduler does register
-# tools), and the local CLI imports it on startup.
+# imports it before the scheduler starts (the scheduler's notes_sync job
+# files broker intents through astra.broker.client, which does not
+# register tools, so main() is the only place its assertion can fire),
+# and the local CLI imports it on startup.
 _A5_REQUIRED: frozenset[str] = frozenset({
     "list_pending_approvals",
     "get_mode",
     "get_audit_log",
     "audit_stats",
+    # A3/A6: the three physical verbs. body_status is the read-only
+    # third; without it here a namespace that failed to load would
+    # drop it silently (CONTAINMENT §9) and only a tree grep would say.
     "submit_intent",
     "poll_status",
+    "body_status",
 })
 _a5_missing = sorted(_A5_REQUIRED - set(_registry.names()))
 if _a5_missing:

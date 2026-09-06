@@ -212,3 +212,44 @@ def test_documented_values_match_code() -> None:
         or f"{poll_cap_sec // 60} min" in doc_text
         or f"({poll_cap_sec // 60} min)" in doc_text
     ), f"chatPoller maxPollDurationMs ({poll_cap_sec}s) not mentioned in doc"
+
+
+# ── tool budgets over their own body waits (A6) ───────────
+
+
+def _notes_sync_chat_wait() -> int:
+    return _read_constant(
+        str(_ASTRA_ROOT / "astra/tools/notes_tools.py"), "_CHAT_WAIT_SEC",
+    )
+
+
+def test_notes_sync_registry_budget_covers_its_body_wait() -> None:
+    """notes_sync's cloud path files a `notes.sync` intent and waits
+    up to _CHAT_WAIT_SEC for the Mac. The registry's asyncio.wait_for
+    sits OUTSIDE that wait, so it must exceed it by the 20 s margin
+    the bridge tools used, or the registry cancels the tool while the
+    executor is still running the sync and the model reports a failure
+    that did not happen (and may re-file). Latent while notes.sync is
+    unwired (refused instantly); live the day it is wired."""
+    from astra.runtime.sdk_adapter import _guess_timeout
+
+    wait = _notes_sync_chat_wait()
+    budget = _guess_timeout("notes_sync", "notes")
+    assert budget >= wait + 20, (
+        f"notes_sync registry timeout {budget}s does not cover its "
+        f"_CHAT_WAIT_SEC {wait}s + 20s margin; add it to SLOW_EXACT in "
+        "astra/runtime/sdk_adapter.py or lower _CHAT_WAIT_SEC"
+    )
+    assert budget + 20 <= _runner_per_turn_hard(), (
+        "the notes_sync budget must itself sit under the turn cap"
+    )
+
+
+def test_turn_cap_covers_the_ingest_registry_budget_with_margin() -> None:
+    """The broker-backed ingest tool's registry budget (SLOW_EXACT in
+    sdk_adapter) sits under the turn cap by the 60 s margin;
+    tests/test_runtime/test_timeout_hierarchy_broker.py derives that
+    budget from the paged reader's own constants."""
+    from astra.runtime.sdk_adapter import _guess_timeout
+
+    assert _runner_per_turn_hard() >= _guess_timeout("ingest_voice_export", "x") + 60

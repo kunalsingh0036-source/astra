@@ -81,12 +81,46 @@ app.add_middleware(
 )
 
 
+def _build_info() -> dict[str, object]:
+    """Which commit is running, or an honest "unknown".
+
+    Railway injects RAILWAY_GIT_COMMIT_SHA into every service it builds
+    from the connected GitHub repo, so that is the first source: it is
+    written by whatever actually produced these bytes, not by whoever
+    ran a script. astra/_build.py is the fallback for a non-Railway run.
+    Never guess a sha here — "unknown" is the true answer, and the
+    reason /health is worth reading at all.
+    """
+    import os
+
+    sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "").strip()
+    if sha:
+        return {
+            "build_sha": sha,
+            "dirty": False,
+            "built_at_utc": os.environ.get("RAILWAY_DEPLOYMENT_CREATED_AT", "unknown"),
+            "build_source": "railway-git",
+        }
+    try:
+        from astra import _build  # type: ignore[import-not-found]
+    except Exception:
+        return {"build_sha": "unknown", "dirty": "unknown",
+                "built_at_utc": "unknown", "build_source": "none"}
+    return {
+        "build_sha": getattr(_build, "build_sha", "unknown"),
+        "dirty": getattr(_build, "dirty", "unknown"),
+        "built_at_utc": getattr(_build, "built_at_utc", "unknown"),
+        "build_source": "marker",
+    }
+
+
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {
         "status": "healthy",
         "service": "astra-stream",
         "port": int(os.environ.get("STREAM_PORT", 8700)),
+        **_build_info(),
     }
 
 
@@ -488,8 +522,9 @@ def _check_secret(request: Request) -> None:
     endpoint returns 503 instead of silently going open. The old
     fail-open "dev mode" meant one bad env save (the documented
     empty-string-save failure class) turned the public stream service
-    into an unauthenticated agent with the full 117-tool surface —
-    including local_bash on Kunal's Mac. Local dev now requires
+    into an unauthenticated agent with the full 117-tool surface,
+    which at the time included arbitrary shell on Kunal's Mac. Local
+    dev now requires
     setting STREAM_SHARED_SECRET explicitly.
 
     Comparison is constant-time (hmac.compare_digest) so the secret
@@ -520,7 +555,7 @@ async def browser_next_task(request: Request) -> dict[str, object]:
     Polling rather than a socket is deliberate: MV3 service workers are
     killed after ~30s idle, so a persistent connection has to be nursed
     with keepalives forever. An asleep browser is simply a browser with
-    no hands right now — the same honest degradation the Mac bridge uses.
+    no hands right now — the same honest degradation the Mac body uses.
     """
     _check_secret(request)
 
@@ -750,87 +785,9 @@ async def share_receive(request: Request) -> dict[str, object]:
     return {"ok": True, "id": result["id"]}
 
 
-@app.get("/bridge/poll")
-async def bridge_poll(request: Request) -> dict[str, object]:
-    """Long-poll endpoint the local bridge daemon hits.
-
-    The daemon presents its token via Authorization: Bearer <token>.
-    We auth, claim the next pending call for that token, and return
-    it. If no pending call exists we wait up to 25s before returning
-    an empty body so the daemon can reconnect (most network
-    middleboxes drop idle HTTP at 30s).
-    """
-    auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
-        raise HTTPException(401, "missing bearer token")
-    token = auth.split(None, 1)[1].strip()
-
-    from astra.runtime.bridge import (  # type: ignore[import-not-found]
-        validate_bridge_token,
-        claim_pending_call,
-    )
-
-    bt = await validate_bridge_token(token)
-    if bt is None:
-        raise HTTPException(401, "invalid or revoked bridge token")
-
-    # Try claiming immediately; if nothing's there, poll briefly.
-    deadline = asyncio.get_event_loop().time() + 25
-    while True:
-        call = await claim_pending_call(bt.id)
-        if call is not None:
-            return {
-                "call": {
-                    "id": call.id,
-                    "tool": call.tool_name,
-                    "args": call.args,
-                }
-            }
-        if asyncio.get_event_loop().time() >= deadline:
-            return {"call": None}
-        await asyncio.sleep(0.5)
-
-
-class BridgeResultBody(BaseModel):
-    call_id: int
-    ok: bool
-    result: str = ""
-    error_message: str | None = None
-
-
-@app.post("/bridge/result")
-async def bridge_result(body: BridgeResultBody, request: Request) -> dict[str, object]:
-    """Daemon posts a tool execution result here. Status flips to
-    'complete' or 'failed' and the waiting Astra tool unblocks."""
-    auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
-        raise HTTPException(401, "missing bearer token")
-    token = auth.split(None, 1)[1].strip()
-
-    from astra.runtime.bridge import (  # type: ignore[import-not-found]
-        validate_bridge_token,
-        finalize_call,
-    )
-
-    bt = await validate_bridge_token(token)
-    if bt is None:
-        raise HTTPException(401, "invalid or revoked bridge token")
-
-    # Scope the finalize to the token that presented it. Without this
-    # any valid bridge token could write a result for any call.
-    updated = await finalize_call(
-        body.call_id,
-        ok=body.ok,
-        result=body.result,
-        error_message=body.error_message,
-        bridge_token_id=bt.id,
-    )
-    if not updated:
-        raise HTTPException(
-            404,
-            "no such pending call for this bridge token",
-        )
-    return {"ok": True}
+# Phase A6 (2026-09-05): the legacy Mac bridge's poll and result routes
+# (and their BridgeResultBody model) were retired here; the body is
+# reached only through the broker routes below.
 
 
 # ══════════════════════════════════════════════════════════
@@ -898,12 +855,12 @@ async def _body_from_bearer(request: Request):
 async def broker_next(b=Depends(_body_from_bearer)) -> dict[str, object]:
     """Long-poll for the next intent. 25s cap.
 
-    Modelled on /bridge/poll. Returns {"intent": null} on timeout rather
+    Modelled on the retired bridge's poll route. Returns {"intent": null} on timeout rather
     than 204, so the Swift decode path stays uniform.
 
     touch_body_poll is called ONCE PER REQUEST, not per loop iteration:
     it must count requests served, not seconds elapsed, or it becomes
-    the same liar bridge_tokens.last_seen_at is — that column read
+    the same liar the retired bridge token's last_seen_at was — that column read
     healthy while the bridge served zero calls for months.
     """
     try:
@@ -959,7 +916,7 @@ async def broker_status(
 
     record_status carries `AND body_id = :body_id` UNCONDITIONALLY, and
     a mismatch is a 404 — not a silent ok:true, which was half of the
-    original /bridge/result bug.
+    original bridge result-route bug (retired in A6).
     """
     try:
         from astra.broker.store import record_status
@@ -1056,17 +1013,37 @@ async def broker_catalog(
     what the body will accept. It is not configuration: nothing the
     cloud stores here is ever read back by the broker, which compiles
     its catalogue in and would refuse an unknown verb regardless.
+
+    A broker build that puts a per-verb `wired: true/false` in the POST
+    is relaying the executor's own word on what it performs. That flag
+    is handed to astra.broker.client (note_published_catalogue), where
+    run_intent prefers it over the source mirror when refusing an
+    unwired verb before filing, so no Touch ID prompt is raised for a
+    verb the executor will refuse and no wired verb is refused on a
+    stale mirror. Still in-process, in this process only: the
+    scheduler never sees it and a restart forgets it until the broker
+    publishes again; both fall back to the mirror.
     """
+    from astra.broker import client as broker_client
+
+    published = broker_client.note_published_catalogue(
+        b.id, body.verbs, body.build_cdhash,
+    )
     _BROKER_CATALOG[b.id] = {
         "verbs": body.verbs,
         "build_cdhash": body.build_cdhash,
+        "wired": None if published.wired is None else sorted(published.wired),
         "at": time.time(),
     }
-    return {"ok": True, "verbs": len(body.verbs)}
+    return {
+        "ok": True, "verbs": len(body.verbs),
+        "wired": None if published.wired is None else len(published.wired),
+    }
 
 
 # In-process, deliberately: it is a display convenience, and a cache
-# that survives a restart would be a configuration store.
+# that survives a restart would be a configuration store. The client
+# holds its own per-process copy of the wired flag for the same reason.
 _BROKER_CATALOG: dict[int, dict[str, object]] = {}
 
 

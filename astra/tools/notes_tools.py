@@ -121,11 +121,13 @@ async def notes_sync_tool(args: dict) -> dict:
 
     force = bool(args.get("force", False))
     if shutil.which("osascript") is None:
-        # Cloud container: Notes lives on the Mac. Route the sync
-        # through the bridge (runs the harvester ON the Mac against the
-        # cloud DB). Previously this path silently returned all-zeros
-        # and the agent told Kunal it had "live checked" — never again.
-        return await _bridge_sync(force=force)
+        # Cloud container: Notes lives on the Mac. File a notes.sync
+        # intent with the capability broker and wait a bounded time.
+        # Previously this path silently returned all-zeros and the
+        # agent told Kunal it had "live checked"; then it ran the
+        # harvester through the Mac bridge, retired in Phase A6.
+        # Never a fake success: every outcome below says what it is.
+        return await _sync_via_body_for_chat()
     report = await sync_all(force=force)
     lines = [
         f"Apple Notes sync (ran on Mac) · {report.elapsed_ms}ms",
@@ -138,54 +140,143 @@ async def notes_sync_tool(args: dict) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
-async def _bridge_sync(*, force: bool) -> dict:
-    """Run the harvester on the Mac via the bridge bash channel."""
-    from astra.runtime.tools.local import local_bash_impl
+# Chat-path wait. The registry timeout for notes_sync is this plus a
+# 20 s margin: astra/runtime/sdk_adapter.py SLOW_EXACT["notes_sync"] is
+# 110, pinned to this constant by
+# tests/test_runtime/test_timeout_hierarchy_broker.py, and both sit
+# under the 240 s turn cap. Without that entry the registry's default
+# 15 s cancels the tool mid-wait and the model reports a failed sync
+# while the executor is still running it. The scheduler job, which runs
+# outside any turn, waits 240 s. An auto verb resolves in 6-12 s when
+# the body is awake, so the wait only matters when it is not.
+_CHAT_WAIT_SEC = 90
 
-    force_arg = "True" if force else "False"
-    # NO `railway variables` INDIRECTION. It used to resolve DATABASE_URL
-    # by shelling out to the Railway CLI, which lives in
-    # ~/.local/bin/railway — NOT on the bridge daemon's launchd PATH
-    # (/Users/kunalsingh/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:
-    # /bin:/usr/sbin:/sbin). Under launchd the call produced nothing,
-    # its error was swallowed by `2>/dev/null`, DATABASE_URL came out
-    # empty, and SQLAlchemy died with "Could not parse SQLAlchemy URL".
-    # Every 30 minutes, invisibly, for 40 days — the mirror froze at 54
-    # rows on 2026-07-25. It worked whenever a human ran it by hand,
-    # because an interactive shell HAS ~/.local/bin. Your shell is not
-    # their environment.
-    #
-    # The repo's own .env already holds a working public URL, and
-    # astra.config.settings resolves it under the daemon's exact
-    # environment (verified). One less moving part, and no PATH
-    # dependency at all.
-    cmd = (
-        'cd "/Users/kunalsingh/Claude Code/astra" && '
-        '.venv/bin/python3 -c "import asyncio; '
-        "from astra.notes.harvester import sync_all; "
-        f"r = asyncio.run(sync_all(force={force_arg})); "
-        "print(f'seen={r.total_notes_seen} new={r.new_notes} "
-        "updated={r.updated_notes} unchanged={r.unchanged_notes} "
-        "failed={r.failed_notes}')\""
+
+async def sync_via_body(*, why: str, wait_sec: int):
+    """File a `notes.sync` intent for the Mac body and wait for it.
+
+    The single chokepoint for both the chat tool and the scheduler
+    job. `notes.sync` takes no arguments, so no model input reaches
+    the body. `actor` is a keyword the model cannot set; it names this
+    caller in the audit line. Returns the client's IntentResult
+    untouched; callers decide how to report it, and none of them may
+    report an unfinished or refused intent as a sync that happened.
+    """
+    from astra.broker.client import run_intent
+
+    return await run_intent(
+        "notes.sync", {}, why=why, actor="notes_sync", wait_sec=wait_sec,
     )
-    # Declare the caller: this reaches the Mac bridge WITHOUT passing
-    # through the agent loop's tier check + surface guard, so the
-    # chokepoint in local.py::_dispatch needs to know who is asking.
-    # "notes_sync" is on the reviewed _PREAUTHORISED_INTERNAL list
-    # because this command is hardcoded above — no model input reaches
-    # it. Anything else gets refused on the unattended surface.
-    res = await local_bash_impl({"command": cmd}, on_behalf_of="notes_sync")
-    text_parts = [c.get("text", "") for c in (res.get("content") or [])
-                  if isinstance(c, dict)]
-    out = "\n".join(text_parts).strip()
-    if "BRIDGE_OFFLINE" in out:
-        return {"content": [{"type": "text", "text": (
-            "Cannot sync Apple Notes right now: the sync runs on Kunal's "
-            "Mac and the Mac is offline (normal when the laptop is closed). "
-            "The mirror count stands as-of its last sync — tell Kunal that, "
-            "and offer to queue the sync for when the Mac is back."
-        )}]}
-    return {"content": [{"type": "text", "text": f"Apple Notes sync (via Mac bridge):\n{out}"}]}
+
+
+async def _sync_via_body_for_chat() -> dict:
+    """The chat tool's cloud path: file, wait a bounded time, and say
+    exactly what happened.
+
+    Branches on `IntentResult.refusal_code`, never on the wording of
+    `deny_reason`: the first version matched `"not wired" in reason`,
+    the EXECUTOR's phrase, while the client's own pre-filing refusal
+    said "cannot perform ... yet", so the unwired case fell through to
+    the offline branch and told Kunal to open a laptop that was already
+    open and polling. Each refusal code gets the remedy that can
+    actually work; only a FILED row's deny_reason carries executor text.
+    """
+    try:
+        res = await sync_via_body(
+            why="Apple Notes mirror refresh (asked in chat)",
+            wait_sec=_CHAT_WAIT_SEC,
+        )
+    except Exception as e:
+        return _text((
+            "Could not ask Kunal's Mac to sync Apple Notes: the broker "
+            f"client is unavailable ({e}). The mirror stands as of its "
+            "last sync; say so."
+        ), error=True)
+
+    status = str(getattr(res, "status", "") or "").lower()
+    reason = str(getattr(res, "deny_reason", None) or "")
+    code = str(getattr(res, "refusal_code", "") or "")
+    iid = getattr(res, "intent_id", None)
+    last = await _last_synced_at()
+    stands = f"The mirror stands as of its last sync ({last})."
+
+    if status == "succeeded":
+        raw = getattr(res, "result_bytes", None) or b""
+        out = bytes(raw).decode("utf-8", "replace").strip()[:600]
+        return _text(
+            f"Apple Notes sync ran on Kunal's Mac (intent #{iid}, receipt "
+            f"{getattr(res, 'receipt_verdict', 'unknown')}):\n{out}"
+        )
+    if status in _OPEN_STATES:
+        return _text(
+            f"The sync is filed (intent #{iid}) but the Mac has not "
+            f"finished it yet. {stands} Tell Kunal that, and check the "
+            "intent later with poll_status rather than re-filing."
+        )
+    if status in ("denied", "failed", "expired"):
+        # A FILED row: deny_reason is what the broker or executor wrote.
+        return _text((
+            f"Apple Notes sync did not happen (intent #{iid} {status}: "
+            f"{reason or 'no reason given'}). {stands}"
+        ), error=True)
+
+    # Refused by the client before anything was filed. The code names
+    # the situation; the remedy must be one that can work.
+    if code == "unwired":
+        return _text((
+            "Cannot sync Apple Notes yet: the notes.sync verb is in the "
+            "body's catalogue but not wired in the executor (it waits on "
+            "the GUI-session helper that drives Notes.app, which does not "
+            f"exist yet). {stands} Tell Kunal plainly; opening or waking "
+            "the Mac changes nothing, and do not retry. Offer to add_task "
+            "it tagged 'body' if it matters."
+        ), error=True)
+    if code == "busy":
+        return _text((
+            f"Cannot sync Apple Notes right now: {reason} {stands} The Mac "
+            "is up; the broker serves one intent at a time and is inside "
+            "another one, so nothing would claim this yet. Tell Kunal it "
+            "is busy with that intent, not asleep, and offer to try again "
+            "once it resolves or to add_task it tagged 'body'."
+        ), error=True)
+    if code == "offline":
+        return _text((
+            f"Cannot sync Apple Notes right now: {reason} {stands} The "
+            "sync runs on Kunal's Mac; a Mac that is not polling is a "
+            "closed laptop, which is normal. Tell Kunal that at this "
+            "point of need only, and offer to retry when the Mac is "
+            "open or to file a task tagged 'body'."
+        ), error=True)
+    if code in ("no_body", "ambiguous_body"):
+        return _text((
+            f"Cannot sync Apple Notes: {reason} {stands} This is an "
+            "enrolment problem on the broker, not the laptop being "
+            "closed; do not tell Kunal to open it."
+        ), error=True)
+    if code == "queue_full":
+        return _text((
+            f"Cannot sync Apple Notes right now: {reason} {stands} Do not "
+            "add to the queue; tell Kunal it is backed up."
+        ), error=True)
+    # 'args', 'signed_outside_turn', 'unknown_verb' cannot happen for
+    # notes.sync (no args, auto, catalogued); anything else is a
+    # client bug, reported as such rather than dressed as the laptop.
+    return _text((
+        "Cannot sync Apple Notes: the broker client refused before "
+        f"filing ({code or 'no code'}: {reason or status or 'no reason'}). "
+        f"{stands} This is not a closed laptop; report it as a client "
+        "refusal."
+    ), error=True)
+
+
+_OPEN_STATES = frozenset({"pending", "claimed", "awaiting_human", "running"})
+
+
+def _text(msg: str, *, error: bool = False) -> dict:
+    out = {"content": [{"type": "text", "text": msg}]}
+    if error:
+        out["is_error"] = True
+    return out
 
 
 async def _last_synced_at() -> str:

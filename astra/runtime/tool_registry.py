@@ -53,11 +53,15 @@ class ActionTier(enum.Enum):
 ToolImpl = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
-# Phase A5 boot assertion (SECURITY-MODEL §1). These names are the
+# Phase A5/A6 boot assertion (SECURITY-MODEL §1). These names are the
 # model-side approval and autonomy controls that were deleted from the
 # tool surface: a model that can resolve its own approvals, revoke or
 # grant standing trust, or raise its own autonomy mode is not gated,
-# whatever the gate says. Registering one is refused at the chokepoint
+# whatever the gate says. A6 adds the bridge's tools: every `local_*`
+# verb and `screenshot_url` reached the Mac with no broker, no display
+# binding and no fingerprint, and `local_bash` was unstructured shell.
+# The only physical verbs are submit_intent and poll_status; re-adding
+# one of these names by any route is refused at the chokepoint
 # with SystemExit, deliberately not an Exception subclass: the
 # namespace bridges in astra/runtime/tools/__init__.py catch Exception
 # and log, which would turn a re-introduced approval tool into one
@@ -75,6 +79,14 @@ _FORBIDDEN: frozenset[str] = frozenset({
     "resolve_approval",
     "revoke_tool_grant",
     "set_mode",
+    "local_read",
+    "local_write",
+    "local_edit",
+    "local_bash",
+    "local_glob",
+    "local_grep",
+    "local_bridge_status",
+    "screenshot_url",
 })
 
 

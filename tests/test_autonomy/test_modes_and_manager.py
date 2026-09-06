@@ -46,17 +46,18 @@ class TestModes:
 
     def test_tier_based_permission_ignores_name_map(self):
         """The lean runtime gates on the REGISTERED tier, not the
-        legacy name map. Regression lock for the local_bash bypass:
-        the name map only knew SDK-era "Bash", so "local_bash" fell
-        to the WRITE default and auto-ran arbitrary shell in
-        semi_auto. With the tier-based path, a DESTRUCTIVE
-        registration must yield ASK in semi_auto regardless of what
-        the tool is called."""
+        legacy name map. Regression lock for the unmapped-name bypass:
+        the name map only knew SDK-era "Bash", so the Mac shell tool
+        (since retired in A6) fell to the WRITE default and auto-ran
+        arbitrary shell in semi_auto. With the tier-based path, a
+        DESTRUCTIVE registration must yield ASK in semi_auto
+        regardless of what the tool is called, and a name the map
+        does not know must fall to DESTRUCTIVE, not WRITE."""
         from astra.autonomy.modes import get_permission_for_tier
 
-        # local_bash is now classified in TOOL_TIERS (the full-surface
-        # sweep, CONTAINMENT §1) — the name path agrees:
-        assert get_action_tier("local_bash") == ActionTier.DESTRUCTIVE
+        # A name absent from TOOL_TIERS lands in the tier that asks
+        # (CONTAINMENT §1), never the tier that acts:
+        assert get_action_tier("synthetic_shell_tool") == ActionTier.DESTRUCTIVE
         # …and the tier path (what the runtime uses) is right:
         assert (
             get_permission_for_tier(AutonomyMode.SEMI_AUTO, ActionTier.DESTRUCTIVE)
@@ -85,7 +86,7 @@ class TestModes:
             return "boom"
 
         td = ToolDef(
-            name="local_bash",
+            name="synthetic_shell_tool",
             description="",
             input_schema={"type": "object"},
             fn=fn,
@@ -94,7 +95,7 @@ class TestModes:
         previous = autonomy_manager.mode
         try:
             autonomy_manager.set_mode(AutonomyMode.SEMI_AUTO, reason="test")
-            decision, reason = _autonomy_decide(td, "local_bash")
+            decision, reason = _autonomy_decide(td, "synthetic_shell_tool")
             assert decision == "ask", (
                 f"DESTRUCTIVE tool not gated in semi_auto: {decision} ({reason})"
             )

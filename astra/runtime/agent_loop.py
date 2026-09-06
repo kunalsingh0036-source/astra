@@ -97,7 +97,7 @@ _EVENT_NAMES: dict[Any, str] = {
 # ── Artifact sentinel parsing ──────────────────────────────
 #
 # Artifact-emitting tools (emit_palette, emit_table, emit_draft,
-# emit_metric, prepare_preview, screenshot_url) wrap their structured
+# emit_metric, prepare_preview) wrap their structured
 # payload in a `⟦ASTRA_ARTIFACT⟧...⟦/ASTRA_ARTIFACT⟧` text sentinel
 # embedded in their tool-result content. They have to do it this way
 # because tool dispatch is synchronous — tools return a ToolResult,
@@ -371,8 +371,12 @@ async def run_lean_turn(
     # loop is not the only path that reaches the Mac (see
     # astra/autonomy/turn_context.py::current_surface).
     try:
-        from astra.autonomy.turn_context import current_surface
+        from astra.autonomy.turn_context import current_surface, current_turn
         current_surface.set(surface)
+        # The intent client keys the caller class on this: inside a
+        # turn any catalogue verb may be filed; outside one (jobs) only
+        # auto verbs. Written to intents.session_claim as a claim.
+        current_turn.set(f"turn:{turn_id if turn_id is not None else sid}")
     except Exception:
         logger.exception("[lean-runtime] current_surface set failed")
     _surface_blocked: frozenset[str] = (
@@ -780,7 +784,7 @@ async def run_lean_turn(
                 result = await REGISTRY.dispatch(tool_name, tool_input)
 
                 # Unwrap artifact sentinels — tools like emit_palette,
-                # emit_table, screenshot_url stuff a structured payload
+                # emit_table, prepare_preview stuff a structured payload
                 # into their text result wrapped in ⟦ASTRA_ARTIFACT⟧...
                 # markers. We turn each one into a real `artifact`
                 # event the UI can render (swatches, tables, image
@@ -1453,7 +1457,8 @@ def _autonomy_decide(td: Any, tool_name: str) -> tuple[str, str]:
         # Gate on the tier the registry declared at registration —
         # NOT the legacy name-keyed TOOL_TIERS map, which only knew
         # 36 SDK-era names and silently defaulted the other ~80 tools
-        # (including local_bash, registered DESTRUCTIVE) to WRITE.
+        # (including the since-retired local_bash, registered DESTRUCTIVE)
+        # to WRITE.
         tier = AutonomyTier(td.tier.value)
         decision = get_permission_for_tier(mode, tier)
         ctx = f"{mode.value} / {tier.value}"

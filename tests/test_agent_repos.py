@@ -16,8 +16,15 @@ async def test_repo_map_covers_every_federated_agent():
         )
     out = await agent_repos_tool.handler({})
     text = out["content"][0]["text"]
-    assert "Fix flow:" in text  # the playbook is surfaced
-    assert "gated" in text
+    # The playbook is surfaced, and since A6 it says what THIS build
+    # can do: the retired bridge's "local_edit then push, gated" flow
+    # would have sent the model to tools that no longer exist.
+    assert "Fix flow (this build):" in text
+    assert "commit and push: NOT available from chat" in text
+    assert "submit_intent" in text
+    from astra.runtime.tool_registry import _FORBIDDEN
+    for name in sorted(_FORBIDDEN):
+        assert name not in text, f"the fix flow still names {name}"
 
 
 def test_repo_root_is_env_overridable(monkeypatch):

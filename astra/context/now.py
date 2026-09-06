@@ -47,6 +47,7 @@ async def build_kunal_now() -> str:
         _guard(_inbox_line()),
         _guard(_training_line()),
         _guard(_focus_lines()),
+        _guard(_intents_line()),
         return_exceptions=False,
     )
     lines = [r for r in results if r]
@@ -215,3 +216,56 @@ async def _focus_lines() -> str:
         return ""
     bullets = "; ".join((c or "").strip()[:120] for c in rows)
     return "🧠 Recent (decisions/focus) — " + bullets
+
+
+# The "intents resolved since your last turn" block promised by
+# submit_intent's description (astra/runtime/tools/physical.py). Window
+# and count, not a per-session mark: the block is built once per
+# _TTL_SECONDS for every session, and a signed intent may resolve during
+# a LATER turn than the one that filed it, so "since the last turn
+# ended" would miss it. Six hours and the newest few is honest and
+# bounded; the same query drives the completion push (jobs.broker_notify).
+_INTENTS_WINDOW = timedelta(hours=6)
+_INTENTS_SHOWN = 4
+
+
+def _age(resolved_at, now) -> str:
+    try:
+        secs = int((now - resolved_at.astimezone(timezone.utc)).total_seconds())
+    except Exception:
+        return ""
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    return f"{secs // 3600}h{(secs % 3600) // 60:02d}m ago"
+
+
+async def _intents_line() -> str:
+    """Terminal broker intents that resolved AFTER the chat turn that
+    filed them ended, newest first. Empty when there are none, so the
+    block never carries a 'nothing resolved' line the model could read
+    as a fact about intents it never filed."""
+    from astra.broker import store
+
+    now = datetime.now(timezone.utc)
+    rows = await store.list_resolved_after_turn_end(
+        now - _INTENTS_WINDOW, limit=_INTENTS_SHOWN, newest_first=True,
+    )
+    if not rows:
+        return ""
+    parts = []
+    for r in rows:
+        bit = f"#{r['id']} {r['verb']} {r['status']}"
+        age = _age(r.get("resolved_at"), now)
+        if age:
+            bit += f" ({age})"
+        reason = (r.get("deny_reason") or "").strip().replace("\n", " ")
+        if reason and r["status"] != "succeeded":
+            bit += f": {reason[:90]}"
+        parts.append(bit)
+    return (
+        "🖥 Mac — intents that resolved after their turn ended (last "
+        f"{int(_INTENTS_WINDOW.total_seconds() // 3600)}h; poll_status has "
+        "the full result): " + "; ".join(parts)
+    )

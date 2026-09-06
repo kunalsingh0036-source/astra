@@ -58,7 +58,7 @@ Audit of every tool defined in `astra/tools/*.py` plus the Phase-1-ported runtim
 | `draft_doc` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | OK | — |
 | `draft_brand_kit` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | OK | — |
 | `critique_artifact` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | OK | — |
-| `generate_hero_image` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | Image bytes are stored on the artifact row, NOT emitted via the artifact sentinel. UI can't render the image inline from the tool result — must re-fetch by artifact id. Not a wire-format break, but an asymmetry vs. `screenshot_url` (which DOES emit a sentinel image). | P1 |
+| `generate_hero_image` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | Image bytes are stored on the artifact row, NOT emitted via the artifact sentinel. UI can't render the image inline from the tool result — must re-fetch by artifact id. Not a wire-format break. No registered tool emits a sentinel image any more (`screenshot_url` went with the Mac bridge in Phase A6); the agent loop still parses `type:"image"` artifacts, so this tool could. | P1 |
 | `render_deck_pdf` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | Returns R2 signed URL as text. No artifact sentinel — user sees a URL in chat, not an inline preview card. Same asymmetry as `generate_hero_image`. | P2 |
 | `render_deck_pptx` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | Same as above. | P2 |
 | `render_one_pager_pdf` | `astra/tools/creator_tools.py` | Yes (`_imp_creators`) | `{content:[text]}` plain | Same as above. | P2 |
@@ -116,21 +116,16 @@ Audit of every tool defined in `astra/tools/*.py` plus the Phase-1-ported runtim
 | `review_proposal` | `astra/tools/self_improve_tools.py` | Yes (twice) | `{content:[text]}` plain | Same. | P2 |
 | `apply_self_improvement` | `astra/tools/self_improve_tools.py` | Yes (twice) | `{content:[text]}` plain | Same. | P2 |
 | `dismiss_self_improvement` | `astra/tools/self_improve_tools.py` | Yes (twice) | `{content:[text]}` plain | Same. | P2 |
-| `local_read` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_write` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_edit` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_bash` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_glob` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_grep` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `local_bridge_status` | `astra/runtime/tools/local.py` | Direct register | `{content:[text]}` plain | OK | — |
-| `screenshot_url` | `astra/runtime/tools/local.py` | Direct register | Sentinel (`type:"image"`) | Parser handles. Note: artifact payload's `type` is `"image"` — the agent loop yields `artifact(type="image", …)`. UI must render images from the `image` artifact type. | — |
+| `submit_intent` | `astra/runtime/tools/physical.py` | Direct register | `{content:[text]}` plain | OK. Files one broker intent. The Mac bridge's seven `local_*` tools and `screenshot_url` (`astra/runtime/tools/local.py`) were deleted in Phase A6 (2026-09-06); `tool_registry._FORBIDDEN` refuses the names at boot. | — |
+| `poll_status` | `astra/runtime/tools/physical.py` | Direct register | `{content:[text]}` plain | OK. Announces its 4000-char cut (`## N more bytes not shown`). | — |
+| `body_status` | `astra/runtime/tools/physical.py` | Direct register | `{content:[text]}` plain | OK | — |
 
 ## Findings summary
 
 **P0 (broken in prod):** none. No sentinel-emitting tool is unparseable. No factory is unimported. No side-channel event emissions (queue puts, callbacks, direct event_emitter writes) exist in any `astra/tools/*.py` file — every handler returns either a string, an SDK-shape dict `{content:[{type:"text", text:…}]}`, or a sentinel-wrapped variant of the same. `_normalize` in `tool_registry.py` handles all three. The cross-runtime contract is intact.
 
 **P1 (works but fragile):**
-- `generate_hero_image` (`astra/tools/creator_tools.py`) stores rendered PNG bytes on the artifact row but returns only a text summary. There is NO inline image artifact emission — the model has to tell the user "image saved as artifact #N" and the user has to navigate elsewhere to see it. `screenshot_url` (`astra/runtime/tools/local.py`) emits a `type:"image"` sentinel and renders inline. Consistency gap; user-visible UX miss for what is one of the most demo-worthy tools.
+- `generate_hero_image` (`astra/tools/creator_tools.py`) stores rendered PNG bytes on the artifact row but returns only a text summary. There is NO inline image artifact emission — the model has to tell the user "image saved as artifact #N" and the user has to navigate elsewhere to see it. The retired `screenshot_url` emitted a `type:"image"` sentinel that rendered inline, and the agent loop still parses that artifact type; nothing registered uses it today. User-visible UX miss for what is one of the most demo-worthy tools.
 
 **P2 (cosmetic / future cleanup):**
 - `recall_recent_turns` is registered twice (Phase-1 port wins, SDK version silently skipped). One should be the single source of truth.

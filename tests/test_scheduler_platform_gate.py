@@ -2,7 +2,9 @@
 
 notes_sync sat inside `if _IS_MACOS:` in astra/scheduler/app.py while
 its body (jobs.py::notes_sync) had been rewritten to detect the cloud
-and route through the Mac bridge. The scheduler runs on Railway
+and route through the Mac bridge (since retired in Phase A6 for a
+`notes.sync` intent through the capability broker; the gate lesson is
+the same). The scheduler runs on Railway
 (Linux), so the job was never registered and the rewritten body never
 executed. Verified 2026-08-30: apple_notes.last_synced_at newest was
 2026-07-25 — 36 days stale, frozen at 54 rows, exactly as the same

@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     tunnel_hostname: str = ""  # Custom domain for cloudflared
     ngrok_authtoken: str = ""
 
+    # Capability broker: the executor's Ed25519 receipt public key, hex
+    # (the `pub=` line `AstraExecutor enrol` prints on the Mac). Read by
+    # astra/broker/client.py to verify every receipt cloud-side. Empty
+    # means every receipt is reported UNVERIFIED, plainly, and the
+    # client logs one warning at boot; it never means "trust it".
+    # Env: EXECUTOR_PUBKEY_HEX.
+    executor_pubkey_hex: str = ""
+
 
 settings = Settings()
 

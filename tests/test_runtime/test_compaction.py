@@ -2,8 +2,9 @@
 Tests for _compact_messages — the context-window manager.
 
 Triggered by a real production hit: a session crossed 213k tokens
-(over Claude's 200k limit) because tool_result content from
-local_read / local_glob / web fetches kept accumulating. The
+(over Claude's 200k limit) because tool_result content from the
+Mac file reads (the since-retired bridge tools) and web fetches kept
+accumulating. The
 compactor's job is to keep sessions usable across many turns by
 truncating oversized blocks and elidating older messages.
 """
@@ -36,7 +37,7 @@ def test_estimate_tool_use_block() -> None:
     block = {
         "type": "tool_use",
         "id": "tu_1",
-        "name": "local_read",
+        "name": "read_file_fixture",
         "input": {"path": "/foo/bar.txt", "offset": 1, "limit": 100},
     }
     n = _estimate_tokens_for_block(block)
@@ -148,7 +149,7 @@ def test_compact_truncates_huge_tool_result_first() -> None:
                 {
                     "type": "tool_use",
                     "id": "tu_1",
-                    "name": "local_read",
+                    "name": "read_file_fixture",
                     "input": {"path": "/foo/README.md"},
                 },
             ],
