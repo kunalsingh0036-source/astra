@@ -382,6 +382,19 @@ async def pending_depth(body_id: int) -> int:
 # ── The body's side ───────────────────────────────────────
 
 
+# How long a claim may sit before the cloud assumes the hand-over was
+# lost and offers the intent again.
+#
+# It must exceed the LONGEST time a row can legitimately sit in
+# 'claimed' while the broker is working on it, or a redelivery races an
+# action that is already running and the same intent executes twice.
+# The bound is the executor's own watchdog (60 s for an irreversible
+# verb) plus the broker's HTTP timeout (15 s) plus room; a prompt does
+# NOT count, because the broker writes 'awaiting_human' before it
+# dispatches one and this only ever redelivers 'claimed'.
+CLAIM_STALE_SECS = 180
+
+
 async def claim_next_intent(body_id: int) -> Intent | None:
     """Claim the oldest pending intent for this body.
 
@@ -393,24 +406,56 @@ async def claim_next_intent(body_id: int) -> Intent | None:
     async with _engine.async_session() as s:
         row = (await s.execute(
             text("""
-                UPDATE intents
-                SET status = 'claimed', claimed_at = now()
-                WHERE id = (
-                    SELECT id FROM intents
+                WITH pick AS (
+                    SELECT id, status AS prior_status
+                    FROM intents
                     WHERE body_id = :body_id
-                      AND status = 'pending'
                       AND expires_at > now()
+                      AND (
+                        status = 'pending'
+                        -- AT-LEAST-ONCE. The row is marked claimed the
+                        -- instant it is handed over, so a response lost
+                        -- in transit (this link times out several times
+                        -- an hour) orphaned the intent in 'claimed'
+                        -- forever: nothing retried it and nothing said
+                        -- so. Measured 2026-09-08 on intent #57, the
+                        -- first real fs.write, which sat claimed until
+                        -- it expired while the broker sat idle.
+                        --
+                        -- A claim older than the stale window is offered
+                        -- again. The window is far above the 6-12 s an
+                        -- intent takes end to end, and any decision the
+                        -- broker HAS made moves the row out of 'claimed'
+                        -- (running / awaiting_human / terminal), so this
+                        -- can only pick up a hand-over that was lost.
+                        OR (status = 'claimed'
+                            AND claimed_at < now() - make_interval(secs => :stale_secs))
+                      )
                     ORDER BY created_at ASC
                     FOR UPDATE SKIP LOCKED
                     LIMIT 1
                 )
-                RETURNING id, verb, args_raw, why, expires_at
-            """),
-            {"body_id": body_id},
+                UPDATE intents SET status = 'claimed', claimed_at = now()
+                FROM pick
+                WHERE intents.id = pick.id
+                RETURNING intents.id, intents.verb, intents.args_raw,
+                          intents.why, intents.expires_at,
+                          pick.prior_status
+"""),
+            {"body_id": body_id, "stale_secs": CLAIM_STALE_SECS},
         )).first()
         await s.commit()
     if row is None:
         return None
+    if row[5] == "claimed":
+        # Never silent: a redelivery means a hand-over was lost, which
+        # is a fact about the link between this cloud and Kunal's Mac.
+        logger.warning(
+            "[broker] intent #%s redelivered — its previous hand-over was "
+            "claimed but never acted on (lost response); at-least-once "
+            "delivery picked it back up after %ss",
+            row[0], CLAIM_STALE_SECS,
+        )
     args = row[2]
     if isinstance(args, str):
         args = json.loads(args)

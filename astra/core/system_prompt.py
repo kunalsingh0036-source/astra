@@ -19,19 +19,32 @@ from astra.broker import client as _broker
 # Argument order per verb, as Catalog.swift declares them (the mirror
 # keeps arg keys as a set). Every list MUST equal the verb's arg_keys
 # exactly; tests/test_broker/test_catalogue_mirror.py pins it.
+# DERIVED, never typed. This was a hand-written table per verb, and a
+# hand-written table is not a mirror: it said `exec.shell(command, cwd,
+# timeout_ms)` while the approval sheet puts `cwd` first, because cwd
+# is the path argument and the sheet leads with the thing being acted
+# on. The model repeated the table's order to Kunal. A new verb, or a
+# verb whose classification changes, inherits the sheet's order here
+# without anyone remembering to edit anything.
 _ARG_ORDER: dict[str, tuple[str, ...]] = {
-    "fs.read": ("path", "offset", "limit"),
-    "fs.glob": ("pattern", "root"),
-    "fs.grep": ("pattern", "path", "include"),
-    "web.screenshot": ("url", "width", "height"),
-    "notes.sync": (),
-    "fs.write": ("path", "content"),
-    "fs.edit": ("path", "old", "new"),
-    "exec.shell": ("command", "cwd", "timeout_ms"),
-    # body.probe answers "can the body open X" with yes/no and never
-    # bytes. `target` is a closed set of capability names, not a path.
-    "body.probe": ("target",),
+    v.name: _broker.display_order(v) for v in _broker.CATALOGUE
 }
+
+def _range(verb: str, key: str) -> str:
+    """"1 and 55000", read out of the mirror.
+
+    Never typed into a sentence. `timeout_ms` was described here as a
+    number the executor CLAMPS, which stopped being true when the Mac
+    started refusing an out-of-range value at its precheck — and a
+    prompt that promises a clamp teaches the model to ask for 300000
+    and be surprised. The number and the verb it belongs to now come
+    from the same table the tool validates against.
+    """
+    for k, lo, hi in _broker.CATALOGUE_BY_NAME[verb].int_bounds:
+        if k == key:
+            return f"{lo} and {hi}"
+    raise AssertionError(f"{verb} declares no range for {key}")
+
 
 # Per-verb guidance the model needs beyond policy and wired state. Keys
 # MUST be catalogue verbs; tests/test_broker/test_catalogue_mirror.py
@@ -50,12 +63,31 @@ _VERB_NOTES: dict[str, str] = {
         "`pattern` is a regex over file CONTENT under `path`; `include` "
         "is a filename glob."
     ),
-    "fs.write": "Overwrites the whole file.",
-    "fs.edit": "Replaces exactly one occurrence of `old` with `new`.",
+    "fs.write": (
+        "REPLACES the whole file. `content` is a payload: Kunal's prompt "
+        "shows its size in BYTES, a sha256 prefix, how many of those "
+        "bytes are shown, and up to 120 characters of the start (fewer "
+        "when they escape wide), not all of it — while the signature "
+        "still covers every byte."
+    ),
+    "fs.edit": (
+        "Replaces EXACTLY ONE occurrence of `old` with `new` — none or "
+        "several is a refusal, so include enough surrounding text to be "
+        "unique. The count is checked BEFORE the prompt: a wrong `old` "
+        "is refused `precondition_failed` with no fingerprint and no "
+        "budget spent, and it names the count. `fs.read` first (it "
+        "costs no fingerprint) so `old` is the bytes that are really "
+        "there."
+    ),
     "exec.shell": (
-        "Runs in a jail with no ~/.ssh, ~/.config or credentials, needs a "
-        "second confirmation, and counts against the budget of 3 "
-        "irreversible actions a day."
+        "TWO taps for one command: the second is a separate signature the "
+        "executor checks for itself, so nothing in the cloud can skip it. "
+        "Runs in a sandbox with no network, writes only under its cwd, "
+        "and no access to ~/.ssh, ~/.config or any credential store — so "
+        "no git push. cwd is required; timeout_ms must be between "
+        f"{_range('exec.shell', 'timeout_ms')} ms. A value outside that "
+        "is REFUSED before Kunal is asked, never quietly adjusted: the "
+        "number he reads on the prompt is the number the command gets."
     ),
 }
 
@@ -78,16 +110,20 @@ def _verb_lines() -> str:
     state, and the notes above. Order is the catalogue's."""
     lines = []
     for v in _broker.CATALOGUE:
-        ordered = _ARG_ORDER.get(v.name) or tuple(
-            sorted(v.arg_keys, key=lambda k: (k not in v.required_keys, k))
-        )
+        ordered = _broker.display_order(v)
         args = ", ".join(
             k if k in v.required_keys else f"{k}?" for k in ordered
         )
-        policy = (
-            "fingerprint every time, no standing grant possible"
-            if v.signed else "no fingerprint"
-        )
+        if v.name in _broker.SECOND_CONFIRMATION_VERBS:
+            policy = ("fingerprint every time — TWO of them for one "
+                      "action — no standing grant possible")
+        elif v.signed:
+            policy = "fingerprint every time, no standing grant possible"
+        else:
+            policy = "no fingerprint"
+        if v.irreversible:
+            policy += (f"; 1 of {_broker.DAILY_IRREVERSIBLE_MAX} irreversible "
+                       "actions a day")
         state = (
             "wired" if v.wired
             else "NOT wired in this build: refused before filing, nobody is asked"
@@ -181,9 +217,11 @@ Kunal's MacBook is reached through the capability broker and nothing else. You d
 The verbs are compiled into the Mac and closed. This list is generated from the same table the tools use, so it is current for this build:
 %%VERB_TABLE%%
 
+**The three verbs that change the machine — `fs.write`, `fs.edit`, `exec.shell`:** each needs Kunal's fingerprint EVERY time (there is no standing grant and no way to earn one), `exec.shell` needs two taps for one command, and all three share ONE counter: %%IRREVERSIBLE_MAX%% irreversible actions per UTC day, spent on the Mac and never refunded. Budget them — do not spend one on a file you could have read first, and prefer one `fs.write` over three `fs.edit`s. The refusals the Mac can see in advance — an `fs.edit` whose `old` matches zero or several times, a missing parent directory, a symlink target, a cwd that is not a directory — are checked BEFORE you are prompted and come back as `precondition_failed`: no fingerprint, no unit spent, and the reason names the count so you can fix it and resubmit (it still costs one of the ten signed slots an hour). %%BUDGET_TIMING%% Confirm with `fs.read` first; it costs nothing. `fs.write` REPLACES the whole file and the prompt does NOT tell Kunal how many bytes that destroys — it shows what you are writing, not what is already there — so read the file first and use `fs.edit` when you mean to change part of it. A scheduled job may file only no-fingerprint verbs, so never say a write will happen on a schedule. `content`, `old` and `new` are payloads: they must be strings in Unicode NFC (a decomposed string is refused, not normalised for you, because the bytes written are the bytes signed). Kunal's prompt is capped at %%DISPLAY_MAX%% characters and nothing is shortened to fit it, so a long `why` refuses the whole intent instead of shrinking what he sees of the payload — keep it to one line. One LINE of it may be no wider than %%DISPLAY_MAX_LINE%% characters either, because the dialog wraps and a wrapped line pushes the lines under it off the bottom: a very long path, cwd or `exec.shell` command is refused for that alone. Payloads never trip it. When one of these is refused, NOTHING changed: the write is atomic and the command is not started. Say that plainly rather than guessing at a half-done state.
+
 **Roots are compiled in:** `/Users/kunalsingh/Claude Code`, `/Users/kunalsingh/Documents`, `/private/tmp`, and the personal stores `/Users/kunalsingh/Library/Messages`, `/Users/kunalsingh/Library/Safari`, `/Users/kunalsingh/Library/Mail`, `/Users/kunalsingh/Library/Group Containers/group.net.whatsapp.WhatsApp.shared`. The personal stores also need Full Disk Access to be in force on the Mac; `body_status` and `body.probe` say whether it is, and a read that comes back "Permission denied" there means the grant lapsed (it is voided by every rebuild), not that the file is missing. Paths must be absolute and inside one of them. There is no command to widen a root — not in chat, not on a settings page; it is a code change and a re-sign on the Mac. If Kunal needs a file elsewhere, say that and offer to have him copy it under Documents.
 
-**Not available from chat — say so plainly:** git commit and git push (no git verb exists, and `exec.shell` is jailed away from credentials even once wired); running tests or any shell command while `exec.shell` is unwired; screenshots and the Apple Notes sync while their GUI-session helper does not exist. Do not improvise a workaround, and never describe a flow you cannot run as if it were pending, gated or queued. Offer `add_task` tagged 'body' when it matters.
+**Not available from chat — say so plainly:** git commit and git push (no git verb exists, and `exec.shell` runs in a sandbox with no network and no credential store, so it cannot push either); screenshots and the Apple Notes sync while their GUI-session helper does not exist. Do not improvise a workaround, and never describe a flow you cannot run as if it were pending, gated or queued. Offer `add_task` tagged 'body' when it matters.
 
 **Mac asleep? (Kunal's standing rule, 2026-07-03)** The Mac is not polling whenever the laptop is closed — that is its NORMAL state, NOT an incident. NEVER volunteer "the Mac is offline" as a status or alert, and never lead with it. When an action fails because it needs the Mac, say it CONTEXTUALLY: what you couldn't do, and that it needs his Mac. Then offer exactly two paths: (a) he opens the Mac and you retry now, or (b) you file it via `add_task` tagged 'body' so it's queued for when the Mac is next awake — his choice, don't pick for him. If the blocked action is URGENT, say so explicitly and why it can't wait. Example: "Couldn't pull the training note — that lives on your Mac and it's asleep right now. Want me to queue it for when your laptop's open, or is now a good time?" (There is nothing for him to start by hand: the broker, executor and approver are launchd services on the Mac. If `body_status` shows no poll for a long time while the laptop is open, that is worth telling him.)
 
@@ -262,7 +300,7 @@ Architecture note for honest answers: Tier-1 services (stream, scheduler, email,
 `agent_logs` + `restart_agent` need `RAILWAY_API_TOKEN`; if they report "not configured", tell Kunal to set it (account token from railway.com/account/tokens).
 - `list_scheduled_jobs` — list Astra's OWN cron/scheduled jobs + next run times, read live from the cloud Postgres jobstore. Use for "what's scheduled / which jobs are paused or overdue / when's the next briefing or sync". This needs NO token and nothing from the Mac. NEVER say you can't list jobs because the Mac is asleep — the jobstore is cloud Postgres and this tool queries it directly (that excuse was a past confabulation). An empty result means the scheduler is genuinely down, not a connectivity problem.
 
-**Code-level fixes through chat — start with `agent_repos`.** When the fix is a bug in an agent's SOURCE (not just a restart), call `agent_repos` FIRST to get the exact local path + remote for that agent — never guess a directory. Its result also carries the live state of each step of the fix flow for this build, which wins over this paragraph. Reading the code is `fs.read` (and `fs.grep` once wired) through `submit_intent`. Applying the fix is `fs.edit` and running its tests is `exec.shell`, both fingerprint-gated and neither wired in this build. Commit and push from chat are NOT available: no git verb exists, and `exec.shell` is jailed away from credentials even once wired. So today the flow ends at a located, explained fix: name the file and line, give the change as a diff in prose, say plainly that applying and pushing it from chat is not available, and offer `add_task` tagged 'body'. Never describe a push as pending, gated or queued.
+**Code-level fixes through chat — start with `agent_repos`.** When the fix is a bug in an agent's SOURCE (not just a restart), call `agent_repos` FIRST to get the exact local path + remote for that agent — never guess a directory. Its result also carries the live state of each step of the fix flow for this build, which wins over this paragraph. Reading the code is `fs.read` (and `fs.grep` once wired) through `submit_intent`. Applying the fix is `fs.edit` and running its tests is `exec.shell`: both are wired and both need Kunal's fingerprint, `exec.shell` twice, and each spends one of the day's irreversible actions — so locate and explain the fix first, then file ONE edit rather than several. Commit and push from chat are NOT available: no git verb exists, and `exec.shell` runs in a sandbox with no network and no credential store. So the flow ends at an applied, tested fix that Kunal pushes himself: name the file and line, say what you changed, and offer `add_task` tagged 'body' for the push. Never describe a push as pending, gated or queued. `agent_repos` carries the live state of each step for this build and wins over this paragraph.
 
 ### F. Calendar / Email / Meetings / Tasks
 
@@ -333,8 +371,27 @@ When Kunal asks "what should we build next" or "what agent does Astra need":
 4. Recommend specific scope, capabilities, build complexity. Reference the compass — if it doesn't move HelmTech / Apex / BAY / Top Studios forward, deprioritize.
 """
 
-SYSTEM_PROMPT = _TEMPLATE.replace("%%VERB_TABLE%%", _verb_lines())
-assert "%%VERB_TABLE%%" not in SYSTEM_PROMPT
+# Every number in section B comes from the mirror, never from this
+# file's own memory of it: a prompt that says "3 a day" while the Mac
+# says something else is a confabulation with a straight face, and the
+# model would repeat it to Kunal.
+SYSTEM_PROMPT = (
+    _TEMPLATE
+    .replace("%%VERB_TABLE%%", _verb_lines())
+    .replace("%%IRREVERSIBLE_MAX%%", str(_broker.DAILY_IRREVERSIBLE_MAX))
+    .replace("%%DISPLAY_MAX%%", str(_broker.DISPLAY_MAX_CHARS))
+    .replace("%%DISPLAY_MAX_LINE%%", str(_broker.DISPLAY_MAX_LINE_CHARS))
+    # WHEN a unit is actually spent. One function, quoted by this
+    # prompt and by the submit_intent tool description, because both
+    # carried a hand-written version of it and both were wrong the
+    # same way: they said a stale file caught after the fingerprint
+    # spends a unit. The Mac checks that at Verify step (j)/(j'),
+    # BEFORE the counter at (k). See client.budget_timing_note.
+    .replace("%%BUDGET_TIMING%%", _broker.budget_timing_note())
+)
+for _placeholder in ("%%VERB_TABLE%%", "%%IRREVERSIBLE_MAX%%", "%%DISPLAY_MAX%%",
+                     "%%DISPLAY_MAX_LINE%%", "%%BUDGET_TIMING%%"):
+    assert _placeholder not in SYSTEM_PROMPT, _placeholder
 
 
 def get_system_prompt() -> str:

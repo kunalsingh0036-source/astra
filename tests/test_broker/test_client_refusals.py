@@ -86,8 +86,9 @@ def _with_body(monkeypatch, *, age=12.0, depth=0):
 
 def test_refusal_codes_are_a_closed_set():
     assert client.REFUSAL_CODES == {
-        "unknown_verb", "args", "signed_outside_turn", "unwired",
-        "no_body", "ambiguous_body", "offline", "busy", "queue_full",
+        "unknown_verb", "args", "precondition_failed", "signed_outside_turn",
+        "unwired", "no_body", "ambiguous_body", "offline", "busy",
+        "queue_full",
     }
 
 
@@ -190,7 +191,12 @@ _GLOB = client.CATALOGUE_BY_NAME["fs.glob"]
     (_READ, {"path": _ROOT + "/../../../etc/hosts"}, "outside every compiled root"),
     (_READ, {"path": None}, "unusable type NoneType"),
     (_READ, {"path": ["/x"]}, "unusable type list"),
-    (_READ, {"path": _ROOT + "/a", "limit": 700000}, "655360-byte ceiling"),
+    # `limit: 700000` used to sit here. It is not a canonicaliser rule
+    # on either side — the Mac types the integer here and BOUNDS it one
+    # layer later — so it moved to the precondition mirror with the
+    # rest of the declared ranges (test_int_bounds_mirror.py), which is
+    # also where `timeout_ms: 0` can be refused without contradicting
+    # the shared canonicaliser corpus that requires it to be accepted.
     (_READ, {"path": _ROOT + "/a", "limit": 1.5}, "float"),
     (_READ, {"path": _ROOT + "/a", "offset": -1}, "non-negative"),
     (_GLOB, {"pattern": "/Users/kunalsingh/Claude Code/../.ssh/*"}, "'..'"),
@@ -218,6 +224,43 @@ def test_validate_args_refuses_what_the_canonicaliser_refuses(spec, args, needle
 ])
 def test_validate_args_accepts_what_the_canonicaliser_accepts(spec, args):
     client.validate_args(spec, args)
+
+
+def test_an_unclassified_argument_must_be_a_string_on_every_verb():
+    """Over the whole table, not the argument somebody noticed.
+
+    `command: 5` passed both validators, rendered on Kunal's sheet as
+    "command: 5", cost TWO fingerprints and then failed at dispatch as
+    "missing command" — argString() returns nil for an .int. Same class
+    as fs.read's `limit`: untyped where the type is load-bearing, on
+    the one verb where the wasted taps are the scarce resource.
+
+    The rule is the DEFAULT (anything the catalogue does not type as an
+    integer, an enum or a payload is a string), so a verb that gains
+    such an argument is covered on the day it is added rather than the
+    day someone remembers. Mirrors
+    Canonicalizer.swift's notAString; the shared corpus pins the pair
+    on exec.shell specifically.
+    """
+    plausible = {"path": _ROOT + "/f", "cwd": "/private/tmp",
+                 "pattern": "/private/tmp/*", "target": "messages"}
+    covered = []
+    for spec in client.CATALOGUE:
+        typed = (spec.path_keys | spec.pattern_keys | spec.int_keys
+                 | spec.enum_keys | spec.blob_keys)
+        for k in sorted(spec.arg_keys - typed):
+            covered.append(f"{spec.name}.{k}")
+            args = {r: plausible.get(r, "x") for r in spec.required_keys}
+            # fs.grep's `pattern` is a REGEX over content, not a glob.
+            args[k] = "x"
+            client.validate_args(spec, dict(args))   # the control
+            for bad in (5, True):
+                args[k] = bad
+                with pytest.raises(client.ArgsInvalid) as e:
+                    client.validate_args(spec, dict(args))
+                assert "must be a string" in str(e.value), str(e.value)
+    assert "exec.shell.command" in covered, covered
+    assert "web.screenshot.url" in covered, covered
 
 
 def test_size_cap_is_measured_the_way_the_broker_measures_it():
@@ -293,6 +336,13 @@ def _refusal(code: str, verb: str = "notes.sync") -> client.IntentResult:
         "ambiguous_body": "More than one body is registered.",
         "queue_full": "20 intents are already pending on Kunal's Mac.",
         "args": "args.path is not an argument of notes.sync.",
+        # Canonical, and still impossible: the Mac's Precondition layer
+        # would refuse this after canonicalisation and before the sheet.
+        # Distinct from "args" because the canonicaliser would have
+        # ACCEPTED it, so a caller that lumps the two together tells
+        # Kunal the arguments were malformed when they were not.
+        "precondition_failed": "args.timeout_ms = 0 is outside the 1…55000 "
+                               "range exec.shell declares.",
         "signed_outside_turn": "needs Kunal's fingerprint and this call is not inside a turn",
         "unknown_verb": "'x' is not a catalogue verb.",
     }[code]

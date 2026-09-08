@@ -93,6 +93,7 @@ import json
 import logging
 import posixpath
 import time
+import unicodedata
 from typing import Any
 
 from astra.broker import ace, store
@@ -103,10 +104,17 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "VerbSpec", "CATALOGUE", "CATALOGUE_BY_NAME",
     "WIRED_VERBS", "AUTO_VERBS", "SIGNED_VERBS", "FORBIDDEN_ARG_KEYS",
-    "ALLOWED_ROOTS", "FS_READ_MAX_LIMIT", "AUTO_INTENTS_PER_HOUR",
-    "AUTO_INTENT_WAIT_SEC",
-    "REFUSAL_CODES", "IntentResult", "ArgsInvalid",
-    "run_intent", "status", "verify_receipt",
+    "ALLOWED_ROOTS", "FS_READ_MAX_LIMIT", "FS_READ_MAX_OFFSET",
+    "WEB_SCREENSHOT_MAX_PIXELS", "AUTO_INTENTS_PER_HOUR",
+    "AUTO_INTENT_WAIT_SEC", "DAILY_IRREVERSIBLE_MAX", "IRREVERSIBLE_VERBS",
+    "SECOND_CONFIRMATION_VERBS", "EXEC_SHELL_MAX_TIMEOUT_MS",
+    "DESTROYED_BLOB_KEYS", "budget_timing_note",
+    "DISPLAY_MAX_CHARS", "CONTENT_PREVIEW_CHARS", "WHY_MAX_CHARS",
+    "DISPLAY_MAX_LINES", "DISPLAY_MAX_LINE_CHARS", "display_line_budget",
+    "display_width", "display_order",
+    "REFUSAL_CODES", "IntentResult", "ArgsInvalid", "PreconditionFailed",
+    "precheck_args",
+    "run_intent", "status", "verify_receipt", "receipt_outcome",
     "validate_args", "denial_reason", "MAX_PENDING", "BODY_POLL_WINDOW_SEC",
     "PublishedCatalogue", "note_published_catalogue", "published_wired",
     "wired_state",
@@ -134,9 +142,42 @@ class VerbSpec:
     enum_keys: frozenset[str]
     max_arg_bytes: int
     wired: bool                    # execute() in AstraExecutor handles it
-    # Per-key integer ceilings the EXECUTOR enforces (FileVerbs.swift),
-    # mirrored so the refusal happens before a row exists.
-    int_max: tuple[tuple[str, int], ...] = ()
+    # Per-key integer RANGES, as (key, lo, hi) inclusive. Mirrors
+    # VerbSpec.intBounds in Catalog.swift, which Catalog.assertWellFormed
+    # requires to be complete over intKeys — so every integer argument
+    # in the catalogue has a declared range on both sides and this
+    # tuple is never a partial copy of it.
+    #
+    # BOTH ENDS, and that is the correction. This was a ceiling-only
+    # mirror while `timeout_ms` was a number the jail quietly clamped
+    # after Kunal had read it: `timeout_ms: 300000` rendered verbatim
+    # on both Touch ID sheets, cost two fingerprints and one of the
+    # day's three irreversible units, and was then cut to 55 s at the
+    # moment of acting, killing the command mid-way. The Mac now
+    # REFUSES an out-of-range integer at its precheck — before the
+    # prompt and before the budget — so a ceiling-only, clamp-assuming
+    # mirror here would file an intent that dies on arrival and spend
+    # one of the ten signed slots an hour to learn it.
+    int_bounds: tuple[tuple[str, int, int], ...] = ()
+    # The CONTENT CLASS: arguments that are a payload rather than a
+    # name, a number or a target. Mirrors VerbSpec.blobKeys in
+    # Catalog.swift, and it is not cosmetic — two rules hang off it on
+    # the Mac and both are visible from here:
+    #
+    #   the approval sheet SUMMARISES a payload
+    #     "<n> bytes, sha256 <8 hex>, first <k> of <n> bytes: <escaped>"
+    #     rather than showing it whole (Render.swift). Every other
+    #     argument is still shown verbatim or the intent is refused, so
+    #     a long `command` on exec.shell still refuses.
+    #   a payload must already be NFC
+    #     ACE-1 hashes strings as NFC UTF-8, so a decomposed payload
+    #     would be signed as its composed form and the bytes on disk
+    #     would not be the bytes sent. The Mac refuses it; this module
+    #     refuses it first, with the key named.
+    blob_keys: frozenset[str] = frozenset()
+    # Counted against the daily irreversible budget (3 a day, shared by
+    # every irreversible verb). Mirrors VerbSpec.irreversible.
+    irreversible: bool = False
 
     @property
     def signed(self) -> bool:
@@ -145,17 +186,33 @@ class VerbSpec:
 
 def _v(name: str, policy: str, args: str, required: str, paths: str,
        patterns: str, ints: str, max_arg_bytes: int, *, wired: bool,
-       enums: str = "",
-       int_max: tuple[tuple[str, int], ...] = ()) -> VerbSpec:
+       enums: str = "", blobs: str = "", irreversible: bool = False,
+       int_bounds: tuple[tuple[str, int, int], ...] = ()) -> VerbSpec:
     split = lambda s: frozenset(k for k in s.split() if k)  # noqa: E731
     return VerbSpec(name, policy, split(args), split(required), split(paths),
                     split(patterns), split(ints), split(enums), max_arg_bytes,
-                    wired, int_max)
+                    wired, int_bounds, split(blobs), irreversible)
 
 
 # Mirror of FileVerbs.maxReadLimit (640 KiB): the reply frame is 1 MiB
 # and carries base64, so a larger fs.read is refused by the executor.
 FS_READ_MAX_LIMIT = 640 * 1024
+
+# Mirror of the `offset` ceiling in Catalog.swift's fs.read intBounds.
+# A read a terabyte into a file is a mistake, not a page.
+FS_READ_MAX_OFFSET = 1 << 40
+
+# Mirror of ShellJail.maxTimeoutMs, and of the UPPER end of exec.shell's
+# declared `timeout_ms` range. Out of range is REFUSED at the Mac's
+# precheck — before the sheet is composed and before the budget — never
+# clamped at the moment of acting: the number Kunal reads on the Touch
+# ID prompt is the number the command gets, or there is no prompt.
+EXEC_SHELL_MAX_TIMEOUT_MS = 55_000
+
+# Mirror of the width/height range in web.screenshot's intBounds. The
+# verb is not wired, but the shape is typed on both sides so it cannot
+# become a free string in the interval.
+WEB_SCREENSHOT_MAX_PIXELS = 8192
 
 # Mirror of RateLimit.Ceilings.autoPerHour. The broker refuses the 61st
 # auto intent in a sliding hour; every paged reader must stay under it.
@@ -178,20 +235,54 @@ AUTO_INTENT_WAIT_SEC = 25
 CATALOGUE: tuple[VerbSpec, ...] = (
     _v("fs.read", "auto", "path offset limit", "path", "path", "",
        "offset limit", 4096, wired=True,
-       int_max=(("limit", FS_READ_MAX_LIMIT),)),
+       int_bounds=(("limit", 0, FS_READ_MAX_LIMIT),
+                   ("offset", 0, FS_READ_MAX_OFFSET))),
     _v("fs.glob", "auto", "pattern root", "pattern", "root", "pattern",
        "", 4096, wired=True),
     _v("fs.grep", "auto", "pattern path include", "pattern path", "path",
        "", "", 8192, wired=False),
-    _v("web.screenshot", "auto", "url width height", "url", "", "", "",
-       4096, wired=False),
+    _v("web.screenshot", "auto", "url width height", "url", "", "",
+       "width height", 4096, wired=False,
+       int_bounds=(("height", 1, WEB_SCREENSHOT_MAX_PIXELS),
+                   ("width", 1, WEB_SCREENSHOT_MAX_PIXELS))),
     _v("notes.sync", "auto", "", "", "", "", "", 64, wired=False),
+    # The write verbs, wired 2026-09-06. Each is one Touch ID prompt
+    # every time, no standing grant, and one unit of the day's three
+    # irreversible actions. `content`, `old` and `new` are the content
+    # class: summarised on the sheet, and NFC or refused.
     _v("fs.write", "signedNoStanding", "path content", "path content",
-       "path", "", "", 1_048_576, wired=False),
+       "path", "", "", 1_048_576, wired=True, blobs="content",
+       irreversible=True),
     _v("fs.edit", "signedNoStanding", "path old new", "path old new",
-       "path", "", "", 1_048_576, wired=False),
+       "path", "", "", 1_048_576, wired=True, blobs="old new",
+       irreversible=True),
+    # cwd is REQUIRED: the jail's one writable subtree is the approved
+    # cwd, so it is a security-relevant display line and there is no
+    # honest default (the executor's home is /var/empty, and a default
+    # the canonicaliser never sees is a default Kunal never reads).
+    # timeout_ms is an integer with a DECLARED RANGE (1 …
+    # EXEC_SHELL_MAX_TIMEOUT_MS), refused at the Mac's precheck rather
+    # than clamped at the moment of acting, and mirrored here so the
+    # refusal costs no signed-lane slot. It used to be a clamp: an
+    # intent asking for 300000 showed Kunal `timeout_ms: 300000` on
+    # both sheets, took two fingerprints and one of the day's three
+    # irreversible units, and was then cut to 55 s with the command
+    # killed mid-way and the clamp announced afterwards in the result.
+    # A sheet that states a number the body will not honour is a sheet
+    # that lies, so the number is now refused before it can be shown.
+    #
+    # `wired` for this verb is the one entry the Swift table cannot
+    # settle statically: the executor adds exec.shell to its dispatch
+    # table at boot ONLY if the sandbox-exec canary passes (a known-deny
+    # read must fail and a known-allow must succeed). The mirror says
+    # what the build can do; `published_wired` — the set the executor
+    # itself reports in every challenge reply — is the authority when
+    # this process has one, and the broker refuses an unwired verb
+    # before any prompt either way.
     _v("exec.shell", "signedNoStanding", "command cwd timeout_ms",
-       "command", "cwd", "", "", 8192, wired=False),
+       "command cwd", "cwd", "", "timeout_ms", 8192, wired=True,
+       irreversible=True,
+       int_bounds=(("timeout_ms", 1, EXEC_SHELL_MAX_TIMEOUT_MS),)),
     # "Can the body open X?", answered yes or no and never with bytes.
     # `target` is a CLOSED ENUM (messages, safari, mail, whatsapp,
     # documents) that the executor resolves to a compiled path; it is
@@ -301,6 +392,208 @@ BODY_POLL_WINDOW_SEC = 60
 TTL_SIGNED_SEC = 3600
 TTL_AUTO_SEC = 300
 
+# ── Policy the model has to be told the truth about ───────
+
+# Mirror of BudgetPolicy.dailyIrreversibleMax (Catalog.swift). Every
+# irreversible verb shares ONE counter, spent inside the executor's
+# verification and never refunded. The red team's judgement, adopted:
+# six a day is too many when one of them can be exec.shell.
+DAILY_IRREVERSIBLE_MAX = 3
+IRREVERSIBLE_VERBS: frozenset[str] = frozenset(
+    v.name for v in CATALOGUE if v.irreversible)
+
+# Mirror of BudgetPolicy.requiresSecondConfirmation. exec.shell takes
+# TWO taps: the second is a separate enclave signature over
+# SHA256("ASTRA-2ND-v1" ‖ P ‖ sig_human), checked by the EXECUTOR
+# against its own copy of the approver key — so it is not a prompt the
+# broker counts and could skip.
+SECOND_CONFIRMATION_VERBS: frozenset[str] = frozenset({"exec.shell"})
+
+
+def budget_timing_note() -> str:
+    """WHEN a refusal costs one of the day's irreversible units.
+
+    One sentence, in one place, because both model-facing surfaces
+    carry it and an earlier version of each was WRONG in the same
+    direction: they said a file that changed between the check and the
+    write "DOES spend the unit, because the unit is spent on the
+    attempt". That is only true for the last of three cases.
+
+    The Mac decides in this order (Verify.swift): (a) the shape and
+    signature checks, (b) step (j)/(j2) — the target and its parent
+    must still be the objects that were approved, (j') — the verb's own
+    preconditions re-asked against the file as it is NOW, and only then
+    (k) the budget spend. So a file that changed during the approval
+    window is caught at (j)/(j') and the counter never moves; what does
+    move it is a failure INSIDE the act, after (k) — an EACCES on the
+    write, a non-zero exit from the shell, or a target rewritten in the
+    milliseconds between the last check and the rename.
+
+    Saying otherwise is not a harmless overstatement: a model that
+    believes a stale edit burned one of three will tell Kunal the day's
+    allowance is gone when it is not, and will decline work it could
+    have done. Both directions of that error are confabulation about a
+    number this process cannot read.
+    """
+    return (
+        "WHEN A UNIT IS ACTUALLY SPENT, in the order the Mac decides: "
+        "refused BEFORE the prompt (an unwired verb, arguments the gate "
+        "rejects, an `old` that matches zero or several times, a missing "
+        "parent, a symlink target, a cwd that is not a directory — these "
+        "come back as `precondition_failed`) costs no fingerprint and no "
+        "unit; refused AFTER the prompt but before the action (the file "
+        "or its directory changed while Kunal was reading, so the "
+        "approved target is no longer the object on disk — "
+        "`precondition_failed` or `path_changed`) costs the fingerprint "
+        "and still NO unit, because the Mac checks that before it "
+        "touches the counter; and a failure INSIDE the action "
+        "(permission denied, a non-zero exit, a file rewritten in the "
+        "last millisecond) DOES spend one, because by then the attempt "
+        "was made. Never tell Kunal the day's allowance is gone on the "
+        "strength of a refusal; only a finished attempt spends."
+    )
+
+# Mirror of Render.maxDisplayChars and maxContentPreviewChars. The
+# approval sheet is capped and NOTHING is truncated to fit it: an
+# over-long display refuses the intent. The one exception is the
+# content class (`blob_keys`), summarised as
+# "<n> bytes, sha256 <8 hex>, first <k> of <n> bytes: <escaped>" —
+# which is what makes a 1 MiB fs.write possible at all. `why` can never
+# shrink that preview: it has a COMPILED reservation on the sheet
+# (Render.maxWhyLineChars), taken out whether or not a `why` is
+# present, and one that does not fit the reservation refuses the intent
+# rather than growing the sheet or shrinking the preview.
+DISPLAY_MAX_CHARS = 400
+CONTENT_PREVIEW_CHARS = 120
+
+# Mirror of Render.maxDisplayLines and Render.maxDisplayLineChars — the
+# two caps that bound the sheet's SHAPE rather than its total size.
+#
+# The character cap alone bounded the wrong quantity. A Touch ID dialog
+# clips by visual ROW and it wraps, so one 250-character path is a
+# single line by the newline count and roughly five rows on screen: a
+# five-line sheet could occupy a dozen rows, and the rows that fall off
+# the bottom are `because:` and, on an fs.edit, `old:` — the field that
+# says what is about to be destroyed, with nothing on screen to say
+# anything was withheld.
+#
+# So ONE ARGUMENT'S LINE has its own ceiling, counted the way
+# `display_width` counts (escaped), and an intent whose path, cwd or
+# command exceeds it is refused before Kunal sees anything. Payloads
+# can never trip it — their preview budget is computed from what the
+# fixed parts leave — so this is a rule about long paths and long shell
+# commands, and both are refused rather than shortened.
+DISPLAY_MAX_LINES = 6
+DISPLAY_MAX_LINE_CHARS = 200
+
+# What one ARGUMENT may be, once the sheet's own "  <key>: " label and
+# newline are taken off. Verb- and key-dependent, so it is a function
+# rather than a constant.
+
+
+def display_line_budget(key: str) -> int:
+    """How many sheet-characters `key`'s VALUE may occupy."""
+    return DISPLAY_MAX_LINE_CHARS - len(f"  {key}: ") - 1
+
+# Mirror of Render.maxWhyLineChars, minus the "  because: " label and
+# the newline the Mac adds — so this is what `why` itself may be.
+#
+# Refused HERE as well as there because the Mac's refusal costs a round
+# trip and reads as `unrenderable`, which sounds like the arguments are
+# too big when what is too long is one sentence the model wrote. The
+# count is on the ESCAPED form: every non-ASCII character becomes a
+# visible \uXXXX on the sheet (up to 10 characters), so a cap counted
+# in source characters is not a cap on what Kunal sees.
+WHY_MAX_CHARS = 96 - len("  because: ") - 1
+
+
+# Mirror of Render.destroyedBlobKeys: which of a verb's payloads names
+# the bytes being DESTROYED rather than the bytes being written.
+#
+# The Mac keeps this as a per-verb table rather than a VerbSpec field
+# because it cannot be derived — `old` and `new` are blobs of identical
+# shape, and nothing in a type says which one disappears — and it
+# refuses to boot (Render.assertOrderWellFormed) if a verb carries two
+# payloads and names neither. Mirrored in the same shape so
+# test_write_verbs can compare the two literals directly.
+DESTROYED_BLOB_KEYS: dict[str, frozenset[str]] = {
+    "fs.edit": frozenset({"old"}),
+}
+
+
+def display_order(spec: VerbSpec) -> tuple[str, ...]:
+    """The order Kunal's approval sheet puts this verb's arguments in.
+
+    Mirror of `Render.rank` / `Render.orderedKeys` on the Mac. Four
+    classes, and the classes are the point:
+
+      0   the filesystem target (path keys, pattern keys) — the thing
+          being acted ON is read first. Plain alphabetical order put
+          fs.write's 1 MiB `content` above its `path`, which is the
+          wrong way round for a sheet somebody reads top to bottom.
+      10  everything else, verbatim.
+      15  the payload the verb DESTROYS (fs.edit's `old`).
+      20  the rest of the content class, last: the only elastic and the
+          only summarised part.
+
+    Class 15 is the newest and it exists because the sheet's row
+    capacity is still UNMEASURED against a real Touch ID dialog. If the
+    dialog shows fewer rows than the sheet occupies it clips from the
+    bottom and gives no sign that it did, so alphabetical order inside
+    the content class — `new` then `old` — put the text being DELETED
+    in the last argument row of an fs.edit. The removal now outranks
+    the replacement, and what falls off a clipping dialog is the
+    additive half.
+
+    Ties inside a class break ALPHABETICALLY, exactly as Swift does it
+    (`ra == rb ? a < b : ra < rb`). It is worth being explicit about
+    that because the cloud had two other rules before this function
+    existed — one that put required arguments first, one that ignored
+    the classes entirely — and both were used to TELL the model what
+    Kunal's prompt looks like. They disagreed with the sheet on
+    exec.shell, where `cwd` is a path key and therefore the first line
+    Kunal reads, while the prompt announced `command` first.
+
+    A description of a sheet is a claim about another program. There
+    is one rule here so there is one claim.
+    """
+    destroyed = DESTROYED_BLOB_KEYS.get(spec.name, frozenset())
+
+    def rank(k: str) -> int:
+        if k in spec.path_keys or k in spec.pattern_keys:
+            return 0
+        if k not in spec.blob_keys:
+            return 10
+        return 15 if k in destroyed else 20
+
+    return tuple(sorted(spec.arg_keys, key=lambda k: (rank(k), k)))
+
+
+def display_width(s: str) -> int:
+    """What `s` costs on the approval sheet — the length of
+    Render.safe(s), not of `s`.
+
+    The renderer is deliberately hostile to its own input: printable
+    ASCII passes through and EVERYTHING else becomes a visible escape,
+    so "/Users/kunalsingh/pгod.db" cannot be mistaken for the
+    Latin spelling. One Devanagari character therefore costs six
+    columns and one emoji ten. A cap counted in `len(s)` is not a cap
+    on the sheet, which is the mistake the Swift side already paid for
+    once in its preview budget.
+    """
+    n = 0
+    for ch in s:
+        v = ord(ch)
+        if 0x20 <= v <= 0x7E:
+            n += 1
+        elif v in (0x0A, 0x09):     # \n and \t are two characters each
+            n += 2
+        elif v <= 0xFFFF:
+            n += 6                  # \uXXXX
+        else:
+            n += 10                 # \UXXXXXXXX
+    return n
+
 
 # ── The published catalogue (per process) ─────────────────
 
@@ -403,6 +696,13 @@ def wired_state(verb: str, body_id: int | None = None) -> tuple[bool, str]:
 REFUSAL_CODES: frozenset[str] = frozenset({
     "unknown_verb",         # not a catalogue verb
     "args",                 # the broker would refuse these arguments
+    # Canonical, and still impossible: an integer outside the range its
+    # verb declares. Named after the Mac's own refusal so the model
+    # reads one word for one cause whichever side saw it first, and
+    # kept distinct from "args" because the Mac's canonicaliser would
+    # have ACCEPTED these — a different layer said no.
+    "precondition_failed",
+
     "signed_outside_turn",  # a fingerprint verb from a job
     "unwired",              # catalogued, but execute() cannot do it yet
     "no_body",              # no Mac has enrolled
@@ -431,6 +731,18 @@ class IntentResult:
     display: str = ""
     result_note: str = ""
     refusal_code: str = ""
+    # The outcome byte the EXECUTOR signed inside the receipt: "ok",
+    # "partial", "refused", "error", or "" when there is no receipt.
+    #
+    # Not a duplicate of `status`. The broker maps `partial` onto the
+    # row status "succeeded" (it is a success: the thing happened), and
+    # partial is precisely the case a caller must not be allowed to
+    # read as a plain success — for fs.write it means the file landed
+    # and the full-control ACE for Kunal did not, so he has a file in
+    # his own repo that he cannot write; for exec.shell it means the
+    # command ran and its output was withheld. Both are outcomes with a
+    # consequence, and both would be invisible from `status` alone.
+    receipt_outcome: str = ""
 
     @property
     def filed(self) -> bool:
@@ -461,6 +773,16 @@ def _refused(verb: str, code: str, why: str) -> IntentResult:
 class ArgsInvalid(ValueError):
     """The arguments would be refused by the broker's canonicaliser.
     Raised here, before filing, with the offending path named."""
+
+
+class PreconditionFailed(ValueError):
+    """Canonical, and still impossible: the Mac would refuse this at
+    `Precondition.check`, after canonicalisation and before the sheet.
+
+    A separate exception from `ArgsInvalid` because they mirror two
+    different Mac-side layers and the refusal codes differ — and
+    because the shared boundary corpus pins `validate_args` against
+    the canonicaliser alone, where these values are perfectly legal."""
 
 
 def denial_reason(component: str) -> str | None:
@@ -701,6 +1023,36 @@ def validate_args(spec: VerbSpec, args: dict[str, Any]) -> None:
                 "compiled into the body and cannot be chosen here. "
                 "Nothing was filed."
             )
+    for k in spec.blob_keys & set(args):
+        v = args[k]
+        # A PAYLOAD is a string. `content: 5` would otherwise be
+        # accepted here, refused on the Mac as badType, and cost a
+        # round trip; worse, a validator that coerced it would decide
+        # what bytes reach the disk three modules away from the write.
+        if not isinstance(v, str):
+            raise ArgsInvalid(
+                f"args.{k} must be a string for {spec.name}, got "
+                f"{type(v).__name__}. It is a PAYLOAD: those bytes are "
+                "written to the file, so they are taken exactly as sent "
+                "or not at all. Nothing was filed."
+            )
+        # ...and it must already be NFC. ACE-1 hashes strings as NFC
+        # UTF-8 (astra/broker/ace.py and ACE.swift alike), so a
+        # decomposed payload would be SIGNED as its composed form: the
+        # bytes on disk would not be the bytes sent, and a later
+        # fs.edit against your own copy would find zero occurrences
+        # with no explanation. The Mac refuses it (Canonicalizer's
+        # notNormalised); this refuses it first, with the key named.
+        if unicodedata.normalize("NFC", v) != v:
+            raise ArgsInvalid(
+                f"args.{k} is a payload that is not Unicode-normalised "
+                f"({len(v.encode('utf-8'))} bytes; "
+                f"{len(unicodedata.normalize('NFC', v).encode('utf-8'))} as "
+                "NFC). It is refused rather than normalised for you: a "
+                "payload is signed, shown and written as its NFC bytes, so "
+                "composing it here would write something other than what "
+                "you sent. Send NFC. Nothing was filed."
+            )
     for k in spec.int_keys & set(args):
         v = args[k]
         if isinstance(v, bool) or not isinstance(v, int) or v < 0:
@@ -709,12 +1061,27 @@ def validate_args(spec: VerbSpec, args: dict[str, Any]) -> None:
                 f"{spec.name}, got {v!r} ({type(v).__name__}). "
                 "Nothing was filed."
             )
-    for k, ceiling in spec.int_max:
-        if k in args and isinstance(args[k], int) and args[k] > ceiling:
+    # UNCLASSIFIED MEANS STRING (Canonicalizer.swift's notAString).
+    #
+    # Every argument the catalogue does not classify as a path, a
+    # pattern, an integer, an enum or a payload is a string whose exact
+    # text is the thing being approved: exec.shell's `command`,
+    # web.screenshot's `url`, fs.grep's `pattern` and `include`.
+    # Without this, `command: 5` was accepted here AND canonicalised on
+    # the Mac, rendered on the sheet as "command: 5", cost TWO
+    # fingerprints, and then failed at dispatch as "missing command" —
+    # the untyped-argument bug that already cost fs.read's `limit`, on
+    # the one verb where the wasted taps are the scarce resource.
+    _typed = (spec.path_keys | spec.pattern_keys | spec.int_keys
+              | spec.enum_keys | spec.blob_keys)
+    for k in sorted(set(args) - _typed):
+        if not isinstance(args[k], str):
             raise ArgsInvalid(
-                f"args.{k} = {args[k]} exceeds the {ceiling}-byte ceiling the "
-                f"executor enforces for {spec.name}; page with offset. "
-                "Nothing was filed."
+                f"args.{k} must be a string for {spec.name}, got "
+                f"{args[k]!r} ({type(args[k]).__name__}). An argument the "
+                "catalogue does not type as an integer, an enum or a "
+                "payload is a string whose exact text is what Kunal "
+                "approves. Nothing was filed."
             )
     for k in spec.path_keys & set(args):
         _check_path(k, args[k])
@@ -732,6 +1099,47 @@ def validate_args(spec: VerbSpec, args: dict[str, Any]) -> None:
             f"measures them, over its {spec.max_arg_bytes}-byte cap. Nothing "
             "is truncated, ever; split the work. Nothing was filed."
         )
+
+
+def precheck_args(spec: VerbSpec, args: dict[str, Any]) -> None:
+    """The preconditions this side can decide from the arguments alone.
+
+    A SECOND layer, deliberately not folded into `validate_args`, and
+    the split is the point. `validate_args` mirrors the CANONICALISER
+    (Canonicalizer.swift) and is pinned against it by one shared corpus
+    of boundary values — the file that exists because the two
+    implementations of that one rule disagreed about `0` for months.
+    A rule that belongs to a different Mac-side layer cannot be folded
+    into that function without making the corpus unable to express the
+    truth: `timeout_ms: 0` IS canonical (it is an integer, and reading
+    it as a boolean was the bug the corpus pins), and it is REFUSED by
+    `Precondition.check`, which runs after canonicalisation.
+
+    So this mirrors `Precondition.check`'s intBounds loop instead. Same
+    verdict, same reason, one round trip earlier. On the Mac an
+    out-of-range integer is refused BEFORE the sheet is composed and
+    before the budget; refusing it here as well costs the model nothing
+    and saves one of the ten signed slots an hour.
+
+    Ranges only, today. The rest of `Precondition.check` asks the
+    filesystem (does `old` occur exactly once, is the parent a
+    directory) and the answers are the Mac's to give — guessing at them
+    from here would be a second source of truth for a fact that changes
+    under us.
+    """
+    for k, lo, hi in spec.int_bounds:
+        v = args.get(k)
+        # `is not True/False`: bool is a subclass of int, and a JSON
+        # boolean is refused by validate_args as a type error — not
+        # silently range-checked as 0 or 1 here.
+        if isinstance(v, int) and not isinstance(v, bool) and not lo <= v <= hi:
+            raise PreconditionFailed(
+                f"args.{k} = {v} is outside the {lo}…{hi} range {spec.name} "
+                "declares. The Mac refuses it rather than adjusting it: the "
+                "value you ask for is the value Kunal would read on the Touch "
+                "ID prompt and sign, so a number the body will not honour is "
+                "never shown. Nothing was filed."
+            )
 
 
 # ── (c) caller class ──────────────────────────────────────
@@ -842,6 +1250,38 @@ def _busy_message(live: store.BodyLiveness | None,
 _unverified_logged = False
 
 
+# Receipt.swift's layout, mirrored: 194 bytes, of which [0:130] is the
+# signed prefix — header(13) + payload_hash(32) + challenge(32) +
+# OUTCOME(1) + started(8) + finished(8) + result_digest(32) +
+# result_len(4). The outcome is therefore byte 77. Pinned against
+# Token.swift by tests/test_broker/test_write_verbs.py, because an
+# offset read from the wrong byte would report "ok" for a partial
+# write and nothing would look wrong.
+_RECEIPT_SIZE = 194
+_RECEIPT_OUTCOME_OFFSET = 77
+_RECEIPT_OUTCOMES: dict[int, str] = {
+    0: "ok", 1: "refused", 2: "error", 3: "partial",
+}
+
+
+def receipt_outcome(row: dict[str, Any]) -> str:
+    """The outcome the executor SIGNED, or "" when there is none.
+
+    Read from the receipt rather than from a column, for the same
+    reason `verify_receipt` recomputes its verdict: the brain is a
+    Postgres superuser, so any status the database merely stores is a
+    value it can write about itself. This byte is inside the bytes the
+    executor's key covers.
+    """
+    rb = row.get("receipt_bytes")
+    if not rb:
+        return ""
+    rb = bytes(rb)
+    if len(rb) != _RECEIPT_SIZE:
+        return ""
+    return _RECEIPT_OUTCOMES.get(rb[_RECEIPT_OUTCOME_OFFSET], "")
+
+
 def verify_receipt(row: dict[str, Any]) -> str:
     """Verify the executor's signature over the receipt, here, now.
 
@@ -928,6 +1368,7 @@ def _from_row(row: dict[str, Any]) -> IntentResult:
         result_bytes=result, deny_reason=deny,
         receipt_verdict=verify_receipt(row) if st == "succeeded" else "",
         display=display, result_note=row.get("result_note") or "",
+        receipt_outcome=receipt_outcome(row),
     )
 
 
@@ -983,6 +1424,19 @@ async def run_intent(
             verb, "args",
             "why is required: it is the line Kunal reads when deciding",
         )
+    if display_width(why) > WHY_MAX_CHARS:
+        # ONE LINE. `why` has a fixed reservation on the sheet so it
+        # can never take space from the payload preview Kunal has to
+        # read; over that reservation the Mac refuses the whole intent
+        # as `unrenderable`, which sounds like the arguments are too
+        # big. Say the real thing here, before anything is filed.
+        return _refused(verb, "args", (
+            f"why is {display_width(why)} characters as the approval sheet "
+            f"counts them (non-ASCII is escaped and costs up to 10 each) "
+            f"and the sheet reserves {WHY_MAX_CHARS}. It is one line Kunal "
+            "reads while deciding, not the place for the reasoning — put "
+            "that in the conversation. Nothing was filed."
+        ))
     if not actor or not isinstance(actor, str):
         raise TypeError("run_intent: actor must be a non-empty string")
 
@@ -998,6 +1452,16 @@ async def run_intent(
         validate_args(spec, args)
     except ArgsInvalid as e:
         return _refused(verb, "args", str(e))
+
+    # The second layer, in the same order the Mac runs it: canonicalise,
+    # then precondition. Cheap (it reads the arguments, nothing else)
+    # and it runs for every verb, not only the three the Mac asks its
+    # body about — a range is a fact about the arguments, so it needs no
+    # round trip to decide.
+    try:
+        precheck_args(spec, args)
+    except PreconditionFailed as e:
+        return _refused(verb, "precondition_failed", str(e))
 
     claim = session_claim if session_claim is not None else _turn_claim()
     in_turn = bool(claim) and claim.startswith("turn:")

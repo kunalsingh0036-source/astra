@@ -38,6 +38,9 @@ _NOT_TOOLS: dict[str, str] = {
     "bridge": "the A2A router service, named as NOT the Mac",
     # a scheduler job
     "inbox_triage": "job",
+    # deny reasons the body returns, quoted so the model can match on
+    # them; they are outcomes, not callable tools.
+    "precondition_failed": "a broker deny reason, not a tool",
     # tools the prompt says were DELETED / are not the model's
     "set_mode": "named as not one of your tools",
     "fleet_summary": "named as deleted", "agent_status": "named as deleted",
