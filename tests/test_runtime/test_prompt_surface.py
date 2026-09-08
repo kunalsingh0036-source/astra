@@ -30,6 +30,9 @@ _NOT_TOOLS: dict[str, str] = {
     "pattern": "argument", "include": "argument", "old": "argument",
     "new": "argument", "url": "argument", "content": "argument",
     "artifact_id": "argument",
+    # refusal codes the prompt explains so the model can act on them
+    # rather than guess from the wording (the write verbs added these)
+    "path_changed": "refusal code",
     # forbidden argument KEYS the prompt tells the model never to send
     "reason": "forbidden arg key", "approved": "forbidden arg key",
     "tier": "forbidden arg key", "body_id": "forbidden arg key",
