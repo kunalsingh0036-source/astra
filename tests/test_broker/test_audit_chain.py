@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -26,6 +27,18 @@ from astra.broker import audit_chain as C
 
 SEED = bytes(range(32))
 OTHER_SEED = bytes(range(100, 132))
+ANCHOR_FIXTURE = Path(__file__).parent / "fixtures" / "audit_anchor_vectors.json"
+
+
+def _anchor_vectors():
+    # Standalone CI has no sibling Mac checkout. Ship a required snapshot,
+    # and refuse any divergence whenever both halves are available.
+    if C.ANCHOR_VECTORS_PATH.exists():
+        assert ANCHOR_FIXTURE.read_bytes() == C.ANCHOR_VECTORS_PATH.read_bytes(), (
+            "The packaged anchor vectors differ from the Mac source. "
+            "Update both in the same release; do not bypass this check."
+        )
+    return json.loads(ANCHOR_FIXTURE.read_text())
 
 
 def _key(seed: bytes = SEED) -> Ed25519PrivateKey:
@@ -116,16 +129,17 @@ def verified_manifest(chain_id: str, **kw):
 
 
 def test_this_module_reproduces_the_shared_anchor_vectors():
-    """The one file three implementations are held to.
+    """The one contract three implementations are held to.
 
     astra-broker/Resources/audit_anchor_vectors.json is generated from
     these constructions, asserted against the Swift shipper by
     AuditAnchorVectorTests, and asserted against the verifier here. If
     someone changes a signing construction on either side, two suites
-    go red on the same file rather than the bucket filling with
-    objects nobody can verify.
+    go red on the same vectors rather than the bucket filling with
+    objects nobody can verify. The cloud repo includes a byte-identical
+    snapshot for standalone CI; local runs also enforce exact parity.
     """
-    v = C.load_anchor_vectors()
+    v = _anchor_vectors()
     chain_id = v["chain_id"]
     builders = {
         "record": lambda c: C.record_signing_bytes(c["record_hash"]),
@@ -147,11 +161,23 @@ def test_this_module_reproduces_the_shared_anchor_vectors():
         assert C._verifies(C.public_key(chain_id), case["sig"], msg)
 
 
-def test_the_vector_file_exists_exactly_once():
-    assert C.ANCHOR_VECTORS_PATH.exists(), C.ANCHOR_VECTORS_PATH
-    root = C.ANCHOR_VECTORS_PATH.parents[2]
-    found = list(root.rglob("audit_anchor_vectors.json"))
-    assert len(found) == 1, f"more than one copy of the contract: {found}"
+def test_the_required_anchor_snapshot_covers_every_construction():
+    assert {c["kind"] for c in _anchor_vectors()["cases"]} == {
+        "record", "head", "chain", "skip",
+    }
+
+
+def test_anchor_vectors_work_without_the_mac_checkout(monkeypatch, tmp_path):
+    monkeypatch.setattr(C, "ANCHOR_VECTORS_PATH", tmp_path / "absent-mac.json")
+    test_this_module_reproduces_the_shared_anchor_vectors()
+
+
+def test_anchor_vectors_refuse_a_divergent_mac_snapshot(monkeypatch, tmp_path):
+    divergent = tmp_path / "mac-vectors.json"
+    divergent.write_bytes(ANCHOR_FIXTURE.read_bytes() + b" ")
+    monkeypatch.setattr(C, "ANCHOR_VECTORS_PATH", divergent)
+    with pytest.raises(AssertionError, match="differ from the Mac source"):
+        _anchor_vectors()
 
 
 # ── the four attacks, four distinct reports ──────────────────────────

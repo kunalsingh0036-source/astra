@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "kind": "record",
+      "note": "one audit record, signed over its 32 hash bytes",
+      "record_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sig": "a91cdcfcc4009a7bdb338b84eb1fc3cc6b5eee2ce584d669f41246abee77a5e892d26c62b7c8dc63bafd5c36dcc4ff3234ab50ee9fd38c00fa9ee438b7330205",
+      "signing_bytes_hex": "61737472612d61756469742d763100aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "kind": "head",
+      "note": "a daily head: seq, hash and timestamp are all committed to",
+      "record_hash": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+      "seq": 13,
+      "sig": "b8990ea2d457a3d239ab72fa2c52cb49f30bb35ed9ffd5218df1f5bc0aacede2840bed2aac604dacb51740842a277e47c04f69c17863f5e6b0793dc39a63dd04",
+      "signing_bytes_hex": "61737472612d61756469742d686561642d763100000000000000000d3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f0000019919887f80",
+      "ts_ms": 1757070000000
+    },
+    {
+      "created_ms": 1757070000123,
+      "first_prev_hash": "3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f",
+      "first_seq": 14,
+      "kind": "chain",
+      "note": "the manifest of a chain enrolled MID-LOG: seqs below 14 are absent by design",
+      "sig": "d306abe2fa4792c0b0dd00a5122636bb289375a5fa146b3165f212af8bf868f6f2499bc2d1317e02c789fa0ca428bff97fa043c738dc9b4b07e4999b7780b206",
+      "signing_bytes_hex": "61737472612d61756469742d636861696e2d763100303361313037626666336365313062653164373064643138653734626330393936376534643633303962613530643566316464633836363431323535333162381f000000000000000e3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f3f0000019919887ffb"
+    },
+    {
+      "created_ms": 1757070000456,
+      "first_prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "first_seq": 1,
+      "kind": "chain",
+      "note": "the manifest of a chain that began at seq 1",
+      "sig": "fc30312809308e98ddf8c4fb3facaf2643b1c087d1d5511d7f29390f9afcb10d02de2cd013efa1f20e5d24e52f700b075aaf9e664ec279cfb887f9395c298a06",
+      "signing_bytes_hex": "61737472612d61756469742d636861696e2d763100303361313037626666336365313062653164373064643138653734626330393936376534643633303962613530643566316464633836363431323535333162381f000000000000000100000000000000000000000000000000000000000000000000000000000000000000019919888148"
+    },
+    {
+      "kind": "skip",
+      "note": "a seq stepped over because its record fails the closed grammar",
+      "seq": 3,
+      "sig": "2cbdde003e50db838f8d0ef4d9c48d23a87997c36bacc90f5f9d7396fe6c194b0416fdd6f26cc125712303e1a9c0fc0cec88505c08327903cbb2ad95e45e3902",
+      "signing_bytes_hex": "61737472612d61756469742d736b69702d763100303361313037626666336365313062653164373064643138653734626330393936376534643633303962613530643566316464633836363431323535333162381f000000000000000361756469745f726561736f6e5f6e6f745f636c6f7365641f000001991988a68f",
+      "skipped_ms": 1757070009999,
+      "why": "audit_reason_not_closed"
+    },
+    {
+      "kind": "skip",
+      "note": "a seq stepped over because the bucket already holds another record there",
+      "seq": 41,
+      "sig": "af8ea365fbbee2ecaf088c9b262e92dd83471c05420551c00c1adecb624b4c3f6fc50b472cf7662a5a76a737a414d813482f6dbb1ef3fc799cb5188799f5020d",
+      "signing_bytes_hex": "61737472612d61756469742d736b69702d763100303361313037626666336365313062653164373064643138653734626330393936376534643633303962613530643566316464633836363431323535333162381f0000000000000029646976657267656e745f6f626a6563741f000001991988cd9f",
+      "skipped_ms": 1757070019999,
+      "why": "divergent_object"
+    }
+  ],
+  "chain_id": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "note": "Cross-language contract for the four signed objects in the astra-audit bucket. Regenerate with Tests/check_audit_anchor_vectors.py --regenerate; AuditAnchorVectorTests asserts the Swift side reproduces every signing_bytes_hex and verifies every sig. Test data only.",
+  "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+}
