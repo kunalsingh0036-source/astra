@@ -149,7 +149,8 @@ def client(cfg: Config):  # pragma: no cover - exercised via Stubber in tests
         endpoint_url=cfg.endpoint,
         aws_access_key_id=cfg.key_id,
         aws_secret_access_key=cfg.secret,
-        config=BotoConfig(signature_version="s3v4"),
+        config=BotoConfig(signature_version="s3v4", connect_timeout=5,
+                          read_timeout=10, retries={"max_attempts": 2}),
         region_name="auto",
     )
 
@@ -165,9 +166,14 @@ class Anchor:
     and never a socket.
     """
 
-    def __init__(self, cfg: Config, s3: Any):
+    def __init__(self, cfg: Config, s3: Any, *, deadline: float | None = None):
         self.cfg = cfg
         self.s3 = s3
+        self.deadline = deadline
+
+    def _check_deadline(self) -> None:
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise AnchorError("audit read deadline exceeded; verification incomplete")
 
     # -- primitives
 
@@ -181,7 +187,9 @@ class Anchor:
         """
         out: list[str] = []
         token: str | None = None
+        seen_tokens: set[str] = set()
         while True:
+            self._check_deadline()
             kw: dict[str, Any] = {"Bucket": self.cfg.bucket, "Prefix": prefix}
             if token:
                 kw["ContinuationToken"] = token
@@ -197,11 +205,21 @@ class Anchor:
                     "continuation token; refusing to treat a partial listing as the "
                     "whole chain"
                 )
+            if token in seen_tokens:
+                raise AnchorError("bucket repeated a continuation token")
+            seen_tokens.add(token)
         return out
 
     def get_json(self, key: str) -> Any:
+        self._check_deadline()
         resp = self.s3.get_object(Bucket=self.cfg.bucket, Key=key)
-        body = resp["Body"].read()
+        stream = resp["Body"]
+        try:
+            body = stream.read(1_048_577)
+        finally:
+            stream.close()
+        if len(body) > 1_048_576:
+            raise AnchorError("audit object exceeds 1 MiB")
         try:
             return json.loads(body)
         except ValueError as e:
@@ -303,6 +321,10 @@ def verify(anchor: Anchor) -> Result:
     """
     manifest, m_verdict = anchor.manifest()
     notes = [m_verdict.detail]
+    # Pin the head BEFORE listing records. The shipper publishes a head
+    # only after its records arrive. Reading a newer head after a slow
+    # walk would mistake concurrent legitimate appends for missing data.
+    head = anchor.newest_head()
 
     raw_skips = anchor.skips()
     skips, skip_problems = verify_skips(raw_skips, anchor.cfg.chain_id)
@@ -358,7 +380,6 @@ def verify(anchor: Anchor) -> Result:
             notes=notes + [report.verdict.detail],
         )
 
-    head = anchor.newest_head()
     if head is None:
         notes.append(
             "the bucket holds no heads/ object; the broker publishes one at boot, at "
@@ -392,7 +413,7 @@ def verify(anchor: Anchor) -> Result:
 
 
 def freshness(anchor: Anchor, now_ms: int | None = None, max_age_h: float = 25.0) -> Result:
-    """How old the newest head is, and nothing else.
+    """Age of the SIGNED head timestamp, never the untrusted object name.
 
     Deliberately does NOT page on lag by itself. The broker only runs
     while the Mac is awake, so "behind" is the normal state of a closed
@@ -418,9 +439,19 @@ def freshness(anchor: Anchor, now_ms: int | None = None, max_age_h: float = 25.0
             detail=f"the newest heads/ key is not a UTC stamp: {stamp!r}",
             ok=False,
         )
+    obj = anchor.get_json(keys[-1])
+    checked = verify_head(obj, anchor.cfg.chain_id,
+                          ChainReport(verdict=Verdict("empty", "signature-only check")))
+    if checked.kind != "head_ok":
+        return Result(verdict=checked.kind, detail=checked.detail, ok=False)
+    # Key and signed timestamp must agree to the second. Re-uploading
+    # an old signed head under today's filename cannot renew freshness.
     import calendar
 
-    head_ms = int(calendar.timegm(t) * 1000)
+    head_ms = int(obj["ts_ms"])
+    if int(calendar.timegm(t)) != head_ms // 1000:
+        return Result(verdict="head_stamp_mismatch",
+                      detail="head filename differs from its signed timestamp", ok=False)
     age_h = (now - head_ms) / 3_600_000
     if age_h < -0.25:
         # A head stamped in the future never goes stale, so an

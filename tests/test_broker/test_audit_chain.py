@@ -586,10 +586,11 @@ def test_freshness_is_age_only_and_never_pages_on_a_closed_lid():
     import calendar
 
     cid, recs, objs = build_chain(2)
+    head_ms = calendar.timegm(time.strptime("2026-09-05T10-15-00Z", "%Y-%m-%dT%H-%M-%SZ")) * 1000
+    recs[-1]["ts_ms"] = head_ms
     s3 = bucket_for(cid, objs, manifest=make_manifest(cid),
                     heads={"2026-09-05T10-15-00Z": head_object(recs[-1])})
     a = anchor_for(cid, s3)
-    head_ms = calendar.timegm(time.strptime("2026-09-05T10-15-00Z", "%Y-%m-%dT%H-%M-%SZ")) * 1000
     assert A.freshness(a, now_ms=head_ms + 5 * 60_000).ok
     stale = A.freshness(a, now_ms=head_ms + 26 * 3_600_000)
     assert not stale.ok and stale.verdict == "stale"
@@ -598,6 +599,56 @@ def test_freshness_is_age_only_and_never_pages_on_a_closed_lid():
     # that stopped shipping days ago.
     ahead = A.freshness(a, now_ms=head_ms - 5 * 3_600_000)
     assert not ahead.ok and ahead.verdict == "head_in_future"
+
+
+def test_freshness_cannot_be_renewed_by_renaming_an_old_signed_head():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs, manifest=make_manifest(cid),
+                    heads={"2026-09-24T10-00-00Z": head_object(recs[-1])})
+    result = A.freshness(anchor_for(cid, s3))
+    assert not result.ok and result.verdict == "head_stamp_mismatch"
+
+
+def test_freshness_requires_the_pinned_signature():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs, heads={"2026-09-24T10-00-00Z": head_object(recs[-1], OTHER_SEED)})
+    result = A.freshness(anchor_for(cid, s3))
+    assert not result.ok and result.verdict == "head_sig_invalid"
+
+
+def test_reader_refuses_repeated_pagination_token_and_oversized_objects():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs)
+    s3.list_objects_v2 = lambda **kw: {"IsTruncated": True, "NextContinuationToken": "same"}
+    with pytest.raises(A.AnchorError, match="repeated"):
+        anchor_for(cid, s3).list_keys("chains/")
+    s3.objects["large"] = b"x" * 1_048_577
+    with pytest.raises(A.AnchorError, match="1 MiB"):
+        anchor_for(cid, s3).get_json("large")
+
+
+def test_reader_deadline_fails_before_any_request():
+    cid, _, _ = build_chain(1)
+    reader = anchor_for(cid, None)
+    reader.deadline = time.monotonic() - 1
+    with pytest.raises(A.AnchorError, match="deadline"):
+        reader.list_keys("chains/")
+
+
+def test_full_walk_pins_head_before_listing_records(monkeypatch):
+    cid, recs, objs = build_chain(2)
+    reader = anchor_for(cid, bucket_for(cid, objs, manifest=make_manifest(cid)))
+    order = []
+    def head():
+        order.append("head")
+        return head_object(recs[-1])
+    def records():
+        order.append("records")
+        return objs
+    monkeypatch.setattr(reader, "newest_head", head)
+    monkeypatch.setattr(reader, "records", records)
+    assert A.verify(reader).ok
+    assert order == ["head", "records"]
 
 
 def test_the_config_refuses_the_delete_capable_r2_names():
