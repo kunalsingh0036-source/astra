@@ -13,6 +13,8 @@ Neither suite caught it because each chose its own examples. The
 examples now live in ONE file that both sides iterate:
 astra-broker/Resources/arg_boundary_cases.json. Its Swift half is
 SharedBoundaryCorpusTests in Tests/AstraCoreTests/PathPolicyTests.swift.
+The cloud repo packages a byte-identical snapshot for standalone CI;
+when the Mac repo is present, divergence fails instead of picking a copy.
 """
 
 import json
@@ -22,13 +24,18 @@ import pytest
 
 from astra.broker import client
 
-CORPUS = (pathlib.Path(__file__).resolve().parents[2].parent
+CORPUS = pathlib.Path(__file__).parent / "fixtures" / "arg_boundary_cases.json"
+MAC_CORPUS = (pathlib.Path(__file__).resolve().parents[2].parent
           / "astra-broker" / "Resources" / "arg_boundary_cases.json")
 
 
 def _cases():
-    if not CORPUS.exists():
-        pytest.skip(f"the Swift repo is not beside this one ({CORPUS})")
+    # The fixture is required in CI; absence must FAIL, not skip the gate.
+    if MAC_CORPUS.exists():
+        assert CORPUS.read_bytes() == MAC_CORPUS.read_bytes(), (
+            "The packaged boundary corpus differs from the Mac source. "
+            "Update both in the same release; do not bypass this check."
+        )
     return json.loads(CORPUS.read_text())["cases"]
 
 
@@ -38,6 +45,19 @@ def test_the_corpus_is_present_and_has_not_shrunk():
     # The case that started it all must never be dropped.
     assert any(c["args"].get("offset") == 0 and c["verdict"] == "accept"
                for c in cases), "offset 0 must stay in the corpus"
+
+
+def test_standalone_checkout_still_runs_the_corpus(monkeypatch, tmp_path):
+    monkeypatch.setitem(globals(), "MAC_CORPUS", tmp_path / "absent-mac-repo.json")
+    assert len(_cases()) > 10
+
+
+def test_a_divergent_mac_snapshot_is_refused(monkeypatch, tmp_path):
+    divergent = tmp_path / "mac-corpus.json"
+    divergent.write_bytes(CORPUS.read_bytes() + b" ")
+    monkeypatch.setitem(globals(), "MAC_CORPUS", divergent)
+    with pytest.raises(AssertionError, match="differs from the Mac source"):
+        _cases()
 
 
 @pytest.mark.parametrize("case", _cases(), ids=lambda c: f"{c['verb']}:{c['why'][:40]}")
