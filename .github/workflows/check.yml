@@ -64,6 +64,9 @@ jobs:
           --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql+asyncpg://astra:astra_dev@localhost:5432/astra
+      # Broker migration/SQL acceptance must RUN in CI, not silently skip.
+      # Its fixture refuses anything except loopback and creates private schemas.
+      ASTRA_TEST_DSN: postgresql+asyncpg://astra:astra_dev@localhost:5432/astra
       ANTHROPIC_API_KEY: dummy-test-key
     steps:
       - uses: actions/checkout@v4

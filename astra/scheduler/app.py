@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -27,6 +28,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from astra.config import settings
+from astra.broker.audit_monitor import run_audit_verify, run_audit_freshness
 from astra.scheduler.jobs import (
     run_morning_briefing,
     run_evening_briefing,
@@ -219,6 +221,19 @@ def _build_scheduler() -> AsyncIOScheduler:
         name="Prove the body still has the capabilities it was granted",
         replace_existing=True,
     )
+
+    # Audit verification is independent of model turns and never executes
+    # the delete probe. Run once after startup so a restart/configuration
+    # repair cannot leave the health endpoint waiting a whole day.
+    for fn, kind, interval, delay in (
+        (run_audit_verify, "verify", IntervalTrigger(hours=24), 30),
+        (run_audit_freshness, "freshness", IntervalTrigger(minutes=10), 60),
+    ):
+        scheduler.add_job(
+            fn, interval, id=f"audit_{kind}", name=f"Independent audit {kind}",
+            replace_existing=True, max_instances=1, coalesce=True,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=delay),
+        )
 
     # Retention sweep — daily 03:30 IST (off-peak). Windows approved
     # 2026-06-11: turn_events 30d, previews per-row TTL (finally

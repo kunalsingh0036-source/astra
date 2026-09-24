@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -26,6 +27,18 @@ from astra.broker import audit_chain as C
 
 SEED = bytes(range(32))
 OTHER_SEED = bytes(range(100, 132))
+ANCHOR_FIXTURE = Path(__file__).parent / "fixtures" / "audit_anchor_vectors.json"
+
+
+def _anchor_vectors():
+    # Standalone CI has no sibling Mac checkout. Ship a required snapshot,
+    # and refuse any divergence whenever both halves are available.
+    if C.ANCHOR_VECTORS_PATH.exists():
+        assert ANCHOR_FIXTURE.read_bytes() == C.ANCHOR_VECTORS_PATH.read_bytes(), (
+            "The packaged anchor vectors differ from the Mac source. "
+            "Update both in the same release; do not bypass this check."
+        )
+    return json.loads(ANCHOR_FIXTURE.read_text())
 
 
 def _key(seed: bytes = SEED) -> Ed25519PrivateKey:
@@ -116,16 +129,17 @@ def verified_manifest(chain_id: str, **kw):
 
 
 def test_this_module_reproduces_the_shared_anchor_vectors():
-    """The one file three implementations are held to.
+    """The one contract three implementations are held to.
 
     astra-broker/Resources/audit_anchor_vectors.json is generated from
     these constructions, asserted against the Swift shipper by
     AuditAnchorVectorTests, and asserted against the verifier here. If
     someone changes a signing construction on either side, two suites
-    go red on the same file rather than the bucket filling with
-    objects nobody can verify.
+    go red on the same vectors rather than the bucket filling with
+    objects nobody can verify. The cloud repo includes a byte-identical
+    snapshot for standalone CI; local runs also enforce exact parity.
     """
-    v = C.load_anchor_vectors()
+    v = _anchor_vectors()
     chain_id = v["chain_id"]
     builders = {
         "record": lambda c: C.record_signing_bytes(c["record_hash"]),
@@ -147,11 +161,23 @@ def test_this_module_reproduces_the_shared_anchor_vectors():
         assert C._verifies(C.public_key(chain_id), case["sig"], msg)
 
 
-def test_the_vector_file_exists_exactly_once():
-    assert C.ANCHOR_VECTORS_PATH.exists(), C.ANCHOR_VECTORS_PATH
-    root = C.ANCHOR_VECTORS_PATH.parents[2]
-    found = list(root.rglob("audit_anchor_vectors.json"))
-    assert len(found) == 1, f"more than one copy of the contract: {found}"
+def test_the_required_anchor_snapshot_covers_every_construction():
+    assert {c["kind"] for c in _anchor_vectors()["cases"]} == {
+        "record", "head", "chain", "skip",
+    }
+
+
+def test_anchor_vectors_work_without_the_mac_checkout(monkeypatch, tmp_path):
+    monkeypatch.setattr(C, "ANCHOR_VECTORS_PATH", tmp_path / "absent-mac.json")
+    test_this_module_reproduces_the_shared_anchor_vectors()
+
+
+def test_anchor_vectors_refuse_a_divergent_mac_snapshot(monkeypatch, tmp_path):
+    divergent = tmp_path / "mac-vectors.json"
+    divergent.write_bytes(ANCHOR_FIXTURE.read_bytes() + b" ")
+    monkeypatch.setattr(C, "ANCHOR_VECTORS_PATH", divergent)
+    with pytest.raises(AssertionError, match="differ from the Mac source"):
+        _anchor_vectors()
 
 
 # ── the four attacks, four distinct reports ──────────────────────────
@@ -586,10 +612,11 @@ def test_freshness_is_age_only_and_never_pages_on_a_closed_lid():
     import calendar
 
     cid, recs, objs = build_chain(2)
+    head_ms = calendar.timegm(time.strptime("2026-09-05T10-15-00Z", "%Y-%m-%dT%H-%M-%SZ")) * 1000
+    recs[-1]["ts_ms"] = head_ms
     s3 = bucket_for(cid, objs, manifest=make_manifest(cid),
                     heads={"2026-09-05T10-15-00Z": head_object(recs[-1])})
     a = anchor_for(cid, s3)
-    head_ms = calendar.timegm(time.strptime("2026-09-05T10-15-00Z", "%Y-%m-%dT%H-%M-%SZ")) * 1000
     assert A.freshness(a, now_ms=head_ms + 5 * 60_000).ok
     stale = A.freshness(a, now_ms=head_ms + 26 * 3_600_000)
     assert not stale.ok and stale.verdict == "stale"
@@ -598,6 +625,56 @@ def test_freshness_is_age_only_and_never_pages_on_a_closed_lid():
     # that stopped shipping days ago.
     ahead = A.freshness(a, now_ms=head_ms - 5 * 3_600_000)
     assert not ahead.ok and ahead.verdict == "head_in_future"
+
+
+def test_freshness_cannot_be_renewed_by_renaming_an_old_signed_head():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs, manifest=make_manifest(cid),
+                    heads={"2026-09-24T10-00-00Z": head_object(recs[-1])})
+    result = A.freshness(anchor_for(cid, s3))
+    assert not result.ok and result.verdict == "head_stamp_mismatch"
+
+
+def test_freshness_requires_the_pinned_signature():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs, heads={"2026-09-24T10-00-00Z": head_object(recs[-1], OTHER_SEED)})
+    result = A.freshness(anchor_for(cid, s3))
+    assert not result.ok and result.verdict == "head_sig_invalid"
+
+
+def test_reader_refuses_repeated_pagination_token_and_oversized_objects():
+    cid, recs, objs = build_chain(2)
+    s3 = bucket_for(cid, objs)
+    s3.list_objects_v2 = lambda **kw: {"IsTruncated": True, "NextContinuationToken": "same"}
+    with pytest.raises(A.AnchorError, match="repeated"):
+        anchor_for(cid, s3).list_keys("chains/")
+    s3.objects["large"] = b"x" * 1_048_577
+    with pytest.raises(A.AnchorError, match="1 MiB"):
+        anchor_for(cid, s3).get_json("large")
+
+
+def test_reader_deadline_fails_before_any_request():
+    cid, _, _ = build_chain(1)
+    reader = anchor_for(cid, None)
+    reader.deadline = time.monotonic() - 1
+    with pytest.raises(A.AnchorError, match="deadline"):
+        reader.list_keys("chains/")
+
+
+def test_full_walk_pins_head_before_listing_records(monkeypatch):
+    cid, recs, objs = build_chain(2)
+    reader = anchor_for(cid, bucket_for(cid, objs, manifest=make_manifest(cid)))
+    order = []
+    def head():
+        order.append("head")
+        return head_object(recs[-1])
+    def records():
+        order.append("records")
+        return objs
+    monkeypatch.setattr(reader, "newest_head", head)
+    monkeypatch.setattr(reader, "records", records)
+    assert A.verify(reader).ok
+    assert order == ["head", "records"]
 
 
 def test_the_config_refuses_the_delete_capable_r2_names():

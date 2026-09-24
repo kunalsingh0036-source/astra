@@ -119,8 +119,14 @@ class TestAutonomyE2E:
         assert get_permission(mgr.mode, "Read") == PermissionDecision.ALLOW
         assert get_permission(mgr.mode, "Bash") == PermissionDecision.ASK
 
-        # Time-based switch to full_auto
-        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=0)
+        # An unbounded elevation must be rejected without changing the mode.
+        with pytest.raises(ValueError, match="requires duration_minutes or task_id"):
+            mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=0)
+        assert mgr.mode == AutonomyMode.SEMI_AUTO
+
+        # Time-based switch to full_auto, followed by expiry.
+        mgr.set_mode(AutonomyMode.FULL_AUTO, duration_minutes=1)
+        assert mgr.mode == AutonomyMode.FULL_AUTO
         mgr._revert_at = time.time() - 1  # Force expiry
         assert mgr.mode == AutonomyMode.SEMI_AUTO  # Reverted
 
@@ -174,7 +180,7 @@ class TestFleetE2E:
     The research_intel tests that used to live here imported a module
     deleted in the Phase-6 SDK removal (5f2d256) and failed every run
     for 5+ weeks — masked by check.yml's pytest soft-fail. Replaced
-    with locks on the behavior that actually exists: the 7 external
+    with locks on the behavior that actually exists: the 6 external
     A2A agents registering into the fleet registry, which is what the
     stream-service startup hook (re-wired 2026-06-11 after its call
     site was lost in the same SDK removal) depends on.
@@ -188,7 +194,8 @@ class TestFleetE2E:
         from astra.agents.registry import agent_registry
 
         n = register_all_external_agents()
-        assert n == len(EXTERNAL_AGENTS) == 7
+        # The obsolete LinkedIn service was removed in 6fe5466.
+        assert n == len(EXTERNAL_AGENTS) == 6
 
         registered = {a["name"] for a in agent_registry.list_all()}
         for card in EXTERNAL_AGENTS:

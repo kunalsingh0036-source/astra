@@ -124,6 +124,24 @@ async def health_db():
         )
 
 
+@app.get("/health/audit")
+async def health_audit():
+    """Data-free monitor endpoint, never an on-demand R2 walk.
+
+    503: a failure, missing configuration/table/check, or stopped checker.
+    200/deferred: signed head stale while the paired Mac is offline; no
+    wake/sleep alarm. Release acceptance MUST require status == 'ok',
+    not just HTTP 200. This is not an authorization or a tamper-proof
+    attestation: the cloud owns the operational checkpoint database.
+    """
+    from astra.broker.audit_monitor import health as audit_health
+    from fastapi.responses import JSONResponse
+
+    result = await audit_health()
+    return JSONResponse(status_code=200 if result["status"] in ("ok", "deferred") else 503,
+                        content=result, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/health/deep")
 async def health_deep() -> dict[str, object]:
     """Deep system health for the stream service. Probed by

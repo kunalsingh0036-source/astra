@@ -1,0 +1,405 @@
+{
+  "_comment": [
+    "THE SHARED BOUNDARY CORPUS. Verb arguments are validated twice on",
+    "purpose: cloud-side in astra/broker/client.py (readable refusals,",
+    "nothing filed) and Mac-side in Canonicalizer.swift (the gate that",
+    "actually decides). Both were written from one spec, both were",
+    "tested, and they disagreed about the value 0 for months: Swift read",
+    "JSON 0 as a boolean (NSNumber bridges to Bool) and refused it, so",
+    "the first page of every paged fs.read failed and WhatsApp export",
+    "ingestion read zero bytes. Neither suite noticed, because each",
+    "chose its own examples.",
+    "",
+    "So the examples live HERE, once, and both suites iterate this file:",
+    "  Swift  Tests/AstraCoreTests/PathPolicyTests.swift (SharedBoundaryCorpusTests)",
+    "  Python astra/tests/test_broker/test_arg_boundary_corpus.py",
+    "Adding a case is a deliberate act that both sides must satisfy.",
+    "'verdict' is what BOTH validators must do. 'why' is for the human.",
+    "",
+    "Non-ASCII values are written as \\uXXXX escapes on purpose: this file's whole job is to make a boundary value readable, and 'caf\\u00e9' versus 'cafe\\u0301' are indistinguishable as raw bytes in a diff."
+  ],
+  "cases": [
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": 0
+      },
+      "verdict": "accept",
+      "why": "zero is a non-negative integer; it is the FIRST page of every paged read"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "limit": 1
+      },
+      "verdict": "accept",
+      "why": "one is an integer, not JSON true"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": 1
+      },
+      "verdict": "accept",
+      "why": "the other value NSNumber-to-Bool bridging swallows"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": 262144
+      },
+      "verdict": "accept",
+      "why": "the default page size: the second page's offset"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "limit": 655360
+      },
+      "verdict": "accept",
+      "why": "the executor's read ceiling, exactly"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": -1
+      },
+      "verdict": "refuse",
+      "why": "negative offsets have no meaning and must not wrap"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": 1.5
+      },
+      "verdict": "refuse",
+      "why": "one JSON number has several exact values, so it cannot be canonically signed"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": true
+      },
+      "verdict": "refuse",
+      "why": "a real boolean is not an integer, and must not be read as 1"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "offset": "3"
+      },
+      "verdict": "refuse",
+      "why": "a numeric string is not an integer; no coercion anywhere in this path"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/f",
+        "approved": true
+      },
+      "verdict": "refuse",
+      "why": "a forbidden key name; the model cannot grant itself anything by argument"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "relative.md"
+      },
+      "verdict": "refuse",
+      "why": "paths are absolute; a relative path resolves against an unknown cwd"
+    },
+    {
+      "verb": "fs.read",
+      "args": {
+        "path": "/private/tmp/.env"
+      },
+      "verdict": "refuse",
+      "why": "secret-bearing names are outside every verb's reach, on both lanes"
+    },
+    {
+      "verb": "fs.read",
+      "args": {},
+      "verdict": "refuse",
+      "why": "path is required"
+    },
+    {
+      "verb": "fs.glob",
+      "args": {
+        "pattern": "/private/tmp/*.md"
+      },
+      "verdict": "accept",
+      "why": "the ordinary case, so an over-strict rule fails here too"
+    },
+    {
+      "verb": "body.probe",
+      "args": {
+        "target": "messages"
+      },
+      "verdict": "accept",
+      "why": "a bare capability name is the only shape an enum argument may take"
+    },
+    {
+      "verb": "body.probe",
+      "args": {
+        "target": "/Users/kunalsingh/.ssh/id_ed25519"
+      },
+      "verdict": "refuse",
+      "why": "an enum argument must never carry a path, or the probe becomes an oracle for walking the filesystem"
+    },
+    {
+      "verb": "body.probe",
+      "args": {
+        "target": "../../etc/passwd"
+      },
+      "verdict": "refuse",
+      "why": "traversal in an enum argument"
+    },
+    {
+      "verb": "body.probe",
+      "args": {
+        "target": ""
+      },
+      "verdict": "refuse",
+      "why": "the empty name is not a member of the closed set"
+    },
+    {
+      "verb": "body.probe",
+      "args": {
+        "target": "messages",
+        "path": "/private/tmp/f"
+      },
+      "verdict": "refuse",
+      "why": "body.probe has no path argument at all; adding one must be refused, not ignored"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": "hello"
+      },
+      "verdict": "accept",
+      "why": "the ordinary write: a payload is a string and this one is already NFC"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": ""
+      },
+      "verdict": "accept",
+      "why": "an empty payload truncates a file; it is a legitimate write, not a missing argument"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": "caf\u00e9"
+      },
+      "verdict": "accept",
+      "why": "a composed payload passes: NFC is what ACE hashes and what lands on disk"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": "cafe\u0301"
+      },
+      "verdict": "refuse",
+      "why": "a DECOMPOSED payload: ACE would sign its composed form, so the bytes written would not be the bytes sent. Refused, never normalised for the caller"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": 5
+      },
+      "verdict": "refuse",
+      "why": "a number is not a payload; what bytes reach the disk must not be a coercion decision"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/f",
+        "content": true
+      },
+      "verdict": "refuse",
+      "why": "nor is a boolean, and JSON true must not become the four bytes 'true'"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "path": "/private/tmp/.env.local",
+        "content": "x"
+      },
+      "verdict": "refuse",
+      "why": "the secret-name gate governs writes exactly as it governs reads: policy, not a permission"
+    },
+    {
+      "verb": "fs.write",
+      "args": {
+        "content": "x"
+      },
+      "verdict": "refuse",
+      "why": "path is required; a write with no target is not a smaller write"
+    },
+    {
+      "verb": "fs.edit",
+      "args": {
+        "path": "/private/tmp/f",
+        "old": "cafe\u0301",
+        "new": "x"
+      },
+      "verdict": "refuse",
+      "why": "a decomposed `old` would be signed composed and then match nothing on disk: the silent-zero-occurrences bug, refused at the gate instead"
+    },
+    {
+      "verb": "fs.edit",
+      "args": {
+        "path": "/private/tmp/f",
+        "old": "a"
+      },
+      "verdict": "refuse",
+      "why": "fs.edit requires all three: an edit with no replacement is a deletion nobody approved"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp"
+      },
+      "verdict": "accept",
+      "why": "the minimum: command and cwd, no timeout_ms (the executor's own ceiling applies)"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status"
+      },
+      "verdict": "refuse",
+      "why": "cwd is REQUIRED: it is the jail's one writable subtree, so it is a security-relevant display line and there is no honest default (the executor's home is /var/empty)"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "timeout_ms": 5000
+      },
+      "verdict": "accept",
+      "why": "timeout_ms is an integer; the executor clamps it to its own ceiling and says so in the result"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "timeout_ms": 0
+      },
+      "verdict": "accept",
+      "why": "zero on an intKey OTHER than fs.read's offset: the NSNumber-bridges-to-Bool trap is per-value, not per-verb"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "timeout_ms": "5000"
+      },
+      "verdict": "refuse",
+      "why": "a decimal STRING is not an integer; untyped it would canonicalise, be signed, and then be ignored by whatever reads it"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "timeout_ms": -1
+      },
+      "verdict": "refuse",
+      "why": "negative is not a duration"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "timeout_ms": true
+      },
+      "verdict": "refuse",
+      "why": "a JSON boolean must never be read as 1: true and 1 are the same NSNumber shape and only the ObjC type encoding tells them apart"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": 5,
+        "cwd": "/private/tmp"
+      },
+      "verdict": "refuse",
+      "why": "an unclassified argument is a STRING. A number renders as 'command: 5' on the sheet, takes TWO fingerprints, then fails at dispatch as 'missing command'"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": true,
+        "cwd": "/private/tmp"
+      },
+      "verdict": "refuse",
+      "why": "same rule for a boolean: the command is executed byte for byte, so its type is the thing being approved"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "tmp"
+      },
+      "verdict": "refuse",
+      "why": "cwd is a path and must be absolute"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/etc"
+      },
+      "verdict": "refuse",
+      "why": "cwd is root-checked like every other path: outside every compiled root, and widening a root is a code change and a re-sign"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp/../etc"
+      },
+      "verdict": "refuse",
+      "why": "a lexical climb out of the roots resolves to /etc; the cwd is the jail's writable subtree, so this is the sharpest path in the catalogue"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "cat .env",
+        "cwd": "/private/tmp/.ssh"
+      },
+      "verdict": "refuse",
+      "why": "deny-by-name applies to cwd too: the jail also denies ~/.ssh, but the gate must refuse before the jail is ever asked"
+    },
+    {
+      "verb": "exec.shell",
+      "args": {
+        "command": "git status",
+        "cwd": "/private/tmp",
+        "shell": "zsh"
+      },
+      "verdict": "refuse",
+      "why": "the schema is closed: an unknown key is refused, never ignored"
+    }
+  ]
+}

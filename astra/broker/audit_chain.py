@@ -767,9 +767,11 @@ def verify_head(
         sig = str(obj["sig"])
     except (KeyError, TypeError, ValueError):
         return Verdict("head_malformed", "the newest heads/ object is missing a field")
-    if not _verifies(
-        public_key(chain_id), sig, head_signing_bytes(seq, rec_hash, ts_ms)
-    ):
+    try:
+        msg = head_signing_bytes(seq, rec_hash, ts_ms)
+    except (BadObject, ValueError, OverflowError):
+        return Verdict("head_malformed", "the newest head has invalid field bounds")
+    if not _verifies(public_key(chain_id), sig, msg):
         return Verdict(
             "head_sig_invalid",
             f"the newest heads/ object (seq {seq}) is not signed by chain "
