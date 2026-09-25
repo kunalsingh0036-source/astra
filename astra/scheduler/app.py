@@ -26,6 +26,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy.engine import URL, make_url
 
 from astra.config import settings
 from astra.broker.audit_monitor import run_audit_verify, run_audit_freshness
@@ -91,6 +92,19 @@ def _ist_cron(**kwargs) -> CronTrigger:
 _scheduler: Optional[AsyncIOScheduler] = None
 
 
+def _sync_jobstore_url(database_url: str) -> URL:
+    """Use our declared synchronous driver, without rewriting credentials.
+
+    SQLAlchemy 2.1 changed bare postgresql:// to default to psycopg 3.
+    Astra ships psycopg2-binary; both bare and asyncpg URLs must select it
+    explicitly. Preserve other explicitly configured drivers/backends.
+    """
+    url = make_url(database_url)
+    if url.drivername in {"postgresql", "postgresql+asyncpg"}:
+        return url.set(drivername="postgresql+psycopg2")
+    return url
+
+
 def _build_scheduler() -> AsyncIOScheduler:
     """Construct the scheduler and register all jobs.
 
@@ -103,8 +117,8 @@ def _build_scheduler() -> AsyncIOScheduler:
     # restarts without losing the next-fire times.
     #
     # Important: APScheduler's SQLAlchemy jobstore needs a SYNC URL,
-    # not asyncpg. Convert "postgresql+asyncpg://" → "postgresql://".
-    sync_db_url = settings.database_url.replace("+asyncpg", "")
+    # not asyncpg. Name the declared sync driver; never rely on a default.
+    sync_db_url = _sync_jobstore_url(settings.database_url)
     jobstore = SQLAlchemyJobStore(url=sync_db_url, tablename="astra_scheduler_jobs")
 
     scheduler = AsyncIOScheduler(
