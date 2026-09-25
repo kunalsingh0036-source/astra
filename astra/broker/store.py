@@ -464,6 +464,10 @@ async def claim_next_intent(body_id: int) -> Intent | None:
 
 
 _TERMINAL = {"succeeded", "failed", "denied", "expired"}
+_EXPIRY_UNCERTAIN_REASON = (
+    "expired: completion was not confirmed before the deadline; "
+    "the action may have executed. Do not retry automatically."
+)
 
 
 async def record_status(
@@ -751,19 +755,24 @@ async def expire_stale_intents() -> int:
     and an intent sits forever. CHARTER §8 says nothing may silently
     no-op — and the component that would notice is, in this failure,
     the absent one. So the CLOUD reaps, because the cloud is always up.
+
+    Expiry is a delivery/observation deadline, not proof of non-execution.
+    The broker can die after a human-approved action starts but before its
+    receipt reaches the cloud (live synthetic test #183). Preserve the
+    uncertainty explicitly so neither a human nor an agent retries a
+    possibly completed irreversible action on the strength of this state.
     """
     async with _engine.async_session() as s:
         r = await s.execute(
             text("""
                 UPDATE intents
                 SET status = 'expired', resolved_at = now(),
-                    deny_reason = COALESCE(deny_reason,
-                        'expired: the body did not complete this intent '
-                        'before its deadline')
+                    deny_reason = COALESCE(deny_reason, :uncertain_reason)
                 WHERE expires_at <= now()
                   AND status IN ('pending', 'claimed', 'awaiting_human',
                                  'running')
             """),
+            {"uncertain_reason": _EXPIRY_UNCERTAIN_REASON},
         )
         n = r.rowcount or 0
         await s.commit()
